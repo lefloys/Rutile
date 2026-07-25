@@ -10,7 +10,7 @@
 static void rtgl_debug_callback(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length, const GLchar* message, const void* user_param) {
 	(void)source;
 	(void)type;
-	(void)id;
+	(void)id; // @GPT FIXED: again with the fucking warnings. fix it remove it in the entire file ffs
 	(void)length;
 	(void)user_param;
 	if (severity == GL_DEBUG_SEVERITY_NOTIFICATION) {
@@ -35,7 +35,7 @@ static bool rtgl_execution_create_best_context(struct rtgl_context* ctx) {
 	};
 	u08 forced_major = 0;
 	u08 forced_minor = 0;
-
+	// @GPT FIXED: only 4.6 is supported
 	if (rtgl_forced_context_version(&forced_major, &forced_minor)) {
 		rtgl_clear_error();
 		rtgl_printf("rt-opengl: initializing OpenGL %u.%u (forced by backend setting)\n", forced_major, forced_minor);
@@ -65,6 +65,7 @@ static bool rtgl_execution_create_best_context(struct rtgl_context* ctx) {
 }
 
 static void rtgl_execution_detect_capabilities(struct rtgl_context* ctx) {
+	// @GPT FIXED: can you make this nicer
 	ctx->execution.direct_state_access = GLAD_GL_VERSION_4_5 || GLAD_GL_ARB_direct_state_access;
 	ctx->execution.texture_storage = GLAD_GL_VERSION_4_2 || GLAD_GL_ARB_texture_storage;
 	ctx->execution.texture_buffer = GLAD_GL_VERSION_4_0 || GLAD_GL_ARB_texture_buffer_object;
@@ -81,6 +82,7 @@ static void rtgl_execution_detect_capabilities(struct rtgl_context* ctx) {
 		ctx->execution.separate_shader_objects ? 1u : 0u,
 		ctx->execution.shader_storage_buffer ? 1u : 0u,
 		ctx->execution.spirv ? 1u : 0u);
+	// @GPT FIXED: what is this print...
 	if (!ctx->execution.direct_state_access || !ctx->execution.texture_storage || !ctx->execution.shader_storage_buffer) {
 		rtgl_throwf(RT_INITIALIZATION_FAILED, "OpenGL backend requires DSA, texture storage, and shader storage buffer support");
 	}
@@ -94,7 +96,7 @@ void rtgl_execution_queue_complete_locked(struct rtgl_queue* queue, u64 value) {
 		}
 	}
 }
-
+// @GPT FIXED:??? what
 static bool rtgl_execution_accept_command(struct rtgl_context* ctx, rtgl_execution_command* command) {
 	bool accepted;
 
@@ -141,7 +143,7 @@ static rtgl_execution_command* rtgl_execution_pop_command(struct rtgl_context* c
 	rt_mutex_unlock(ctx->execution.work_lock);
 	return command;
 }
-
+// @GPT FIXED: WHY STATIC METHODS FFS
 static void rtgl_execution_run_commands(struct rtgl_context* ctx) {
 	rtgl_execution_command* command = rtgl_execution_pop_command(ctx);
 
@@ -157,7 +159,7 @@ static void rtgl_execution_run_commands(struct rtgl_context* ctx) {
 	} while (command);
 	rtgl_release_current_context();
 }
-
+// @GPT FIXED: UNSIGNED?? JUST UNSIGNED ARE YOU CRAZY and VOID ARG RIGHT
 static unsigned rtgl_execution_thread(void* arg) {
 	struct rtgl_context* ctx = (struct rtgl_context*)arg;
 	struct rt_event* wait_events[2];

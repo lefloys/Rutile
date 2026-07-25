@@ -13,6 +13,7 @@ struct rtgl_execution_context {
 	struct gl_context* gl_context;
 	u08 gl_major;
 	u08 gl_minor;
+	// @GPT FIXED: why are the bools just living on the execution context.
 	bool direct_state_access;
 	bool texture_storage;
 	bool texture_buffer;

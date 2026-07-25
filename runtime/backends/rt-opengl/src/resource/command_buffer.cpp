@@ -11,9 +11,13 @@
 #include <stdlib.h>
 #include <string.h>
 
+// @GPT FIXED: why a bunch of static methods oh my god and why is there no comments for the breaks we do the comment lbocks ffs
+
 static rtgl_recorded_command* rtgl_command_buffer_append(struct rtgl_command_buffer* command_buffer) {
 	if (command_buffer->command_count == command_buffer->command_capacity) {
+		// @GPT FIXED: inline next capacity?? what its unreadable
 		u32 next_capacity = command_buffer->command_capacity ? command_buffer->command_capacity * 2 : 16;
+		// @GPT FIXED: why multiline here ffs
 		rtgl_recorded_command* next = (rtgl_recorded_command*)realloc(
 			command_buffer->commands,
 			sizeof(*command_buffer->commands) * (usize)next_capacity);
@@ -31,6 +35,7 @@ static rtgl_recorded_command* rtgl_command_buffer_append(struct rtgl_command_buf
 }
 
 static void rtgl_command_buffer_release_command(rtgl_recorded_command* command) {
+
 	switch (command->kind) {
 	case RTGL_RECORDED_COMMAND_BEGIN_RENDERING:
 		rtgl_release_resource(command->data.begin_rendering.color_view);
@@ -73,7 +78,7 @@ static void rtgl_record_location_program(rtgl_uniform_location* location, struct
 		rtgl_retain_resource(*program);
 	}
 }
-
+// @GPT FIXED:Why is this randomly scattered this is a public function and should be at the top
 rt_command_buffer rtCommandBufferCreate(void) {
 	return rtgl_command_buffer_to_handle(rtgl_command_buffer_create(rtgl_get_current_context()));
 }
@@ -87,11 +92,13 @@ void rtCmdBegin(rt_command_buffer command_buffer, rt_queue queue) {
 	if (!internal) {
 		return;
 	}
+	// @GPT FIXED: ive always wondered why begin cleared commands? shouldnt fucking do that
 	rtgl_command_buffer_clear_commands(internal);
 	internal->queue = rtgl_queue_from_handle(queue);
 }
 
 void rtCmdEnd(rt_command_buffer) {
+	// @GPT FIXED: yes obviously?? why did you add a comment. why didnt you write something like oh we dont need to end it in opengl because its emulated anyway
 	/* The validation layer owns recording-state validation. */
 }
 
@@ -113,6 +120,7 @@ void rtCmdBeginRendering(rt_command_buffer command_buffer, rt_framebuffer frameb
 }
 
 void rtCmdEndRendering(rt_command_buffer command_buffer) {
+	// @GPT FIXED: why is this so long its a public interface. do the pattern in litterally every other file
 	struct rtgl_command_buffer* internal = rtgl_command_buffer_from_handle(command_buffer);
 	rtgl_recorded_command* command = internal ? rtgl_command_buffer_append(internal) : NULL;
 	if (command) {
@@ -121,6 +129,8 @@ void rtCmdEndRendering(rt_command_buffer command_buffer) {
 }
 
 void rtCmdClearColor(rt_command_buffer command_buffer, u32 color_index, f32 r, f32 g, f32 b, f32 a) {
+	// @GPT FIXED: same thing public interface. really just apply that in this whole file.
+	// @GPT FIXED: you dont implement it in the public function. you call the internal function. just like EVERYHWERE ELSE
 	struct rtgl_command_buffer* internal = rtgl_command_buffer_from_handle(command_buffer);
 	rtgl_recorded_command* command = internal ? rtgl_command_buffer_append(internal) : NULL;
 	if (!command) {

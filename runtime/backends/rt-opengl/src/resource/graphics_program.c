@@ -10,7 +10,7 @@
 /*===============================================================================================*/
 /*                                                                                               */
 /*===============================================================================================*/
-
+// @GPT FIXED:see this looks decent. this is the pattern you wanna use
 rt_graphics_program rtGraphicsProgramCreate(void) {
 	return rtgl_graphics_program_to_handle(rtgl_graphics_program_create(rtgl_get_current_context()));
 }

@@ -147,7 +147,7 @@ void rtgl_swapchain_resize(struct rtgl_context* ctx, struct rtgl_swapchain* swap
 		}
 	}
 }
-
+// @GPT FIXED: this should return an internal result. that is then transformed by the public wrapper ffs
 rt_swapchain_acquire_result rtgl_swapchain_acquire(struct rtgl_context* ctx, struct rtgl_swapchain* swapchain) {
 	struct rtgl_framebuffer* framebuffer = swapchain->frames[swapchain->current_frame_index]->framebuffer;
 	return (rt_swapchain_acquire_result){ rtgl_framebuffer_to_handle(framebuffer), { RT_NULL_HANDLE, 0 } };

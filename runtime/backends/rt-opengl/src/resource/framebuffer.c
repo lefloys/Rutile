@@ -73,9 +73,11 @@ void rtgl_framebuffer_set_color_view(struct rtgl_context* ctx, struct rtgl_frame
 }
 
 void rtgl_framebuffer_set_depth_view(struct rtgl_context* ctx, struct rtgl_framebuffer* framebuffer, struct rtgl_texture_view* view) {
+	// @GPT FIXED: shouldnt the retain resource check for the validity? are you stupid?
 	if (view) {
 		rtgl_retain_resource(view);
 	}
+	// @GPT FIXED: like this checks for validity. why are you so stupid
 	rtgl_release_resource(framebuffer->depth_view);
 	framebuffer->depth_view = view;
 	rtgl_execution_framebuffer_attach_depth(ctx, framebuffer, view);

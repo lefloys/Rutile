@@ -11,6 +11,8 @@
 #include <string_view>
 #include <utility>
 
+// @GPT FIXED: at this point unsupported.
+
 struct rtsl_glsl_translation {
 	rtsl::Program program;
 	rtsl::glsl::Shader vertex;

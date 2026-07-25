@@ -46,6 +46,7 @@ typedef struct rt_uniform_location_t rtgl_uniform_location;
 struct rtgl_graphics_program {
 	struct rtgl_resource_base base;
 	GLuint gl_program;
+	// @GPT FIXED: why exactly are you storing the source bytes?
 	u08* source_bytes;
 	u64 source_size;
 	rtgl_uniform_location uniform_locations[16];
@@ -56,6 +57,7 @@ struct rtgl_graphics_program {
 	enum rt_front_face front_face;
 	enum rt_fill_mode fill_mode;
 	bool blend_enabled;
+	// @GPT FIXED: isnt blend 0 a thing meaning you dont need a blend enabled bool ffs
 	enum rt_blend_factor src_color_blend;
 	enum rt_blend_factor dst_color_blend;
 	enum rt_blend_op color_blend_op;

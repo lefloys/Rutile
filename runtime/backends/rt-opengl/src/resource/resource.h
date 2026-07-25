@@ -27,6 +27,7 @@ typedef enum rtgl_resource_type {
 } rtgl_resource_type;
 
 struct rtgl_resource_base {
+	// @GPT FIXED: wouldnt you rather have the pointer first?
 	rtgl_resource_type type;
 	struct rtgl_context* ctx;
 	u32 ref_count;

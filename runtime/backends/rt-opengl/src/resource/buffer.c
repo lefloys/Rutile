@@ -7,7 +7,7 @@
 /*===============================================================================================*/
 /*                                                                                               */
 /*===============================================================================================*/
-
+// @GPT FIXED: Here you ARE supposed to use multiline for these. just like in vulkan ffs
 rt_buffer rtBufferCreate(void) {
 	return rtgl_buffer_to_handle(rtgl_buffer_create(rtgl_get_current_context()));
 }
