@@ -1,4 +1,5 @@
 add_library(rutile INTERFACE)
+add_library(Rutile::rutile ALIAS rutile)
 
 target_include_directories(rutile
     INTERFACE
