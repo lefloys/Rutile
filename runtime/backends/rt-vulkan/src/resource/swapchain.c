@@ -180,7 +180,20 @@ static void rtvk_swapchain_destroy_frames(struct rtvk_context* ctx, struct rtvk_
 	}
 	for (u32 i = 0; i < swapchain->image_count; i++) {
 		if (swapchain->frames[i]) {
-			rtvk_resource_retire(RTVK_RESOURCE_BASE(swapchain->frames[i]));
+			struct rtvk_swapchain_frame* frame = swapchain->frames[i];
+			/* Tear down the frame's owned view graph before retiring the frame.
+			 * The view references the frame image, so retiring the frame first
+			 * leaves a reference cycle and keeps its Vulkan handles alive until
+			 * after VkDevice destruction. */
+			if (frame->framebuffer) {
+				rtvk_framebuffer_destroy(ctx, frame->framebuffer);
+				frame->framebuffer = NULL;
+			}
+			if (frame->color_view) {
+				rtvk_texture_view_destroy(ctx, frame->color_view);
+				frame->color_view = NULL;
+			}
+			rtvk_resource_retire(RTVK_RESOURCE_BASE(frame));
 			swapchain->frames[i] = NULL;
 		}
 	}

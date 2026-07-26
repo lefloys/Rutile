@@ -1,7 +1,7 @@
 #include "rtsl_glsl.h"
 
 #include <rtsl/glsl.hpp>
-#include <rtsl/sdk.hpp>
+#include <rtsl/program.hpp>
 
 #include <cstddef>
 #include <cstdio>

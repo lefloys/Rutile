@@ -107,6 +107,10 @@ void rtdx_queue_finish(struct rtdx_context* ctx, struct rtdx_queue* queue) {
 	if (!queue) {
 		return;
 	}
+	/* Drain the queue once before releasing the fence and command queue. A
+	 * non-blocking collect is not sufficient during device teardown: submitted
+	 * command buffers can still retain D3D12 resources. */
+	rtdx_queue_wait_idle(ctx, queue);
 	rtdx_queue_collect(ctx, queue);
 	rtdx_release(&queue->upload_command_list);
 	rtdx_release(&queue->upload_allocator);

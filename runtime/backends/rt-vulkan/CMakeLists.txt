@@ -2,9 +2,12 @@ cmake_minimum_required(VERSION 3.28.0)
 
 project(rt-vulkan C CXX)
 
-include(RutileDependencies)
-include(RutileTarget)
-rutile_find_vulkan_backend_dependencies()
+include("${RUTILE_SOURCE_DIR}/cmake/RutileTarget.cmake")
+find_package(Vulkan REQUIRED)
+find_package(VulkanMemoryAllocator CONFIG REQUIRED)
+find_package(Threads REQUIRED)
+find_package(SPIRV-Headers CONFIG REQUIRED)
+find_package(volk CONFIG REQUIRED)
 
 add_library(${PROJECT_NAME} SHARED)
 target_compile_definitions(${PROJECT_NAME} PRIVATE
@@ -38,6 +41,7 @@ target_sources(${PROJECT_NAME} PRIVATE
     "src/resource/graphics_program.h"
     "src/rtsl_spirv.cpp"
     "src/rtsl_spirv.h"
+    "${RUTILE_SOURCE_DIR}/RTSL/transpilers/spirv/src/spirv.cpp"
     "src/resource/queue.c"
     "src/resource/queue.h"
     "src/resource/resource.c"
@@ -59,6 +63,8 @@ target_sources(${PROJECT_NAME} PRIVATE
 target_include_directories(${PROJECT_NAME} PRIVATE
     "src"
     "../../common"
+    "../../bindings/c/include"
+    "${RUTILE_SOURCE_DIR}/RTSL/transpilers/spirv/include"
 )
 
 rutile_configure_shared_library(${PROJECT_NAME})
@@ -67,10 +73,12 @@ target_link_libraries(${PROJECT_NAME}
     PRIVATE
         volk::volk
         GPUOpen::VulkanMemoryAllocator
+        rt-backend-common
+        rutile
+        rtsl-sdk
         $<$<TARGET_EXISTS:Vulkan::Headers>:Vulkan::Headers>
         ${CMAKE_DL_LIBS}
         Threads::Threads
-        RTSL::spirv
 )
 if(WIN32)
     target_link_libraries(${PROJECT_NAME} PRIVATE psapi)

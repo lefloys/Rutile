@@ -1,324 +1,54 @@
 {
   "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 28, "patch": 0 },
   "configurePresets": [
     {
-      "name": "windows-base",
-      "hidden": true,
+      "name": "release",
+      "displayName": "Release",
       "generator": "Ninja",
-      "binaryDir": "${sourceDir}/out/build/${presetName}",
+      "binaryDir": "${sourceDir}/build/Release",
       "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
         "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
         "VCPKG_TARGET_TRIPLET": "x64-windows-static"
-      },
-      "condition": {
-        "type": "equals",
-        "lhs": "${hostSystemName}",
-        "rhs": "Windows"
       }
     },
     {
-      "name": "windows-debug",
-      "displayName": "Windows Debug",
-      "inherits": "windows-base",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug",
-        "VCPKG_MANIFEST_FEATURES": "examples;opengl;tests;vulkan"
-      }
-    },
-    {
-      "name": "windows-release",
-      "displayName": "Windows RelWithDebInfo",
-      "inherits": "windows-base",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
-        "VCPKG_MANIFEST_FEATURES": "examples;opengl;tests;vulkan"
-      }
-    },
-    {
-      "name": "windows-vulkan-examples",
-      "displayName": "Windows Vulkan Examples",
-      "inherits": "windows-base",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug",
-        "VCPKG_MANIFEST_FEATURES": "examples;vulkan",
-        "RUTILE_BUILD_DIRECTX12": "OFF",
-        "RUTILE_BUILD_OPENGL": "OFF",
-        "RUTILE_BUILD_VULKAN": "ON",
-        "RUTILE_BUILD_EXAMPLES": "ON"
-      }
-    },
-    {
-      "name": "windows-core",
-      "displayName": "Windows Core Runtime Headers and Layers",
-      "inherits": "windows-base",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug",
-        "VCPKG_MANIFEST_FEATURES": "",
-        "BUILD_TESTING": "OFF",
-        "RUTILE_BUILD_EXAMPLES": "OFF",
-        "RUTILE_BUILD_OPENGL": "OFF",
-        "RUTILE_BUILD_VULKAN": "OFF",
-        "RUTILE_BUILD_DIRECTX12": "OFF"
-      }
-    },
-    {
-      "name": "windows-ci",
-      "displayName": "Windows CI",
-      "inherits": "windows-base",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug",
-        "VCPKG_MANIFEST_FEATURES": "directx12;tests;vulkan",
-        "BUILD_TESTING": "ON",
-        "RUTILE_BUILD_EXAMPLES": "OFF",
-        "RUTILE_BUILD_OPENGL": "OFF",
-        "RUTILE_BUILD_VULKAN": "ON",
-        "RUTILE_BUILD_DIRECTX12": "ON",
-        "RUTILE_BUILD_VALIDATION_LAYER": "ON",
-        "RUTILE_BUILD_LOGGING_LAYER": "ON",
-        "RUTILE_INSTALL": "OFF"
-      }
-    },
-    {
-      "name": "windows-compiler-ci",
-      "displayName": "Windows Compiler CI",
-      "inherits": "windows-base",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug",
-        "VCPKG_MANIFEST_FEATURES": "tests",
-        "BUILD_TESTING": "ON",
-        "RUTILE_BUILD_EXAMPLES": "OFF",
-        "RUTILE_BUILD_OPENGL": "OFF",
-        "RUTILE_BUILD_VULKAN": "OFF",
-        "RUTILE_BUILD_DIRECTX12": "OFF",
-        "RUTILE_BUILD_VALIDATION_LAYER": "ON",
-        "RUTILE_BUILD_LOGGING_LAYER": "ON",
-        "RUTILE_INSTALL": "OFF"
-      }
-    },
-    {
-      "name": "windows-clang-ci",
-      "displayName": "Windows Clang CI",
+      "name": "debug",
+      "displayName": "Debug",
       "generator": "Ninja",
-      "binaryDir": "${sourceDir}/out/build/${presetName}",
-      "cacheVariables": {
-        "CMAKE_C_COMPILER": "clang-cl",
-        "CMAKE_CXX_COMPILER": "clang-cl",
-        "CMAKE_BUILD_TYPE": "Debug",
-        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
-        "VCPKG_TARGET_TRIPLET": "x64-windows-static",
-        "VCPKG_MANIFEST_FEATURES": "tests",
-        "BUILD_TESTING": "ON",
-        "RUTILE_BUILD_EXAMPLES": "OFF",
-        "RUTILE_BUILD_OPENGL": "OFF",
-        "RUTILE_BUILD_VULKAN": "OFF",
-        "RUTILE_BUILD_DIRECTX12": "OFF",
-        "RUTILE_BUILD_VALIDATION_LAYER": "ON",
-        "RUTILE_BUILD_LOGGING_LAYER": "ON",
-        "RUTILE_INSTALL": "OFF"
-      },
-      "condition": {
-        "type": "equals",
-        "lhs": "${hostSystemName}",
-        "rhs": "Windows"
-      }
-    },
-    {
-      "name": "windows-gcc-ci",
-      "displayName": "Windows GCC CI",
-      "generator": "Ninja",
-      "binaryDir": "${sourceDir}/out/build/${presetName}",
-      "cacheVariables": {
-        "CMAKE_C_COMPILER": "gcc",
-        "CMAKE_CXX_COMPILER": "g++",
-        "CMAKE_BUILD_TYPE": "Debug",
-        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
-        "VCPKG_TARGET_TRIPLET": "x64-mingw-dynamic",
-        "VCPKG_MANIFEST_FEATURES": "tests",
-        "BUILD_TESTING": "ON",
-        "RUTILE_BUILD_EXAMPLES": "OFF",
-        "RUTILE_BUILD_OPENGL": "OFF",
-        "RUTILE_BUILD_VULKAN": "OFF",
-        "RUTILE_BUILD_DIRECTX12": "OFF",
-        "RUTILE_BUILD_VALIDATION_LAYER": "ON",
-        "RUTILE_BUILD_LOGGING_LAYER": "ON",
-        "RUTILE_INSTALL": "OFF"
-      },
-      "condition": {
-        "type": "equals",
-        "lhs": "${hostSystemName}",
-        "rhs": "Windows"
-      }
-    },
-    {
-      "name": "linux-ci",
-      "displayName": "Linux CI",
-      "generator": "Ninja",
-      "binaryDir": "${sourceDir}/out/build/${presetName}",
+      "binaryDir": "${sourceDir}/build/Debug",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
         "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
-        "VCPKG_TARGET_TRIPLET": "x64-linux",
-        "VCPKG_MANIFEST_FEATURES": "tests",
-        "VCPKG_MANIFEST_NO_DEFAULT_FEATURES": "ON",
-        "BUILD_TESTING": "ON",
-        "RUTILE_BUILD_EXAMPLES": "OFF",
-        "RUTILE_BUILD_OPENGL": "OFF",
-        "RUTILE_BUILD_VULKAN": "OFF",
-        "RUTILE_BUILD_DIRECTX12": "OFF",
-        "RUTILE_BUILD_VALIDATION_LAYER": "ON",
-        "RUTILE_BUILD_LOGGING_LAYER": "ON",
-        "RUTILE_INSTALL": "OFF"
-      },
-      "condition": {
-        "type": "equals",
-        "lhs": "${hostSystemName}",
-        "rhs": "Linux"
+        "VCPKG_TARGET_TRIPLET": "x64-windows-static"
       }
     },
     {
-      "name": "macos-ci",
-      "displayName": "macOS CI",
+      "name": "ci-release",
+      "displayName": "CI Release",
       "generator": "Ninja",
-      "binaryDir": "${sourceDir}/out/build/${presetName}",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug",
-        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
-        "VCPKG_TARGET_TRIPLET": "arm64-osx",
-        "VCPKG_MANIFEST_FEATURES": "tests",
-        "BUILD_TESTING": "ON",
-        "RUTILE_BUILD_EXAMPLES": "OFF",
-        "RUTILE_BUILD_OPENGL": "OFF",
-        "RUTILE_BUILD_VULKAN": "OFF",
-        "RUTILE_BUILD_DIRECTX12": "OFF",
-        "RUTILE_BUILD_VALIDATION_LAYER": "ON",
-        "RUTILE_BUILD_LOGGING_LAYER": "ON",
-        "RUTILE_INSTALL": "OFF"
-      },
-      "condition": {
-        "type": "equals",
-        "lhs": "${hostSystemName}",
-        "rhs": "Darwin"
-      }
+      "inherits": "release",
+      "binaryDir": "${sourceDir}/build/CI-Release"
+    },
+    {
+      "name": "ci-debug",
+      "displayName": "CI Debug",
+      "generator": "Ninja",
+      "inherits": "debug",
+      "binaryDir": "${sourceDir}/build/CI-Debug"
     }
   ],
   "buildPresets": [
-    {
-      "name": "windows-debug",
-      "configurePreset": "windows-debug"
-    },
-    {
-      "name": "windows-release",
-      "configurePreset": "windows-release"
-    },
-    {
-      "name": "windows-vulkan-examples",
-      "configurePreset": "windows-vulkan-examples",
-      "targets": [
-        "rutile-01-triangle",
-        "rutile-02-spinning-cube",
-        "rutile-03-plasma-lab",
-        "rutile-04-galaxy",
-        "rutile-05-voxel-renderer"
-      ]
-    },
-    {
-      "name": "windows-core",
-      "configurePreset": "windows-core"
-    },
-    {
-      "name": "windows-ci",
-      "configurePreset": "windows-ci",
-      "targets": [
-        "rt-vulkan",
-        "rt-directx12",
-        "rt-validation-layer",
-        "rt-logging-layer",
-        "rtsl-tests",
-        "rtsl-sdk-tests",
-        "rtslc"
-      ]
-    },
-    {
-      "name": "windows-compiler-ci",
-      "configurePreset": "windows-compiler-ci"
-    },
-    {
-      "name": "windows-clang-ci",
-      "configurePreset": "windows-clang-ci"
-    },
-    {
-      "name": "windows-gcc-ci",
-      "configurePreset": "windows-gcc-ci"
-    },
-    {
-      "name": "linux-ci",
-      "configurePreset": "linux-ci"
-    },
-    {
-      "name": "macos-ci",
-      "configurePreset": "macos-ci"
-    }
+    { "name": "release", "displayName": "Release", "configurePreset": "release" },
+    { "name": "debug", "displayName": "Debug", "configurePreset": "debug" },
+    { "name": "ci-release", "displayName": "CI Release", "configurePreset": "ci-release" },
+    { "name": "ci-debug", "displayName": "CI Debug", "configurePreset": "ci-debug" }
   ],
   "testPresets": [
-    {
-      "name": "windows-debug",
-      "configurePreset": "windows-debug",
-      "output": {
-        "outputOnFailure": true
-      },
-      "execution": {
-        "noTestsAction": "error"
-      }
-    },
-    {
-      "name": "windows-ci",
-      "configurePreset": "windows-ci",
-      "output": {
-        "outputOnFailure": true
-      },
-      "execution": {
-        "noTestsAction": "error"
-      }
-    },
-    {
-      "name": "windows-clang-ci",
-      "configurePreset": "windows-clang-ci",
-      "output": {
-        "outputOnFailure": true
-      },
-      "execution": {
-        "noTestsAction": "error"
-      }
-    },
-    {
-      "name": "windows-gcc-ci",
-      "configurePreset": "windows-gcc-ci",
-      "output": {
-        "outputOnFailure": true
-      },
-      "execution": {
-        "noTestsAction": "error"
-      }
-    },
-    {
-      "name": "linux-ci",
-      "configurePreset": "linux-ci",
-      "output": {
-        "outputOnFailure": true
-      },
-      "execution": {
-        "noTestsAction": "error"
-      }
-    },
-    {
-      "name": "macos-ci",
-      "configurePreset": "macos-ci",
-      "output": {
-        "outputOnFailure": true
-      },
-      "execution": {
-        "noTestsAction": "error"
-      }
-    }
+    { "name": "release", "displayName": "Release", "configurePreset": "release", "output": { "outputOnFailure": true } },
+    { "name": "debug", "displayName": "Debug", "configurePreset": "debug", "output": { "outputOnFailure": true } },
+    { "name": "ci-release", "displayName": "CI Release", "configurePreset": "ci-release", "output": { "outputOnFailure": true } },
+    { "name": "ci-debug", "displayName": "CI Debug", "configurePreset": "ci-debug", "output": { "outputOnFailure": true } }
   ]
 }

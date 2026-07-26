@@ -8,13 +8,13 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
-#include <rtsl/sdk/program.hpp>
+#include <rtsl/program.hpp>
 
 #include <array>
-#include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <cstring>
+#include <cstdio>
 #include <vector>
 
 extern "C" const rtsl::ProgramBytes cube_rtslp;
@@ -35,19 +35,19 @@ struct Camera {
 	f32 pitch = 0.0f;
 };
 
-std::atomic<rt_swapchain> Swapchain = RT_NULL_HANDLE;
-std::atomic<u32> FramebufferWidth = 1280;
-std::atomic<u32> FramebufferHeight = 720;
+rt_swapchain Swapchain = RT_NULL_HANDLE;
+u32 FramebufferWidth = 1280;
+u32 FramebufferHeight = 720;
 f32 MouseDx = 0.0f;
 f32 MouseDy = 0.0f;
 
-constexpr rt_vertex_attribute kAttributes[] = {
+constexpr rt_vertex_attribute Attributes[] = {
 	{ "position", offsetof(Vertex, position), RT_RGB32_SFLOAT },
 	{ "color", offsetof(Vertex, color), RT_RGB32_SFLOAT },
 	{ "normal", offsetof(Vertex, normal), RT_RGB32_SFLOAT },
 };
 
-constexpr rt_vertex_layout kLayout = { sizeof(Vertex), kAttributes, 3 };
+constexpr rt_vertex_layout Layout = { sizeof(Vertex), Attributes, 3 };
 
 std::vector<Vertex> make_cube() {
 	struct Face {
@@ -82,9 +82,9 @@ void framebuffer_resized(GLFWwindow*, int width, int height) {
 	if (width <= 0 || height <= 0) {
 		return;
 	}
-	FramebufferWidth.store(static_cast<u32>(width), std::memory_order_release);
-	FramebufferHeight.store(static_cast<u32>(height), std::memory_order_release);
-	rtSwapchainResize(Swapchain.load(std::memory_order_acquire), static_cast<u32>(width), static_cast<u32>(height));
+	FramebufferWidth = static_cast<u32>(width);
+	FramebufferHeight = static_cast<u32>(height);
+	rtSwapchainResize(Swapchain, static_cast<u32>(width), static_cast<u32>(height));
 }
 
 void cursor_moved(GLFWwindow*, double x, double y) {
@@ -134,7 +134,10 @@ void update_camera(GLFWwindow* window, Camera& camera, f32 delta) {
 
 int main(int argc, char** argv) {
 	const ExampleOptions options = parse_cli(argc, argv);
-	rtLoadDevelopment(options.backend.c_str(), nullptr, 0);
+	if (rtLoad(options.backend.c_str(), nullptr, 0) != RT_SUCCESS) {
+		std::fprintf(stderr, "rtLoad failed\n");
+		return 1;
+	}
 	const char* features[] = { RT_FEATURE_PRESENTATION };
 	rtInit(features, 1);
 	rtLoad_RT_EXT_SWAPCHAIN();
@@ -149,7 +152,7 @@ int main(int argc, char** argv) {
 
 	rt_swapchain swapchain = rtSwapchainCreate();
 	rtSwapchainBindWindowGLFW(swapchain, window);
-	Swapchain.store(swapchain, std::memory_order_release);
+	Swapchain = swapchain;
 	rt_queue queue = rtQueueQuery(RT_QUEUE_GRAPHICS);
 
 	const std::vector<Vertex> vertices = make_cube();
@@ -161,7 +164,7 @@ int main(int argc, char** argv) {
 	rtBufferData(scene_buffer, RT_BUFFER_DYNAMIC, RT_BUFFER_USAGE_UNIFORM, sizeof(scene), &scene);
 	rt_graphics_program program = rtGraphicsProgramCreate();
 	rtGraphicsProgramSource(program, cube_rtslp.size, cube_rtslp.data);
-	rtGraphicsProgramLayout(program, &kLayout);
+	rtGraphicsProgramLayout(program, &Layout);
 	rtGraphicsProgramRasterState(program, RT_CULL_NONE, RT_FRONT_FACE_CCW, RT_FILL_SOLID);
 	rtGraphicsProgramFinalize(program);
 	rt_uniform_location scene_location = rtGraphicsProgramUniformLocation(program, "scene");
@@ -173,7 +176,6 @@ int main(int argc, char** argv) {
 	u32 depth_width = 1280;
 	u32 depth_height = 720;
 	rt_command_buffer command_buffer = rtCommandBufferCreate();
-	rt_timepoint last_rendered = {};
 	Camera camera;
 	const auto start = std::chrono::steady_clock::now();
 	auto previous = start;
@@ -186,10 +188,9 @@ int main(int argc, char** argv) {
 		const f32 time = std::chrono::duration<f32>(now - start).count();
 		previous = now;
 		update_camera(window, camera, delta);
-		const u32 width = FramebufferWidth.load(std::memory_order_acquire);
-		const u32 height = FramebufferHeight.load(std::memory_order_acquire);
+		const u32 width = FramebufferWidth;
+		const u32 height = FramebufferHeight;
 		if (width != depth_width || height != depth_height) {
-			rtTimepointWait(last_rendered);
 			depth_width = width;
 			depth_height = height;
 			rtTextureData(depth, RT_TEXTURE_2D, 0, width, height, 1, RT_D32_SFLOAT, nullptr);
@@ -218,13 +219,12 @@ int main(int argc, char** argv) {
 		rtCmdDraw(command_buffer, static_cast<u32>(vertices.size()), 0);
 		rtCmdEndRendering(command_buffer);
 		rtCmdEnd(command_buffer);
-		last_rendered = rtQueueSubmit(queue, command_buffer);
+		rt_timepoint rendered = rtQueueSubmit(queue, command_buffer);
 		rtFramebufferDepthView(acquired.framebuffer, RT_NULL_HANDLE);
-		rtSwapchainPresent(swapchain, last_rendered);
+		rtSwapchainPresent(swapchain, rendered);
 		rendered_frames++;
 	}
 
-	rtTimepointWait(last_rendered);
 	rtCommandBufferDestroy(command_buffer);
 	rtTextureViewDestroy(depth_view);
 	rtTextureDestroy(depth);

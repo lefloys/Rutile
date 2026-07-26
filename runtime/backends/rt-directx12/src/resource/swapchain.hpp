@@ -30,7 +30,6 @@ struct rtdx_swapchain {
 
 	IDXGISwapChain3* dxgi_swapchain;
 	ID3D12DescriptorHeap* rtv_heap;
-	void* frame_latency_object;
 
 	rtdx_texture* textures[RTDX_MAX_FRAMES_IN_FLIGHT];
 	rtdx_texture_view* texture_views[RTDX_MAX_FRAMES_IN_FLIGHT];

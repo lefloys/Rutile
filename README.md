@@ -4,6 +4,18 @@ Rutile is a small user-space graphics API with explicit runtime backend loading.
 Applications load a backend such as Vulkan or DirectX 12 at startup, and can
 insert layers for validation, logging, profiling, or other interception work.
 
+## Start here
+
+New to the repository? Read [BUILD.md](BUILD.md). From the Rutile repository root:
+
+```powershell
+cmake --preset debug
+cmake --build --preset debug --target rutile-01-triangle
+```
+
+The build guide also explains the Vulkan, DirectX 12, examples, tests, and
+helper-script paths. The rest of this file describes the project and API.
+
 The public API is currently a C binding. Other language bindings are possible,
 but are not implemented yet.
 
@@ -38,17 +50,7 @@ Linux requirements:
 
 ```sh
 sudo apt-get update
-sudo apt-get install -y \
-  libgl1-mesa-dev \
-  libx11-dev \
-  libxcursor-dev \
-  libxi-dev \
-  libxinerama-dev \
-  libxrandr-dev \
-  libc++-dev \
-  libc++abi-dev \
-  ninja-build \
-  xorg-dev
+sudo apt-get install -y libgl1-mesa-dev libx11-dev libxcursor-dev libxi-dev libxinerama-dev libxrandr-dev libc++-dev libc++abi-dev ninja-build xorg-dev
 ```
 
 macOS requirements:
@@ -62,12 +64,15 @@ triplet.
 
 ## Build And Test
 
+For the full explanation of prerequisites, build directories, presets, examples,
+platform differences, and troubleshooting, see [BUILD.md](BUILD.md).
+
 The CI-equivalent Windows MSVC build is:
 
 ```bat
-cmake --preset windows-ci
-cmake --build --preset windows-ci --parallel
-ctest --preset windows-ci
+cmake --preset ci-debug
+cmake --build --preset ci-debug --parallel
+ctest --preset ci-debug
 ```
 
 That builds `rt-vulkan`, `rt-directx12`, `rt-validation-layer`, `rt-logging-layer`,
@@ -76,9 +81,9 @@ That builds `rt-vulkan`, `rt-directx12`, `rt-validation-layer`, `rt-logging-laye
 The normal Windows debug build is:
 
 ```bat
-cmake --preset windows-debug
-cmake --build --preset windows-debug --parallel
-ctest --preset windows-debug
+cmake --preset debug
+cmake --build --preset debug --parallel
+ctest --preset debug
 ```
 
 The repository script also enters the MSVC x64 developer environment and uses
@@ -91,37 +96,37 @@ scripts\build.bat Debug
 Windows compiler coverage:
 
 ```bat
-cmake --preset windows-clang-ci
-cmake --build --preset windows-clang-ci --parallel
-ctest --preset windows-clang-ci
+cmake --preset ci-debug
+cmake --build --preset ci-debug --parallel
+ctest --preset ci-debug
 
-cmake --preset windows-gcc-ci
-cmake --build --preset windows-gcc-ci --parallel
-ctest --preset windows-gcc-ci
+cmake --preset ci-debug
+cmake --build --preset ci-debug --parallel
+ctest --preset ci-debug
 ```
 
 Linux compiler coverage:
 
 ```sh
-cmake --preset linux-ci
-cmake --build --preset linux-ci --parallel
-ctest --preset linux-ci
+cmake --preset ci-debug
+cmake --build --preset ci-debug --parallel
+ctest --preset ci-debug
 ```
 
 For Linux Clang, use libc++ so `<expected>` is available with C++23:
 
 ```sh
-CC=clang CXX=clang++ CXXFLAGS=-stdlib=libc++ LDFLAGS=-stdlib=libc++ cmake --preset linux-ci
-cmake --build --preset linux-ci --parallel
-ctest --preset linux-ci
+CC=clang CXX=clang++ CXXFLAGS=-stdlib=libc++ LDFLAGS=-stdlib=libc++ cmake --preset ci-debug
+cmake --build --preset ci-debug --parallel
+ctest --preset ci-debug
 ```
 
 macOS setup build:
 
 ```sh
-cmake --preset macos-ci
-cmake --build --preset macos-ci --parallel
-ctest --preset macos-ci
+cmake --preset ci-debug
+cmake --build --preset ci-debug --parallel
+ctest --preset ci-debug
 ```
 
 ## vcpkg Features
@@ -131,12 +136,12 @@ the targets that use them:
 
 - `vulkan`: Vulkan backend dependencies
 - `directx12`: DirectX 12 backend dependencies
-- `opengl`: OpenGL 3.3 backend dependencies
+- `opengl`: OpenGL backend dependencies
 - `examples`: GLFW, GLM, CLI11, and stb for examples
 - `tests`: Catch2 and test CLI support
 
-For example, use `windows-core` for a headers/layers-only configure and
-`windows-vulkan-examples` for the Vulkan examples.
+All examples and supported backends are configured automatically. Build only
+the target you need with `cmake --build --preset debug --target <target>`.
 
 ## Run Examples
 

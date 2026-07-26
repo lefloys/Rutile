@@ -2,13 +2,13 @@
 
 #include <glm/glm.hpp>
 
-constexpr i32 kChunkSize = 16;
-constexpr i32 kChunkCountX = 8;
-constexpr i32 kChunkCountZ = 8;
-constexpr i32 kWorldX = kChunkSize * kChunkCountX;
-constexpr i32 kWorldY = 24;
-constexpr i32 kWorldZ = kChunkSize * kChunkCountZ;
-constexpr f32 kWaterLevel = 7.35f;
+constexpr i32 ChunkSize = 16;
+constexpr i32 ChunkCountX = 8;
+constexpr i32 ChunkCountZ = 8;
+constexpr i32 WorldX = ChunkSize * ChunkCountX;
+constexpr i32 WorldY = 24;
+constexpr i32 WorldZ = ChunkSize * ChunkCountZ;
+constexpr f32 WaterLevel = 7.35f;
 
 f32 hash_noise(i32 x, i32 z) {
 	u32 n = (u32)x * 374761393u + (u32)z * 668265263u;
@@ -27,9 +27,9 @@ f32 value_noise(f32 x, f32 z) {
 }
 
 i32 terrain_height(i32 x, i32 z) {
-	static i32 cached_heights[kWorldX * kWorldZ] = {};
-	if (x >= 0 && x < kWorldX && z >= 0 && z < kWorldZ) {
-		i32* cached = &cached_heights[z * kWorldX + x];
+	static i32 cached_heights[WorldX * WorldZ] = {};
+	if (x >= 0 && x < WorldX && z >= 0 && z < WorldZ) {
+		i32* cached = &cached_heights[z * WorldX + x];
 		if (*cached == 0) {
 			*cached = 5 + (i32)(value_noise((f32)x * 0.12f, (f32)z * 0.12f) * 11.0f);
 		}
@@ -39,7 +39,7 @@ i32 terrain_height(i32 x, i32 z) {
 }
 
 bool solid_block(i32 x, i32 y, i32 z) {
-	if (x < 0 || x >= kWorldX || y < 0 || y >= kWorldY || z < 0 || z >= kWorldZ) {
+	if (x < 0 || x >= WorldX || y < 0 || y >= WorldY || z < 0 || z >= WorldZ) {
 		return false;
 	}
 	return y <= terrain_height(x, z);
@@ -106,7 +106,7 @@ glm::ivec3 edge_direction(const glm::vec3& direction) {
 }
 
 void push_face(std::vector<Vertex>* vertices, i32 x, i32 y, i32 z, const glm::vec3& normal, const glm::vec3 corners[4]) {
-	const glm::vec3 origin = glm::vec3((f32)x - kWorldX * 0.5f, (f32)y, (f32)z - kWorldZ * 0.5f);
+	const glm::vec3 origin = glm::vec3((f32)x - WorldX * 0.5f, (f32)y, (f32)z - WorldZ * 0.5f);
 	const glm::vec3 color = block_color(x, y, z);
 	const f32 ao[] = {
 		voxel_ao(x, y, z, normal, corners[0]),
@@ -147,7 +147,7 @@ void push_face(std::vector<Vertex>* vertices, i32 x, i32 y, i32 z, const glm::ve
 
 std::vector<Vertex> build_world_mesh() {
 	std::vector<Vertex> vertices;
-	vertices.reserve(kWorldX * kWorldZ * 24);
+	vertices.reserve(WorldX * WorldZ * 24);
 
 	const glm::vec3 px[] = { glm::vec3(1, 0, 1), glm::vec3(1, 0, 0), glm::vec3(1, 1, 0), glm::vec3(1, 1, 1) };
 	const glm::vec3 nx[] = { glm::vec3(0, 0, 0), glm::vec3(0, 0, 1), glm::vec3(0, 1, 1), glm::vec3(0, 1, 0) };
@@ -156,9 +156,9 @@ std::vector<Vertex> build_world_mesh() {
 	const glm::vec3 pz[] = { glm::vec3(0, 0, 1), glm::vec3(1, 0, 1), glm::vec3(1, 1, 1), glm::vec3(0, 1, 1) };
 	const glm::vec3 nz[] = { glm::vec3(1, 0, 0), glm::vec3(0, 0, 0), glm::vec3(0, 1, 0), glm::vec3(1, 1, 0) };
 
-	for (i32 z = 0; z < kWorldZ; z++) {
-		for (i32 y = 0; y < kWorldY; y++) {
-			for (i32 x = 0; x < kWorldX; x++) {
+	for (i32 z = 0; z < WorldZ; z++) {
+		for (i32 y = 0; y < WorldY; y++) {
+			for (i32 x = 0; x < WorldX; x++) {
 				if (!solid_block(x, y, z)) {
 					continue;
 				}
@@ -189,24 +189,24 @@ std::vector<Vertex> build_world_mesh() {
 
 std::vector<Vertex> build_water_mesh() {
 	std::vector<Vertex> vertices;
-	vertices.reserve(kWorldX * kWorldZ * 6);
+	vertices.reserve(WorldX * WorldZ * 6);
 
 	const glm::vec3 color = glm::vec3(0.08f, 0.42f, 0.76f);
 	const glm::vec3 normal = glm::vec3(0.0f, 1.0f, 0.0f);
-	for (i32 z = 0; z < kWorldZ; z++) {
-		for (i32 x = 0; x < kWorldX; x++) {
-			if ((f32)terrain_height(x, z) >= kWaterLevel - 0.4f) {
+	for (i32 z = 0; z < WorldZ; z++) {
+		for (i32 x = 0; x < WorldX; x++) {
+			if ((f32)terrain_height(x, z) >= WaterLevel - 0.4f) {
 				continue;
 			}
-			const f32 wx = (f32)x - kWorldX * 0.5f;
-			const f32 wz = (f32)z - kWorldZ * 0.5f;
+			const f32 wx = (f32)x - WorldX * 0.5f;
+			const f32 wz = (f32)z - WorldZ * 0.5f;
 			const glm::vec2 uv(0.0f);
-			push_vertex(&vertices, glm::vec3(wx, kWaterLevel, wz + 1.0f), color, normal, 1.0f, uv, 0.0f, 0.0f);
-			push_vertex(&vertices, glm::vec3(wx + 1.0f, kWaterLevel, wz + 1.0f), color, normal, 1.0f, uv, 0.0f, 0.0f);
-			push_vertex(&vertices, glm::vec3(wx + 1.0f, kWaterLevel, wz), color, normal, 1.0f, uv, 0.0f, 0.0f);
-			push_vertex(&vertices, glm::vec3(wx, kWaterLevel, wz + 1.0f), color, normal, 1.0f, uv, 0.0f, 0.0f);
-			push_vertex(&vertices, glm::vec3(wx + 1.0f, kWaterLevel, wz), color, normal, 1.0f, uv, 0.0f, 0.0f);
-			push_vertex(&vertices, glm::vec3(wx, kWaterLevel, wz), color, normal, 1.0f, uv, 0.0f, 0.0f);
+			push_vertex(&vertices, glm::vec3(wx, WaterLevel, wz + 1.0f), color, normal, 1.0f, uv, 0.0f, 0.0f);
+			push_vertex(&vertices, glm::vec3(wx + 1.0f, WaterLevel, wz + 1.0f), color, normal, 1.0f, uv, 0.0f, 0.0f);
+			push_vertex(&vertices, glm::vec3(wx + 1.0f, WaterLevel, wz), color, normal, 1.0f, uv, 0.0f, 0.0f);
+			push_vertex(&vertices, glm::vec3(wx, WaterLevel, wz + 1.0f), color, normal, 1.0f, uv, 0.0f, 0.0f);
+			push_vertex(&vertices, glm::vec3(wx + 1.0f, WaterLevel, wz), color, normal, 1.0f, uv, 0.0f, 0.0f);
+			push_vertex(&vertices, glm::vec3(wx, WaterLevel, wz), color, normal, 1.0f, uv, 0.0f, 0.0f);
 		}
 	}
 

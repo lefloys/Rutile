@@ -32,6 +32,7 @@ struct gl_surface {
 };
 
 typedef HGLRC(WINAPI* PFN_wglCreateContextAttribsARB)(HDC, HGLRC, const int*);
+typedef BOOL(WINAPI* PFN_wglSwapIntervalEXT)(int);
 
 /*
 ** Tracks the context current on this thread. WGL has no way to go
@@ -63,6 +64,7 @@ struct gl_context* rtgl_create_glcontext(u08 major, u08 minor, bool presentation
 	HGLRC legacy = NULL;
 	HGLRC hglrc = NULL;
 	PFN_wglCreateContextAttribsARB wglCreateContextAttribsARB = NULL;
+	PFN_wglSwapIntervalEXT wglSwapIntervalEXT = NULL;
 	PIXELFORMATDESCRIPTOR pfd = { 0 };
 	int pixel_format;
 
@@ -144,6 +146,14 @@ struct gl_context* rtgl_create_glcontext(u08 major, u08 minor, bool presentation
 			rtgl_throwf(RT_PLATFORM_FAILURE, "failed to activate GL %u.%u context", major, minor);
 			goto fail;
 		}
+	}
+
+	/* WGL defaults to a driver-selected swap interval, commonly one. Rutile
+	 * does not enable presentation throttling implicitly, so explicitly use
+	 * immediate swaps when the extension is available. */
+	wglSwapIntervalEXT = (PFN_wglSwapIntervalEXT)wglGetProcAddress("wglSwapIntervalEXT");
+	if (wglSwapIntervalEXT) {
+		wglSwapIntervalEXT(0);
 	}
 
 	context = calloc(1, sizeof(struct gl_context));
@@ -286,6 +296,15 @@ void rtgl_make_glcontext_current(struct gl_context* context, struct gl_surface* 
 	if (!wglMakeCurrent(hdc, context->hglrc)) {
 		rtgl_throwf(RT_PLATFORM_FAILURE, "failed to make OpenGL context current");
 		return;
+	}
+	/* The swap interval is associated with the current WGL context/DC.  Set it
+	 * again when attaching a real window; the bootstrap DC is not the one that
+	 * is ultimately presented to the user. */
+	if (surface) {
+		PFN_wglSwapIntervalEXT swap_interval = (PFN_wglSwapIntervalEXT)wglGetProcAddress("wglSwapIntervalEXT");
+		if (swap_interval) {
+			swap_interval(0);
+		}
 	}
 	rtgl_tls_current_context = context;
 }

@@ -5,7 +5,7 @@
 #include "rutile.h"
 
 #include <GLFW/glfw3.h>
-#include <rtsl/sdk/program.hpp>
+#include <rtsl/program.hpp>
 
 #include <cstddef>
 
@@ -16,21 +16,24 @@ struct Vertex {
 	f32 color[3];
 };
 
-static const Vertex kVertices[] = {
+static const Vertex Vertices[] = {
 	{ { 0.0f, -0.6f }, { 1.0f, 0.2f, 0.2f } },
 	{ { 0.6f, 0.5f }, { 0.2f, 1.0f, 0.3f } },
 	{ { -0.6f, 0.5f }, { 0.3f, 0.4f, 1.0f } },
 };
 
-static const rt_vertex_attribute kAttributes[] = {
+static const rt_vertex_attribute Attributes[] = {
 	{ "position", offsetof(Vertex, position), RT_RG32_SFLOAT },
 	{ "color", offsetof(Vertex, color), RT_RGB32_SFLOAT },
 };
-static const rt_vertex_layout kLayout = { sizeof(Vertex), kAttributes, 2 };
+static const rt_vertex_layout Layout = { sizeof(Vertex), Attributes, 2 };
 
-int main(int argc, char** argv) {
+int main(int argc, char* argv[]) {
 	const ExampleOptions options = parse_cli(argc, argv);
-	rtLoadDevelopment(options.backend.c_str(), nullptr, 0);
+	if (rtLoad(options.backend.c_str(), nullptr, 0) != RT_SUCCESS) {
+		std::fprintf(stderr, "rtLoad failed\n");
+		return 1;
+	}
 	const char* features[] = { RT_FEATURE_PRESENTATION };
 	rtInit(features, 1);
 	rtLoad_RT_EXT_SWAPCHAIN();
@@ -38,7 +41,7 @@ int main(int argc, char** argv) {
 
 	rt_graphics_program program = rtGraphicsProgramCreate();
 	rtGraphicsProgramSource(program, triangle_rtslp.size, triangle_rtslp.data);
-	rtGraphicsProgramLayout(program, &kLayout);
+	rtGraphicsProgramLayout(program, &Layout);
 	rtGraphicsProgramFinalize(program);
 
 	glfwInit();
@@ -51,7 +54,7 @@ int main(int argc, char** argv) {
 	rt_queue queue = rtQueueQuery(RT_QUEUE_GRAPHICS);
 
 	rt_buffer vbo = rtBufferCreate();
-	rtBufferData(vbo, RT_BUFFER_STATIC, RT_BUFFER_USAGE_VERTEX, sizeof(kVertices), kVertices);
+	rtBufferData(vbo, RT_BUFFER_STATIC, RT_BUFFER_USAGE_VERTEX, sizeof(Vertices), Vertices);
 
 	rt_command_buffer cmd = rtCommandBufferCreate();
 	u32 rendered_frames = 0;

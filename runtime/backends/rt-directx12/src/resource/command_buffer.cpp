@@ -179,7 +179,7 @@ void rtdx_command_buffer_finish(struct rtdx_context* ctx, struct rtdx_command_bu
 		node = next;
 	}
 	command_buffer->next = NULL;
-	if (!ctx->shutting_down && (command_buffer->d3d_command_list || command_buffer->d3d_allocator)) {
+	if (command_buffer->d3d_command_list || command_buffer->d3d_allocator) {
 		rtdx_command_buffer_release_recorded_resources(command_buffer);
 		rtdx_release(&command_buffer->d3d_command_list);
 		rtdx_release(&command_buffer->d3d_allocator);

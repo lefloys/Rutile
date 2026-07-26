@@ -1,6 +1,6 @@
 #include "rtsl_spirv.h"
 
-#include <rtsl/sdk.hpp>
+#include <rtsl/program.hpp>
 #include <rtsl/spirv.hpp>
 
 #include <cstddef>

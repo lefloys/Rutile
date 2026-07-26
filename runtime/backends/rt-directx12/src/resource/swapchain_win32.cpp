@@ -26,7 +26,7 @@ bool rtdx_swapchain_create_for_hwnd(rtdx_context* ctx, rtdx_swapchain* swapchain
 	swapchain_info.Scaling = DXGI_SCALING_STRETCH;
 	swapchain_info.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
 	swapchain_info.AlphaMode = DXGI_ALPHA_MODE_UNSPECIFIED;
-	swapchain_info.Flags = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT | (ctx->allow_tearing ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0);
+	swapchain_info.Flags = ctx->allow_tearing ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0;
 
 	rtdx_queue* queue = rtdx_queue_query(ctx, RT_QUEUE_GRAPHICS);
 	IDXGISwapChain1* swapchain1 = NULL;
@@ -50,13 +50,6 @@ bool rtdx_swapchain_create_for_hwnd(rtdx_context* ctx, rtdx_swapchain* swapchain
 		rtdx_throwf(rtdx_error_from_hresult(result), "IDXGISwapChain3 QueryInterface failed: 0x%08x", (u32)result);
 		return false;
 	}
-
-	result = swapchain->dxgi_swapchain->SetMaximumFrameLatency(16);
-	if (FAILED(result)) {
-		rtdx_throwf(rtdx_error_from_hresult(result), "IDXGISwapChain3::SetMaximumFrameLatency failed: 0x%08x", (u32)result);
-		return false;
-	}
-	swapchain->frame_latency_object = swapchain->dxgi_swapchain->GetFrameLatencyWaitableObject();
 
 	return rtdx_swapchain_create_framebuffers(ctx, swapchain);
 }

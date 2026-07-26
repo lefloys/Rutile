@@ -6,8 +6,7 @@
 #include "world.h"
 
 #include <GLFW/glfw3.h>
-#include <rtsl/sdk/program.hpp>
-#include <atomic>
+#include <rtsl/program.hpp>
 #include <chrono>
 #include <cstddef>
 #include <cstdio>
@@ -16,27 +15,13 @@
 #include <vector>
 
 
-constexpr const char* kLayers[] = { "RT_VALIDATION_LAYER" };
-constexpr const char* kFeatures[] = { RT_FEATURE_PRESENTATION };
+constexpr const char* Layers[] = { "RT_VALIDATION_LAYER" };
+constexpr const char* Features[] = { RT_FEATURE_PRESENTATION };
 
 extern "C" const rtsl::ProgramBytes terrain_rtslp;
 extern "C" const rtsl::ProgramBytes water_rtslp;
 
-struct Camera {
-	glm::vec3 position = glm::vec3(0.0f, 13.0f, 18.0f);
-	f32 yaw = -glm::radians(90.0f);
-	f32 pitch = -0.32f;
-};
-
-std::atomic<rt_swapchain> Swapchain = RT_NULL_HANDLE;
-std::atomic<u32> FramebufferWidth = 1280;
-std::atomic<u32> FramebufferHeight = 720;
-std::atomic<bool> ResizePending = false;
-std::atomic<bool> ResizeInProgress = false;
-f32 MouseDx = 0.0f;
-f32 MouseDy = 0.0f;
-
-constexpr rt_vertex_attribute kVertexAttributes[] = {
+constexpr rt_vertex_attribute VertexAttributes[] = {
 	{ "position", offsetof(Vertex, position), RT_RGB32_SFLOAT },
 	{ "color", offsetof(Vertex, color), RT_RGB32_SFLOAT },
 	{ "normal", offsetof(Vertex, normal), RT_RGB32_SFLOAT },
@@ -46,7 +31,22 @@ constexpr rt_vertex_attribute kVertexAttributes[] = {
 	{ "corner_mask", offsetof(Vertex, corner_mask), RT_R32_SFLOAT },
 };
 
-constexpr rt_vertex_layout kVertexLayout = { sizeof(Vertex), kVertexAttributes, 7 };
+constexpr rt_vertex_layout VertexLayout = { sizeof(Vertex), VertexAttributes, 7 };
+
+
+struct Camera {
+	glm::vec3 position = glm::vec3(0.0f, 13.0f, 18.0f);
+	f32 yaw = -glm::radians(90.0f);
+	f32 pitch = -0.32f;
+};
+
+rt_swapchain Swapchain = RT_NULL_HANDLE;
+u32 FramebufferWidth = 1280;
+u32 FramebufferHeight = 720;
+bool ResizePending = false;
+f32 MouseDx = 0.0f;
+f32 MouseDy = 0.0f;
+
 
 glm::vec3 camera_forward(const Camera& camera) {
 	const f32 cp = glm::cos(camera.pitch);
@@ -60,20 +60,12 @@ glm::mat4 camera_matrix(const Camera& camera, f32 aspect) {
 	return projection * view;
 }
 
-void resize_depth_buffer(rt_texture depth_texture, rt_texture_view depth_view, u32 width, u32 height) {
-	rtTimepointWait(rtTextureData(depth_texture, RT_TEXTURE_2D, 0, width, height, 1, RT_D32_SFLOAT, NULL));
-	rtTextureViewBind(depth_view, depth_texture);
-}
-
 void framebuffer_resized(GLFWwindow* window, int width, int height) {
 	(void)window;
-	if (ResizeInProgress.load(std::memory_order_acquire)) {
-		return;
-	}
 	if (width > 0 && height > 0) {
-		FramebufferWidth.store((u32)width, std::memory_order_release);
-		FramebufferHeight.store((u32)height, std::memory_order_release);
-		ResizePending.store(true, std::memory_order_release);
+		FramebufferWidth = (u32)width;
+		FramebufferHeight = (u32)height;
+		ResizePending = true;
 	}
 }
 
@@ -127,9 +119,12 @@ void update_camera(GLFWwindow* window, Camera* camera, f32 dt) {
 
 int main(int argc, char** argv) {
 	const ExampleOptions options = parse_cli(argc, argv);
-	rtLoad(options.backend.c_str(), kLayers, 1);
+	if (rtLoad(options.backend.c_str(), Layers, 1) != RT_SUCCESS) {
+		std::fprintf(stderr, "rtLoad failed\n");
+		return 1;
+	}
 
-	rtInit(kFeatures, 1);
+	rtInit(Features, 1);
 	rtLoad_RT_EXT_SWAPCHAIN();
 	rtLoad_RT_EXT_GLFW();
 
@@ -149,13 +144,13 @@ int main(int argc, char** argv) {
 	int framebuffer_height = 0;
 	glfwGetFramebufferSize(window, &framebuffer_width, &framebuffer_height);
 	if (framebuffer_width > 0 && framebuffer_height > 0) {
-		FramebufferWidth.store((u32)framebuffer_width, std::memory_order_release);
-		FramebufferHeight.store((u32)framebuffer_height, std::memory_order_release);
+		FramebufferWidth = (u32)framebuffer_width;
+		FramebufferHeight = (u32)framebuffer_height;
 	}
 
 	rt_swapchain swapchain = rtSwapchainCreate();
 	rtSwapchainBindWindowGLFW(swapchain, window);
-	Swapchain.store(swapchain, std::memory_order_release);
+	Swapchain = swapchain;
 	rt_queue queue = rtQueueQuery(RT_QUEUE_GRAPHICS);
 
 	std::vector<Vertex> vertices = build_world_mesh();
@@ -177,14 +172,14 @@ int main(int argc, char** argv) {
 	rtBufferData(water_transform_buffer, RT_BUFFER_DYNAMIC, RT_BUFFER_USAGE_UNIFORM, sizeof(water_transform), &water_transform);
 
 	rt_graphics_program graphics_program = rtGraphicsProgramCreate();
-	rtGraphicsProgramLayout(graphics_program, &kVertexLayout);
+	rtGraphicsProgramLayout(graphics_program, &VertexLayout);
 	rtGraphicsProgramSource(graphics_program, terrain_rtslp.size, terrain_rtslp.data);
 	rtGraphicsProgramRasterState(graphics_program, RT_CULL_BACK, RT_FRONT_FACE_CCW, RT_FILL_SOLID);
 	rtGraphicsProgramFinalize(graphics_program);
 	rt_uniform_location transform_location = rtGraphicsProgramUniformLocation(graphics_program, "scene");
 
 	rt_graphics_program water_program = rtGraphicsProgramCreate();
-	rtGraphicsProgramLayout(water_program, &kVertexLayout);
+	rtGraphicsProgramLayout(water_program, &VertexLayout);
 	rtGraphicsProgramSource(water_program, water_rtslp.size, water_rtslp.data);
 	rtGraphicsProgramRasterState(water_program, RT_CULL_BACK, RT_FRONT_FACE_CCW, RT_FILL_SOLID);
 	rtGraphicsProgramBlendState(water_program, true, RT_BLEND_SRC_ALPHA, RT_BLEND_ONE_MINUS_SRC_ALPHA, RT_BLEND_OP_ADD, RT_BLEND_ONE, RT_BLEND_ONE_MINUS_SRC_ALPHA, RT_BLEND_OP_ADD);
@@ -194,16 +189,16 @@ int main(int argc, char** argv) {
 	rt_command_buffer cmd = rtCommandBufferCreate();
 	rt_texture depth_texture = rtTextureCreate();
 	rt_texture_view depth_view = rtTextureViewCreate();
-	u32 depth_width = FramebufferWidth.load(std::memory_order_acquire);
-	u32 depth_height = FramebufferHeight.load(std::memory_order_acquire);
-	resize_depth_buffer(depth_texture, depth_view, depth_width, depth_height);
+	u32 depth_width = FramebufferWidth;
+	u32 depth_height = FramebufferHeight;
+	rtTextureData(depth_texture, RT_TEXTURE_2D, 0, depth_width, depth_height, 1, RT_D32_SFLOAT, NULL);
+	rtTextureViewBind(depth_view, depth_texture);
 
 	Camera camera;
 	auto start_time = std::chrono::steady_clock::now();
 	auto previous_time = start_time;
 	auto fps_time = start_time;
 	u32 fps_frames = 0;
-	rt_timepoint last_rendered = { RT_NULL_HANDLE, 0 };
 	u32 rendered_frames = 0;
 
 	while (!glfwWindowShouldClose(window) && (!options.frames || rendered_frames < options.frames)) {
@@ -217,19 +212,17 @@ int main(int argc, char** argv) {
 		previous_time = now;
 		update_camera(window, &camera, delta.count());
 
-		const u32 current_width = FramebufferWidth.load(std::memory_order_acquire);
-		const u32 current_height = FramebufferHeight.load(std::memory_order_acquire);
+		const u32 current_width = FramebufferWidth;
+		const u32 current_height = FramebufferHeight;
 		const bool depth_size_changed = current_width != depth_width || current_height != depth_height;
-		const bool resize_pending = ResizePending.load(std::memory_order_acquire);
+		const bool resize_pending = ResizePending;
 		if (current_width && current_height && (resize_pending || depth_size_changed)) {
-			rtTimepointWait(last_rendered);
 			depth_width = current_width;
 			depth_height = current_height;
-			ResizePending.store(false, std::memory_order_release);
-			ResizeInProgress.store(true, std::memory_order_release);
+			ResizePending = false;
 			rtSwapchainResize(swapchain, depth_width, depth_height);
-			ResizeInProgress.store(false, std::memory_order_release);
-			resize_depth_buffer(depth_texture, depth_view, depth_width, depth_height);
+			rtTextureData(depth_texture, RT_TEXTURE_2D, 0, depth_width, depth_height, 1, RT_D32_SFLOAT, NULL);
+			rtTextureViewBind(depth_view, depth_texture);
 			continue;
 		}
 
@@ -266,7 +259,6 @@ int main(int argc, char** argv) {
 		rtCmdEnd(cmd);
 
 		rt_timepoint rendered = rtQueueSubmit(queue, cmd);
-		last_rendered = rendered;
 		rtFramebufferDepthView(acquired.framebuffer, RT_NULL_HANDLE);
 		rtSwapchainPresent(swapchain, rendered);
 		rendered_frames++;
@@ -284,7 +276,6 @@ int main(int argc, char** argv) {
 		}
 	}
 
-	rtTimepointWait(last_rendered);
 	rtCommandBufferDestroy(cmd);
 	rtGraphicsProgramDestroy(water_program);
 	rtGraphicsProgramDestroy(graphics_program);
@@ -295,7 +286,7 @@ int main(int argc, char** argv) {
 	rtTextureViewDestroy(depth_view);
 	rtTextureDestroy(depth_texture);
 	rtSwapchainDestroy(swapchain);
-	Swapchain.store(RT_NULL_HANDLE, std::memory_order_release);
+	Swapchain = RT_NULL_HANDLE;
 	glfwDestroyWindow(window);
 	glfwTerminate();
 	rtExit();

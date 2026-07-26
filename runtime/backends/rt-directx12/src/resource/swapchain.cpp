@@ -160,7 +160,7 @@ bool rtdx_swapchain_resize(struct rtdx_context* ctx, struct rtdx_swapchain* swap
 		width,
 		height,
 		swapchain->dxgi_format,
-		DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT | (ctx->allow_tearing ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0)
+		ctx->allow_tearing ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0
 	);
 	if (FAILED(result)) {
 		rtdx_swapchain_unlock(swapchain);
@@ -196,10 +196,6 @@ void rtdx_swapchain_finish(struct rtdx_context* ctx, struct rtdx_swapchain* swap
 		rtdx_swapchain_wait_frame(ctx, &swapchain->frames[i]);
 	}
 	rtdx_swapchain_destroy_framebuffers(ctx, swapchain);
-	if (swapchain->frame_latency_object) {
-		rt_native_wait_handle_close(swapchain->frame_latency_object);
-		swapchain->frame_latency_object = NULL;
-	}
 	rtdx_release(&swapchain->rtv_heap);
 	rtdx_release(&swapchain->dxgi_swapchain);
 	rtdx_swapchain_unlock(swapchain);

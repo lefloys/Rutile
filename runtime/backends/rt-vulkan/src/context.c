@@ -703,6 +703,12 @@ void rtvk_context_finish(struct rtvk_context* ctx) {
 		return;
 	}
 
+	/* Resource destruction is deferred by reference counting. Make sure all
+	 * submitted work has completed before queue and device-owned handles are
+	 * torn down, including resources that have not reached their retire point. */
+	if (ctx->vk_device) {
+		vkDeviceWaitIdle(ctx->vk_device);
+	}
 	rtvk_context_destroy_queues(ctx);
 	if (ctx->vma_allocator) {
 #if defined(RTVK_ENABLE_VULKAN_VALIDATION)

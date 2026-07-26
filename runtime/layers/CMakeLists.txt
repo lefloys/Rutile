@@ -1,6 +1,2 @@
-if(RUTILE_BUILD_VALIDATION_LAYER)
-    add_subdirectory("rt-validation-layer")
-endif()
-if(RUTILE_BUILD_LOGGING_LAYER)
-    add_subdirectory("rt-logging-layer")
-endif()
+add_subdirectory("rt-validation-layer" EXCLUDE_FROM_ALL)
+add_subdirectory("rt-logging-layer" EXCLUDE_FROM_ALL)

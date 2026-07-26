@@ -344,10 +344,11 @@ enum rt_error rtLoad(const char* backend_name, const char* const* layer_names, u
 /*!
 ** @brief Load a backend and layers in best-effort mode for development.
 **
-** Same intent as @ref rtLoad but tolerates missing pieces: a missing backend
-** leaves Rutile unloaded but still returns RT_SUCCESS; layers that fail to
-** load are skipped; entry points that the backend does not provide are left
-** as NULL function pointers rather than failing the load.
+** Same intent as @ref rtLoad but tolerates a missing backend for development
+** tools. Explicitly requested layers are still required: a missing or
+** invalid layer fails the load rather than silently changing the dispatch
+** chain. Entry points that the backend does not provide are left as NULL
+** function pointers rather than failing the load.
 **
 ** Intended for iterative development where backends are being built out and
 ** not every entry point exists yet. Production code should call @ref rtLoad.
@@ -356,9 +357,8 @@ enum rt_error rtLoad(const char* backend_name, const char* const* layer_names, u
 ** @param layer_names   Optional array of layer names (see @ref rtLoad).
 ** @param layer_count   Number of entries in @p layer_names.
 **
-** @return RT_SUCCESS in almost all cases; RT_IMPROPER_USAGE only for
-**         argument-shape errors (e.g. non-zero @p layer_count with NULL
-**         @p layer_names).
+** @return RT_SUCCESS when the backend is absent or loads successfully;
+**         an error when a requested layer cannot be loaded.
 */
 enum rt_error rtLoadDevelopment(const char* backend_name, const char* const* layer_names, u32 layer_count);
 
@@ -2459,6 +2459,13 @@ enum rt_error rtLoad(const char* backend_name, const char* const* layer_names, u
 		rt__loader_print_error();
 		return RT_IMPROPER_USAGE;
 	}
+	for (u32 i = 0; i < layer_count; i++) {
+		if (!layer_names[i] || !layer_names[i][0]) {
+			rt__loader_set_errorf(RT_IMPROPER_USAGE, "rtLoad layer %u has no name", i);
+			rt__loader_print_error();
+			return RT_IMPROPER_USAGE;
+		}
+	}
 
 	rtUnload();
 
@@ -2516,6 +2523,13 @@ enum rt_error rtLoadDevelopment(const char* backend_name, const char* const* lay
 		rt__loader_print_error();
 		return RT_IMPROPER_USAGE;
 	}
+	for (u32 i = 0; i < layer_count; i++) {
+		if (!layer_names[i] || !layer_names[i][0]) {
+			rt__loader_set_errorf(RT_IMPROPER_USAGE, "rtLoadDevelopment layer %u has no name", i);
+			rt__loader_print_error();
+			return RT_IMPROPER_USAGE;
+		}
+	}
 
 	rtUnload();
 
@@ -2539,9 +2553,13 @@ enum rt_error rtLoadDevelopment(const char* backend_name, const char* const* lay
 	for (u32 i = 0; i < layer_count; i++) {
 		err = rt__load_layer_named(layer_names[i], &rt__layer_links[loaded_layers], message, sizeof(message));
 		if (err != RT_SUCCESS) {
-			rt__loader_set_errorf(RT_SUCCESS, "development loader skipped layer %s", layer_names[i]);
+			/* Layers are part of the requested dispatch chain. Skipping one
+			 * would silently run a different program, so development loading is
+			 * still strict about layer availability. */
+			rt__close_dlls();
+			rt__loader_set_errorf(err, "%s", message[0] ? message : "failed to load layer");
 			rt__loader_print_error();
-			continue;
+			return err;
 		}
 		loaded_layers++;
 	}

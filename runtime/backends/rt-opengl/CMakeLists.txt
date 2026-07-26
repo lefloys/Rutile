@@ -2,11 +2,7 @@ cmake_minimum_required(VERSION 3.28.0)
 
 project(rt-opengl C CXX)
 
-if(NOT WIN32)
-    return()
-endif()
-
-include(RutileTarget)
+include("${RUTILE_SOURCE_DIR}/cmake/RutileTarget.cmake")
 
 find_package(glfw3 CONFIG REQUIRED)
 
@@ -44,6 +40,10 @@ target_sources(${PROJECT_NAME} PRIVATE
     "src/resource/graphics_program.h"
     "../rt-vulkan/src/rtsl_spirv.cpp"
     "../rt-vulkan/src/rtsl_spirv.h"
+    "src/rtsl_glsl.cpp"
+    "src/rtsl_glsl.h"
+    "${RUTILE_SOURCE_DIR}/RTSL/transpilers/glsl/src/glsl.cpp"
+    "${RUTILE_SOURCE_DIR}/RTSL/transpilers/spirv/src/spirv.cpp"
     "src/resource/queue.c"
     "src/resource/queue.h"
     "src/resource/swapchain.c"
@@ -62,8 +62,12 @@ target_sources(${PROJECT_NAME} PRIVATE
 rutile_configure_shared_library(${PROJECT_NAME})
 
 target_include_directories(${PROJECT_NAME} PRIVATE
+    "src"
     "../../common"
+    "../../bindings/c/include"
     "../rt-vulkan/src"
+    "${RUTILE_SOURCE_DIR}/RTSL/transpilers/glsl/include"
+    "${RUTILE_SOURCE_DIR}/RTSL/transpilers/spirv/include"
 )
 
 target_link_libraries(${PROJECT_NAME}
@@ -73,7 +77,9 @@ target_link_libraries(${PROJECT_NAME}
         gdi32
         user32
         psapi
-        RTSL::spirv
+        rt-backend-common
+        rutile
+        rtsl-sdk
 )
 
 add_subdirectory("workspace")

@@ -2,11 +2,7 @@ cmake_minimum_required(VERSION 3.28.0)
 
 project(rt-directx12 C CXX)
 
-if(NOT WIN32)
-    return()
-endif()
-
-include(RutileTarget)
+include("${RUTILE_SOURCE_DIR}/cmake/RutileTarget.cmake")
 
 add_library(${PROJECT_NAME} SHARED)
 target_sources(${PROJECT_NAME} PRIVATE
@@ -44,11 +40,14 @@ target_sources(${PROJECT_NAME} PRIVATE
     "src/glfw/glfw.hpp"
     "src/glfw/swapchain.cpp"
     "src/glfw/swapchain.hpp"
+    "${RUTILE_SOURCE_DIR}/RTSL/transpilers/hlsl/src/hlsl.cpp"
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE
     "src"
     "../../common"
+    "../../bindings/c/include"
+    "${RUTILE_SOURCE_DIR}/RTSL/transpilers/hlsl/include"
 )
 target_compile_definitions(${PROJECT_NAME} PRIVATE
     $<$<CONFIG:Debug>:RTDX_ENABLE_D3D12_VALIDATION>
@@ -61,7 +60,9 @@ target_link_libraries(${PROJECT_NAME}
         d3d12
         dxgi
         dxguid
-        RTSL::hlsl
+        rt-backend-common
+        rutile
+        rtsl-sdk
 )
 
 find_library(_rtdx_dxcompiler_lib dxcompiler)
@@ -92,13 +93,11 @@ if(_rtdx_dxcompiler_dll AND _rtdx_dxil_dll)
             "${_rtdx_dxil_dll}"
             "$<TARGET_FILE_DIR:${PROJECT_NAME}>"
     )
-    if(RUTILE_INSTALL)
-        install(FILES
-            "${_rtdx_dxcompiler_dll}"
-            "${_rtdx_dxil_dll}"
-            DESTINATION "${CMAKE_INSTALL_BINDIR}"
-        )
-    endif()
+    install(FILES
+        "${_rtdx_dxcompiler_dll}"
+        "${_rtdx_dxil_dll}"
+        DESTINATION "${CMAKE_INSTALL_BINDIR}"
+    )
 else()
     message(FATAL_ERROR "rt-directx12 requires redistributable dxcompiler.dll and dxil.dll")
 endif()
