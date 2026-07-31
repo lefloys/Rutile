@@ -19,6 +19,7 @@ include("${CMAKE_CURRENT_SOURCE_DIR}/RTSL/cmake/Rtsl.cmake")
 
 add_subdirectory("RTSL" EXCLUDE_FROM_ALL)
 add_subdirectory("bindings/c")
+add_subdirectory("bindings/cpp")
 add_subdirectory("runtime")
 add_subdirectory("examples" EXCLUDE_FROM_ALL)
 
