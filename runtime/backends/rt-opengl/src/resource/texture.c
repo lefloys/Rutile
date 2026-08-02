@@ -69,7 +69,8 @@ rt_timepoint rtTextureSubdata(rt_texture texture, u32 mip, u32 offset_x, u32 off
 		width,
 		height,
 		depth,
-		data));
+		data
+	));
 }
 
 rt_timepoint rtTextureViewCopyToBuffer(rt_texture_view texture_view, rt_buffer buffer) {

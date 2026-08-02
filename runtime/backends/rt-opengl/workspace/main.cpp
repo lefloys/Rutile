@@ -5,8 +5,8 @@
 
 #include <GLFW/glfw3.h>
 
-#include <cstring>
 #include <cstdio>
+#include <cstring>
 
 int main() {
 	rtLoadDevelopment("rt-opengl", nullptr, 0);
@@ -33,7 +33,7 @@ int main() {
 	rtBufferData(buffer, RT_BUFFER_DYNAMIC, (rt_buffer_usage)(RT_BUFFER_USAGE_STAGING | RT_BUFFER_USAGE_TRANSFER_SRC | RT_BUFFER_USAGE_TRANSFER_DST), sizeof(upload), upload);
 	rtBufferSubdata(buffer, sizeof(u32), sizeof(update), update);
 	rtBufferRead(buffer, 0, sizeof(download), download);
-		
+
 	if (std::memcmp(download, expected, sizeof(expected)) != 0) {
 		std::fprintf(stderr, "rt-opengl-workspace: buffer readback mismatch: {%u, %u, %u, %u}\n", download[0], download[1], download[2], download[3]);
 		rtBufferDestroy(buffer);

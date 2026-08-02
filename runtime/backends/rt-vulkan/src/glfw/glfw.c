@@ -1,13 +1,13 @@
 #include "glfw/glfw.h"
-#include "error.h"
 #include "context.h"
+#include "error.h"
 
 #if defined(_WIN32)
-#  define WIN32_LEAN_AND_MEAN
-#  include <windows.h>
-#  include <psapi.h>
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <psapi.h>
 #else
-#  include <dlfcn.h>
+#include <dlfcn.h>
 #endif
 
 #include <assert.h>
@@ -24,18 +24,18 @@
 typedef struct GLFWwindow GLFWwindow;
 
 typedef VkResult (*PFN_glfwCreateWindowSurface)(VkInstance, GLFWwindow*, const VkAllocationCallbacks*, VkSurfaceKHR*);
-typedef void     (*PFN_glfwGetFramebufferSize)(GLFWwindow*, int*, int*);
-typedef int      (*PFN_glfwGetError)(const char**);
-typedef int      (*PFN_glfwVulkanSupported)(void);
+typedef void (*PFN_glfwGetFramebufferSize)(GLFWwindow*, int*, int*);
+typedef int (*PFN_glfwGetError)(const char**);
+typedef int (*PFN_glfwVulkanSupported)(void);
 
 struct rtvk_glfw_procs {
 	int resolved;
 	int ok;
 	const char* failure_reason;
 	PFN_glfwCreateWindowSurface create_window_surface;
-	PFN_glfwGetFramebufferSize  get_framebuffer_size;
-	PFN_glfwGetError            get_error;
-	PFN_glfwVulkanSupported     vulkan_supported;
+	PFN_glfwGetFramebufferSize get_framebuffer_size;
+	PFN_glfwGetError get_error;
+	PFN_glfwVulkanSupported vulkan_supported;
 };
 
 static struct rtvk_glfw_procs g_glfw;
@@ -84,9 +84,9 @@ static void rtvk_glfw_resolve(void) {
 	g_glfw.resolved = 1;
 
 	g_glfw.create_window_surface = (PFN_glfwCreateWindowSurface)rtvk_glfw_find_proc("glfwCreateWindowSurface");
-	g_glfw.get_framebuffer_size  = (PFN_glfwGetFramebufferSize)rtvk_glfw_find_proc("glfwGetFramebufferSize");
-	g_glfw.get_error             = (PFN_glfwGetError)rtvk_glfw_find_proc("glfwGetError");
-	g_glfw.vulkan_supported      = (PFN_glfwVulkanSupported)rtvk_glfw_find_proc("glfwVulkanSupported");
+	g_glfw.get_framebuffer_size = (PFN_glfwGetFramebufferSize)rtvk_glfw_find_proc("glfwGetFramebufferSize");
+	g_glfw.get_error = (PFN_glfwGetError)rtvk_glfw_find_proc("glfwGetError");
+	g_glfw.vulkan_supported = (PFN_glfwVulkanSupported)rtvk_glfw_find_proc("glfwVulkanSupported");
 
 	if (!g_glfw.create_window_surface) {
 		g_glfw.failure_reason = "glfwCreateWindowSurface not found in any loaded module - is GLFW linked into the host executable?";

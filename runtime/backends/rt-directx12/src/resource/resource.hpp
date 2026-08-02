@@ -85,17 +85,17 @@ inline rtdx_resource_base* rtdx_resource_base_ptr(T* resource) {
 	void rtdx_##type##_init(rtdx_context* ctx, rtdx_##type* type);                                                 \
 	void rtdx_##type##_finish(rtdx_context* ctx, rtdx_##type* type);
 
-#define RTDX_DEFINE_RESOURCE_PRIVATE(type)                              \
-	rtdx_##type* rtdx_##type##_create(rtdx_context* ctx) {              \
-		rtdx_##type* type = rtdx_new_resource<rtdx_##type>();           \
-		if (type) {                                                     \
-			rtdx_##type##_init(ctx, type);                              \
-		}                                                               \
-		return type;                                                    \
-	}                                                                   \
-	void rtdx_##type##_destroy(rtdx_context*, rtdx_##type* type) {      \
-		if (!type) {                                                    \
-			return;                                                     \
-		}                                                               \
-		rtdx_resource_retire(RTDX_RESOURCE_BASE(type));                 \
+#define RTDX_DEFINE_RESOURCE_PRIVATE(type)                         \
+	rtdx_##type* rtdx_##type##_create(rtdx_context* ctx) {         \
+		rtdx_##type* type = rtdx_new_resource<rtdx_##type>();      \
+		if (type) {                                                \
+			rtdx_##type##_init(ctx, type);                         \
+		}                                                          \
+		return type;                                               \
+	}                                                              \
+	void rtdx_##type##_destroy(rtdx_context*, rtdx_##type* type) { \
+		if (!type) {                                               \
+			return;                                                \
+		}                                                          \
+		rtdx_resource_retire(RTDX_RESOURCE_BASE(type));            \
 	}

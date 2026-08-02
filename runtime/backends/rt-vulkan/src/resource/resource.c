@@ -22,7 +22,6 @@ void* rtvk_alloc_resource(usize size) {
 /*                                                                                               */
 /*===============================================================================================*/
 
-
 void rtvk_init_resource_base(struct rtvk_context* ctx, struct rtvk_resource_base* base, rtvk_resource_type type) {
 	assert(base);
 	base->type = type;

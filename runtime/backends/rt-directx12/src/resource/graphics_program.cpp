@@ -2,13 +2,13 @@
 #include "context.hpp"
 #include "error.hpp"
 
-#include <dxcapi.h>
-#include <rtsl/hlsl.hpp>
 #include <cassert>
 #include <climits>
 #include <cstring>
+#include <dxcapi.h>
 #include <iterator>
 #include <optional>
+#include <rtsl/hlsl.hpp>
 #include <span>
 #include <string>
 #include <string_view>
@@ -142,7 +142,8 @@ static std::optional<u32> rtdx_type_byte_size(const rtsl::Program& program, rtsl
 static std::optional<u32> rtdx_storage_buffer_stride(const rtsl::Program& program, const rtsl::Resource& resource) {
 	const rtsl::ir::Type* block = program.find_type(resource.value_type);
 	const rtsl::ir::Type* array = block && block->kind == rtsl::ir::TypeKind::structure && block->members.size() == 1
-		? program.find_type(block->members.front()) : nullptr;
+									  ? program.find_type(block->members.front())
+									  : nullptr;
 	if (!array || array->kind != rtsl::ir::TypeKind::runtime_array) {
 		return std::nullopt;
 	}
@@ -254,46 +255,76 @@ static bool rtdx_graphics_program_create_root_signature(rtdx_context* ctx, rtdx_
 
 static DXGI_FORMAT rtdx_vertex_format(rt_format format) {
 	switch (format) {
-	case RT_R32_SFLOAT: return DXGI_FORMAT_R32_FLOAT;
-	case RT_RG32_SFLOAT: return DXGI_FORMAT_R32G32_FLOAT;
-	case RT_RGB32_SFLOAT: return DXGI_FORMAT_R32G32B32_FLOAT;
-	case RT_RGBA32_SFLOAT: return DXGI_FORMAT_R32G32B32A32_FLOAT;
-	case RT_R32_SINT: return DXGI_FORMAT_R32_SINT;
-	case RT_RG32_SINT: return DXGI_FORMAT_R32G32_SINT;
-	case RT_RGB32_SINT: return DXGI_FORMAT_R32G32B32_SINT;
-	case RT_RGBA32_SINT: return DXGI_FORMAT_R32G32B32A32_SINT;
-	case RT_R32_UINT: return DXGI_FORMAT_R32_UINT;
-	case RT_RG32_UINT: return DXGI_FORMAT_R32G32_UINT;
-	case RT_RGB32_UINT: return DXGI_FORMAT_R32G32B32_UINT;
-	case RT_RGBA32_UINT: return DXGI_FORMAT_R32G32B32A32_UINT;
-	default: return DXGI_FORMAT_UNKNOWN;
+	case RT_R32_SFLOAT:
+		return DXGI_FORMAT_R32_FLOAT;
+	case RT_RG32_SFLOAT:
+		return DXGI_FORMAT_R32G32_FLOAT;
+	case RT_RGB32_SFLOAT:
+		return DXGI_FORMAT_R32G32B32_FLOAT;
+	case RT_RGBA32_SFLOAT:
+		return DXGI_FORMAT_R32G32B32A32_FLOAT;
+	case RT_R32_SINT:
+		return DXGI_FORMAT_R32_SINT;
+	case RT_RG32_SINT:
+		return DXGI_FORMAT_R32G32_SINT;
+	case RT_RGB32_SINT:
+		return DXGI_FORMAT_R32G32B32_SINT;
+	case RT_RGBA32_SINT:
+		return DXGI_FORMAT_R32G32B32A32_SINT;
+	case RT_R32_UINT:
+		return DXGI_FORMAT_R32_UINT;
+	case RT_RG32_UINT:
+		return DXGI_FORMAT_R32G32_UINT;
+	case RT_RGB32_UINT:
+		return DXGI_FORMAT_R32G32B32_UINT;
+	case RT_RGBA32_UINT:
+		return DXGI_FORMAT_R32G32B32A32_UINT;
+	default:
+		return DXGI_FORMAT_UNKNOWN;
 	}
 }
 
 static D3D12_BLEND rtdx_blend_factor(rt_blend_factor factor) {
 	switch (factor) {
-	case RT_BLEND_ZERO: return D3D12_BLEND_ZERO;
-	case RT_BLEND_ONE: return D3D12_BLEND_ONE;
-	case RT_BLEND_SRC_COLOR: return D3D12_BLEND_SRC_COLOR;
-	case RT_BLEND_ONE_MINUS_SRC_COLOR: return D3D12_BLEND_INV_SRC_COLOR;
-	case RT_BLEND_DST_COLOR: return D3D12_BLEND_DEST_COLOR;
-	case RT_BLEND_ONE_MINUS_DST_COLOR: return D3D12_BLEND_INV_DEST_COLOR;
-	case RT_BLEND_SRC_ALPHA: return D3D12_BLEND_SRC_ALPHA;
-	case RT_BLEND_ONE_MINUS_SRC_ALPHA: return D3D12_BLEND_INV_SRC_ALPHA;
-	case RT_BLEND_DST_ALPHA: return D3D12_BLEND_DEST_ALPHA;
-	case RT_BLEND_ONE_MINUS_DST_ALPHA: return D3D12_BLEND_INV_DEST_ALPHA;
-	default: return D3D12_BLEND_ZERO;
+	case RT_BLEND_ZERO:
+		return D3D12_BLEND_ZERO;
+	case RT_BLEND_ONE:
+		return D3D12_BLEND_ONE;
+	case RT_BLEND_SRC_COLOR:
+		return D3D12_BLEND_SRC_COLOR;
+	case RT_BLEND_ONE_MINUS_SRC_COLOR:
+		return D3D12_BLEND_INV_SRC_COLOR;
+	case RT_BLEND_DST_COLOR:
+		return D3D12_BLEND_DEST_COLOR;
+	case RT_BLEND_ONE_MINUS_DST_COLOR:
+		return D3D12_BLEND_INV_DEST_COLOR;
+	case RT_BLEND_SRC_ALPHA:
+		return D3D12_BLEND_SRC_ALPHA;
+	case RT_BLEND_ONE_MINUS_SRC_ALPHA:
+		return D3D12_BLEND_INV_SRC_ALPHA;
+	case RT_BLEND_DST_ALPHA:
+		return D3D12_BLEND_DEST_ALPHA;
+	case RT_BLEND_ONE_MINUS_DST_ALPHA:
+		return D3D12_BLEND_INV_DEST_ALPHA;
+	default:
+		return D3D12_BLEND_ZERO;
 	}
 }
 
 static D3D12_BLEND_OP rtdx_blend_op(rt_blend_op operation) {
 	switch (operation) {
-	case RT_BLEND_OP_ADD: return D3D12_BLEND_OP_ADD;
-	case RT_BLEND_OP_SUBTRACT: return D3D12_BLEND_OP_SUBTRACT;
-	case RT_BLEND_OP_REVERSE_SUBTRACT: return D3D12_BLEND_OP_REV_SUBTRACT;
-	case RT_BLEND_OP_MIN: return D3D12_BLEND_OP_MIN;
-	case RT_BLEND_OP_MAX: return D3D12_BLEND_OP_MAX;
-	default: return D3D12_BLEND_OP_ADD;
+	case RT_BLEND_OP_ADD:
+		return D3D12_BLEND_OP_ADD;
+	case RT_BLEND_OP_SUBTRACT:
+		return D3D12_BLEND_OP_SUBTRACT;
+	case RT_BLEND_OP_REVERSE_SUBTRACT:
+		return D3D12_BLEND_OP_REV_SUBTRACT;
+	case RT_BLEND_OP_MIN:
+		return D3D12_BLEND_OP_MIN;
+	case RT_BLEND_OP_MAX:
+		return D3D12_BLEND_OP_MAX;
+	default:
+		return D3D12_BLEND_OP_ADD;
 	}
 }
 
@@ -367,8 +398,8 @@ bool rtdx_graphics_program_prepare(
 	blend.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
 	desc.SampleMask = UINT_MAX;
 	desc.RasterizerState.FillMode = program->fill_mode == RT_FILL_WIREFRAME ? D3D12_FILL_MODE_WIREFRAME : D3D12_FILL_MODE_SOLID;
-	desc.RasterizerState.CullMode = program->cull_mode == RT_CULL_FRONT ? D3D12_CULL_MODE_FRONT :
-		program->cull_mode == RT_CULL_BACK ? D3D12_CULL_MODE_BACK : D3D12_CULL_MODE_NONE;
+	desc.RasterizerState.CullMode = program->cull_mode == RT_CULL_FRONT ? D3D12_CULL_MODE_FRONT : program->cull_mode == RT_CULL_BACK ? D3D12_CULL_MODE_BACK
+																																	 : D3D12_CULL_MODE_NONE;
 	desc.RasterizerState.FrontCounterClockwise = program->front_face == RT_FRONT_FACE_CCW;
 	desc.RasterizerState.DepthBias = D3D12_DEFAULT_DEPTH_BIAS;
 	desc.RasterizerState.DepthBiasClamp = D3D12_DEFAULT_DEPTH_BIAS_CLAMP;

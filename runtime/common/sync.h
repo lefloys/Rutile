@@ -1,8 +1,8 @@
 #ifndef RT_SYNC_H
 #define RT_SYNC_H
 
-#include <stdbool.h>
 #include "rutile.h"
+#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {

@@ -16,7 +16,7 @@ rt_graphics_program rtGraphicsProgramCreate(void) {
 
 void rtGraphicsProgramDestroy(rt_graphics_program program) {
 	rtgl_graphics_program_destroy(
-		rtgl_get_current_context(), 
+		rtgl_get_current_context(),
 		rtgl_graphics_program_from_handle(program)
 	);
 }
@@ -40,9 +40,9 @@ void rtGraphicsProgramSource(rt_graphics_program program, u64 size, const void* 
 
 void rtGraphicsProgramRasterState(rt_graphics_program program, enum rt_cull_mode cull_mode, enum rt_front_face front_face, enum rt_fill_mode fill_mode) {
 	rtgl_graphics_program_raster_state(
-		rtgl_get_current_context(), 
+		rtgl_get_current_context(),
 		rtgl_graphics_program_from_handle(program),
-		cull_mode, 
+		cull_mode,
 		front_face,
 		fill_mode
 	);
@@ -50,28 +50,28 @@ void rtGraphicsProgramRasterState(rt_graphics_program program, enum rt_cull_mode
 
 void rtGraphicsProgramBlendState(rt_graphics_program program, bool enabled, enum rt_blend_factor src_color, enum rt_blend_factor dst_color, enum rt_blend_op color_op, enum rt_blend_factor src_alpha, enum rt_blend_factor dst_alpha, enum rt_blend_op alpha_op) {
 	rtgl_graphics_program_blend_state(
-		rtgl_get_current_context(), 
-		rtgl_graphics_program_from_handle(program), 
+		rtgl_get_current_context(),
+		rtgl_graphics_program_from_handle(program),
 		enabled,
-		src_color, 
-		dst_color, 
-		color_op, 
-		src_alpha, 
-		dst_alpha, 
+		src_color,
+		dst_color,
+		color_op,
+		src_alpha,
+		dst_alpha,
 		alpha_op
 	);
 }
 
 void rtGraphicsProgramFinalize(rt_graphics_program program) {
 	rtgl_graphics_program_finalize(
-		rtgl_get_current_context(), 
+		rtgl_get_current_context(),
 		rtgl_graphics_program_from_handle(program)
 	);
 }
 
 void rtGraphicsProgramReset(rt_graphics_program program) {
 	rtgl_graphics_program_reset(
-		rtgl_get_current_context(), 
+		rtgl_get_current_context(),
 		rtgl_graphics_program_from_handle(program)
 	);
 }
@@ -83,7 +83,6 @@ rt_uniform_location rtGraphicsProgramUniformLocation(rt_graphics_program program
 /*===============================================================================================*/
 /*                                                                                               */
 /*===============================================================================================*/
-
 
 RTGL_DEFINE_RESOURCE_PRIVATE(graphics_program)
 

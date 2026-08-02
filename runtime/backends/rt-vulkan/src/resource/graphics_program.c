@@ -19,22 +19,25 @@ rt_graphics_program rtGraphicsProgramCreate(void) {
 
 void rtGraphicsProgramDestroy(rt_graphics_program program) {
 	rtvk_graphics_program_destroy(
-		rtvk_get_current_context(), 
+		rtvk_get_current_context(),
 		rtvk_graphics_program_from_handle(program)
 	);
 }
 
 void rtGraphicsProgramLayout(rt_graphics_program program, const rt_vertex_layout* layout) {
 	rtvk_graphics_program_layout(
-		rtvk_get_current_context(), 
-		rtvk_graphics_program_from_handle(program), 
-		layout);
+		rtvk_get_current_context(),
+		rtvk_graphics_program_from_handle(program),
+		layout
+	);
 }
 
 void rtGraphicsProgramSource(rt_graphics_program program, u64 size, const void* data) {
 	rtvk_graphics_program_source(
-		rtvk_get_current_context(), 
-		rtvk_graphics_program_from_handle(program), size, data
+		rtvk_get_current_context(),
+		rtvk_graphics_program_from_handle(program),
+		size,
+		data
 	);
 }
 
@@ -44,14 +47,21 @@ void rtGraphicsProgramRasterState(rt_graphics_program program, enum rt_cull_mode
 
 void rtGraphicsProgramBlendState(rt_graphics_program program, bool enabled, enum rt_blend_factor src_color, enum rt_blend_factor dst_color, enum rt_blend_op color_op, enum rt_blend_factor src_alpha, enum rt_blend_factor dst_alpha, enum rt_blend_op alpha_op) {
 	rtvk_graphics_program_blend_state(
-		rtvk_get_current_context(), 
-		rtvk_graphics_program_from_handle(program), enabled, src_color, dst_color, color_op, src_alpha, dst_alpha, alpha_op
+		rtvk_get_current_context(),
+		rtvk_graphics_program_from_handle(program),
+		enabled,
+		src_color,
+		dst_color,
+		color_op,
+		src_alpha,
+		dst_alpha,
+		alpha_op
 	);
 }
 
 void rtGraphicsProgramFinalize(rt_graphics_program program) {
 	rtvk_graphics_program_finalize(
-		rtvk_get_current_context(), 
+		rtvk_get_current_context(),
 		rtvk_graphics_program_from_handle(program)
 	);
 }
@@ -64,7 +74,7 @@ void rtGraphicsProgramReset(rt_graphics_program program) {
 }
 
 rt_uniform_location rtGraphicsProgramUniformLocation(rt_graphics_program program, const char* name) {
-	return rtvk_uniform_location_to_handle(rtvk_graphics_program_uniform_location(rtvk_get_current_context(),rtvk_graphics_program_from_handle(program), name));
+	return rtvk_uniform_location_to_handle(rtvk_graphics_program_uniform_location(rtvk_get_current_context(), rtvk_graphics_program_from_handle(program), name));
 }
 
 /*===============================================================================================*/
@@ -700,10 +710,10 @@ void rtvk_graphics_program_finalize(struct rtvk_context* ctx, struct rtvk_graphi
 	);
 	if (status != RTSL_SPIRV_SUCCESS) {
 		const enum rt_error error = status == RTSL_SPIRV_OUT_OF_MEMORY
-			? RT_OUT_OF_HOST_MEMORY
-			: status == RTSL_SPIRV_INVALID_PROGRAM
-				? RT_SHADER_LINK_FAILED
-				: RT_SHADER_COMPILATION_FAILED;
+										? RT_OUT_OF_HOST_MEMORY
+									: status == RTSL_SPIRV_INVALID_PROGRAM
+										? RT_SHADER_LINK_FAILED
+										: RT_SHADER_COMPILATION_FAILED;
 		rtvk_throwf(error, "RTSL translation failed: %s", translation_message);
 		return;
 	}
@@ -742,10 +752,14 @@ cleanup:
 
 static VkCullModeFlags rtvk_cull_mode(enum rt_cull_mode mode) {
 	switch (mode) {
-	case RT_CULL_NONE: return VK_CULL_MODE_NONE;
-	case RT_CULL_FRONT: return VK_CULL_MODE_FRONT_BIT;
-	case RT_CULL_BACK: return VK_CULL_MODE_BACK_BIT;
-	default: return VK_CULL_MODE_NONE;
+	case RT_CULL_NONE:
+		return VK_CULL_MODE_NONE;
+	case RT_CULL_FRONT:
+		return VK_CULL_MODE_FRONT_BIT;
+	case RT_CULL_BACK:
+		return VK_CULL_MODE_BACK_BIT;
+	default:
+		return VK_CULL_MODE_NONE;
 	}
 }
 

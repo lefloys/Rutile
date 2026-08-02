@@ -6,14 +6,13 @@
 #include "world.h"
 
 #include <GLFW/glfw3.h>
-#include <rtsl/program.hpp>
 #include <chrono>
 #include <cstddef>
 #include <cstdio>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <rtsl/program.hpp>
 #include <vector>
-
 
 constexpr const char* Layers[] = { "RT_VALIDATION_LAYER" };
 constexpr const char* Features[] = { RT_FEATURE_PRESENTATION };
@@ -33,7 +32,6 @@ constexpr rt_vertex_attribute VertexAttributes[] = {
 
 constexpr rt_vertex_layout VertexLayout = { sizeof(Vertex), VertexAttributes, 7 };
 
-
 struct Camera {
 	glm::vec3 position = glm::vec3(0.0f, 13.0f, 18.0f);
 	f32 yaw = -glm::radians(90.0f);
@@ -46,7 +44,6 @@ u32 FramebufferHeight = 720;
 bool ResizePending = false;
 f32 MouseDx = 0.0f;
 f32 MouseDy = 0.0f;
-
 
 glm::vec3 camera_forward(const Camera& camera) {
 	const f32 cp = glm::cos(camera.pitch);
@@ -236,9 +233,9 @@ int main(int argc, char** argv) {
 		const std::chrono::duration<f32> elapsed = now - start_time;
 		transform = view_projection;
 		water_transform = view_projection * glm::translate(
-			glm::mat4{ 1.0f },
-			glm::vec3{ 0.0f, glm::sin(elapsed.count() * 1.8f) * 0.035f, 0.0f }
-		);
+												glm::mat4{ 1.0f },
+												glm::vec3{ 0.0f, glm::sin(elapsed.count() * 1.8f) * 0.035f, 0.0f }
+											);
 		rtBufferSubdata(transform_buffer, 0, sizeof(transform), &transform);
 		rtBufferSubdata(water_transform_buffer, 0, sizeof(water_transform), &water_transform);
 

@@ -21,12 +21,12 @@ void rtSwapchainBindWindowGLFW(rt_swapchain swapchain, GLFWwindow* window) {
 	rtClearError();
 	rtdx_glfw_get_framebuffer_size(window, &width, &height);
 	if (!rtdx_swapchain_create_for_hwnd(
-		rtdx_get_current_context(),
-		rtdx_swapchain_from_handle(swapchain),
-		rtdx_glfw_get_hwnd(window),
-		(u32)width,
-		(u32)height
-	)) {
+			rtdx_get_current_context(),
+			rtdx_swapchain_from_handle(swapchain),
+			rtdx_glfw_get_hwnd(window),
+			(u32)width,
+			(u32)height
+		)) {
 		return;
 	}
 }

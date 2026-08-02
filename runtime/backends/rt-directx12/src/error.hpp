@@ -3,8 +3,8 @@
 #include "config.hpp"
 #include "types.hpp"
 
-#include <stdarg.h>
 #include <dxgi.h>
+#include <stdarg.h>
 
 RTDX_API void rtSetOutput(PFN_rtOutput output, void* user_data);
 RTDX_API rt_error rtError();

@@ -37,11 +37,16 @@ void write_message(char* destination, u64 capacity, std::string_view context, st
 
 rtsl_spirv_resource_kind resource_kind(rtsl::ResourceKind kind) {
 	switch (kind) {
-	case rtsl::ResourceKind::uniform_buffer: return RTSL_SPIRV_UNIFORM_BUFFER;
-	case rtsl::ResourceKind::storage_buffer: return RTSL_SPIRV_STORAGE_BUFFER;
-	case rtsl::ResourceKind::sampler: return RTSL_SPIRV_SAMPLER;
-	case rtsl::ResourceKind::sampled_texture: return RTSL_SPIRV_SAMPLED_TEXTURE;
-	case rtsl::ResourceKind::storage_image: return RTSL_SPIRV_STORAGE_IMAGE;
+	case rtsl::ResourceKind::uniform_buffer:
+		return RTSL_SPIRV_UNIFORM_BUFFER;
+	case rtsl::ResourceKind::storage_buffer:
+		return RTSL_SPIRV_STORAGE_BUFFER;
+	case rtsl::ResourceKind::sampler:
+		return RTSL_SPIRV_SAMPLER;
+	case rtsl::ResourceKind::sampled_texture:
+		return RTSL_SPIRV_SAMPLED_TEXTURE;
+	case rtsl::ResourceKind::storage_image:
+		return RTSL_SPIRV_STORAGE_IMAGE;
 	}
 	std::unreachable();
 }
@@ -111,8 +116,7 @@ extern "C" void rtsl_spirv_translation_destroy(rtsl_spirv_translation* translati
 	delete translation;
 }
 
-extern "C" const u32* rtsl_spirv_stage_words(const rtsl_spirv_translation* translation, rtsl_spirv_stage stage, u64* word_count
-) {
+extern "C" const u32* rtsl_spirv_stage_words(const rtsl_spirv_translation* translation, rtsl_spirv_stage stage, u64* word_count) {
 	if (!translation || !word_count) {
 		return nullptr;
 	}

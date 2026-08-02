@@ -26,4 +26,3 @@ std::span<std::byte> to_bytes(std::span<T> values) {
 		values.size_bytes(),
 	};
 }
-

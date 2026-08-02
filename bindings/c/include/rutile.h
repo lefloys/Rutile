@@ -53,7 +53,7 @@
 **
 ** **Destroy functions never record an error.** They are infallible by
 ** contract - not even RT_IMPROPER_USAGE, and not even from a validation
-** layer. 
+** layer.
 **
 ** @section build_macros Build macros
 **   - `RT_BUILD_DLL`       - define when building Rutile itself as a DLL.

@@ -14,8 +14,8 @@
 #include <glm/gtc/constants.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
-#include <rtsl/program.hpp>
 #include <random>
+#include <rtsl/program.hpp>
 #include <vector>
 
 extern "C" const rtsl::ProgramBytes galaxy_rtslp;

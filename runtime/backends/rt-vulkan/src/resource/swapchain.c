@@ -111,7 +111,6 @@ static void rtvk_swapchain_finish_sync(struct rtvk_swapchain* swapchain) {
 	swapchain->frame_lock = NULL;
 }
 
-
 static void rtvk_swapchain_destroy_present_command(struct rtvk_context* ctx, struct rtvk_swapchain_frame* frame) {
 	vkDestroyCommandPool(ctx->vk_device, frame->present_command_pool, VK_ALLOCATOR);
 	frame->present_command_pool = VK_NULL_HANDLE;

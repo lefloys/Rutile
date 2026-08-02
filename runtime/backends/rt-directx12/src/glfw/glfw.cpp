@@ -1,8 +1,8 @@
 #include "glfw/glfw.hpp"
 #include "error.hpp"
 
-#include <windows.h>
 #include <cassert>
+#include <windows.h>
 
 using PFN_rtdx_glfwGetFramebufferSize = void (*)(GLFWwindow* window, int* width, int* height);
 using PFN_rtdx_glfwGetWin32Window = HWND (*)(GLFWwindow* window);

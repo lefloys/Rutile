@@ -2,8 +2,8 @@
 #define RTGL_SWAPCHAIN_H
 
 #include "config.h"
-#include "platform/context.h"
 #include "framebuffer.h"
+#include "platform/context.h"
 #include "resource.h"
 #include "texture.h"
 
@@ -13,13 +13,11 @@ RTGL_EXTERN_C_ENTER
 /*                                                                                               */
 /*===============================================================================================*/
 
-
 RTGL_API rt_swapchain rtSwapchainCreate(void);
 RTGL_API void rtSwapchainDestroy(rt_swapchain swapchain);
 RTGL_API void rtSwapchainResize(rt_swapchain swapchain, u32 width, u32 height);
 RTGL_API rt_swapchain_acquire_result rtSwapchainAcquire(rt_swapchain swapchain);
 RTGL_API void rtSwapchainPresent(rt_swapchain swapchain, rt_timepoint rendered);
-
 
 /*===============================================================================================*/
 /*                                                                                               */

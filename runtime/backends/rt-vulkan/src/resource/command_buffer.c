@@ -19,7 +19,7 @@ rt_command_buffer rtCommandBufferCreate(void) {
 }
 void rtCommandBufferDestroy(rt_command_buffer command_buffer) {
 	rtvk_command_buffer_destroy(
-		rtvk_get_current_context(), 
+		rtvk_get_current_context(),
 		rtvk_command_buffer_from_handle(command_buffer)
 	);
 }

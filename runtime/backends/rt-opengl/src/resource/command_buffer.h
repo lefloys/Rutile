@@ -28,7 +28,6 @@ RTGL_API void rtCmdEnd(rt_command_buffer command_buffer);
 
 RTGL_EXTERN_C_EXIT
 
-
 typedef enum rtgl_recorded_command_kind {
 	RTGL_RECORDED_COMMAND_BEGIN_RENDERING,
 	RTGL_RECORDED_COMMAND_CLEAR_COLOR,

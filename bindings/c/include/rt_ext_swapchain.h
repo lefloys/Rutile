@@ -56,14 +56,14 @@ static void rt__clear_RT_EXT_SWAPCHAIN(void) {
 	rt_rtSwapchainPresent = NULL;
 }
 
-#define RT__SWAPCHAIN_RESOLVE(name)       \
-	do {                                  \
-		rt_proc_t _p = rtGetProc(#name);  \
-		if (!_p) {                        \
-			rt__clear_RT_EXT_SWAPCHAIN(); \
+#define RT__SWAPCHAIN_RESOLVE(name)          \
+	do {                                     \
+		rt_proc_t _p = rtGetProc(#name);     \
+		if (!_p) {                           \
+			rt__clear_RT_EXT_SWAPCHAIN();    \
 			return RT_EXTENSION_NOT_PRESENT; \
-		}                                 \
-		rt_##name = (PFN_##name)_p;       \
+		}                                    \
+		rt_##name = (PFN_##name)_p;          \
 	} while (0)
 
 enum rt_error rtLoad_RT_EXT_SWAPCHAIN(void) {

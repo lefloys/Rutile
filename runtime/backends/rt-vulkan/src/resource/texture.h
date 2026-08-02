@@ -35,7 +35,6 @@ RTVK_API rt_extent_3d rtTextureViewExtent(rt_texture_view texture_view);
 /*                                                                                               */
 /*===============================================================================================*/
 
-
 struct rtvk_image_base {
 	struct rtvk_resource_base base;
 	VkImage vk_image;

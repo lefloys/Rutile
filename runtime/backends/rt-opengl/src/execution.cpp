@@ -1,7 +1,7 @@
 #include "execution_internal.hpp"
 
-#include "glad/gl.h"
 #include "core.h"
+#include "glad/gl.h"
 #include "resource/queue.h"
 
 #include <assert.h>
@@ -79,7 +79,8 @@ static void rtgl_execution_detect_capabilities(struct rtgl_context* ctx) {
 		ctx->execution.texture_buffer_range ? 1u : 0u,
 		ctx->execution.separate_shader_objects ? 1u : 0u,
 		ctx->execution.shader_storage_buffer ? 1u : 0u,
-		ctx->execution.spirv ? 1u : 0u);
+		ctx->execution.spirv ? 1u : 0u
+	);
 	if (!ctx->execution.direct_state_access || !ctx->execution.texture_storage || !ctx->execution.shader_storage_buffer) {
 		rtgl_throwf(RT_INITIALIZATION_FAILED, "OpenGL backend requires DSA, texture storage, and shader storage buffer support");
 	}

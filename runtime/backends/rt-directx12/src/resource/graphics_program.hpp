@@ -5,14 +5,13 @@
 
 #include <d3d12.h>
 #include <dxgi1_6.h>
-#include <rtsl/program.hpp>
 #include <memory>
+#include <rtsl/program.hpp>
 #include <vector>
 
 /*===============================================================================================*/
 /*                                                                                               */
 /*===============================================================================================*/
-
 
 inline constexpr u32 RTDX_MAX_VERTEX_ATTRIBUTES = 16;
 inline constexpr u32 RTDX_MAX_SHADER_RESOURCE_NAME = 64;
@@ -32,7 +31,6 @@ RTDX_API rt_uniform_location rtGraphicsProgramUniformLocation(rt_graphics_progra
 /*===============================================================================================*/
 /*                                                                                               */
 /*===============================================================================================*/
-
 
 enum class rtdx_uniform_location_kind {
 	buffer,

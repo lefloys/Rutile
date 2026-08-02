@@ -14,7 +14,6 @@
 #include <stdio.h>
 #include <string.h>
 
-
 static GLenum rtgl_buffer_gl_usage(enum rt_buffer_mode mode) {
 	return mode == RT_BUFFER_STATIC ? GL_STATIC_DRAW : GL_DYNAMIC_DRAW;
 }
@@ -343,7 +342,8 @@ void rtgl_execution_texture_data(struct rtgl_context* ctx, struct rtgl_image_bas
 					(GLsizei)image->height,
 					rtgl_texture_upload_format(image->format),
 					rtgl_texture_upload_type(image->format),
-					data);
+					data
+				);
 				glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
 			}
 		} else {
@@ -385,7 +385,8 @@ void rtgl_execution_texture_subdata(struct rtgl_context* ctx, struct rtgl_image_
 				(GLsizei)height,
 				rtgl_texture_upload_format(image->format),
 				rtgl_texture_upload_type(image->format),
-				data);
+				data
+			);
 		} else {
 			rtgl_bind_texture_2d(image->gl_texture);
 			glTexSubImage2D(
@@ -397,7 +398,8 @@ void rtgl_execution_texture_subdata(struct rtgl_context* ctx, struct rtgl_image_
 				(GLsizei)height,
 				rtgl_texture_upload_format(image->format),
 				rtgl_texture_upload_type(image->format),
-				data);
+				data
+			);
 			glBindTexture(GL_TEXTURE_2D, 0);
 		}
 		glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
@@ -451,8 +453,8 @@ struct rtgl_timepoint rtgl_execution_present(struct rtgl_context* ctx, struct rt
 	rtgl_retain_resource(swapchain);
 	rtgl_retain_resource(framebuffer);
 	if (!rtgl_execution_submit_async(ctx, [queue, swapchain, framebuffer, value = done.value](struct rtgl_context* exec_ctx) {
-		rtgl_execution_present_now(exec_ctx, queue, swapchain, framebuffer, value);
-	})) {
+			rtgl_execution_present_now(exec_ctx, queue, swapchain, framebuffer, value);
+		})) {
 		struct rtgl_timepoint failed = { queue, queue->submitted_value };
 		rtgl_release_resource(framebuffer);
 		rtgl_release_resource(swapchain);

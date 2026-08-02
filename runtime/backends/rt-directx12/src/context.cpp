@@ -50,10 +50,10 @@ static void rtdx_context_query_present_features(rtdx_context* ctx) {
 	ctx->allow_tearing = false;
 	BOOL allow_tearing = FALSE;
 	if (SUCCEEDED(factory5->CheckFeatureSupport(
-		DXGI_FEATURE_PRESENT_ALLOW_TEARING,
-		&allow_tearing,
-		static_cast<UINT>(sizeof(allow_tearing))
-	))) {
+			DXGI_FEATURE_PRESENT_ALLOW_TEARING,
+			&allow_tearing,
+			static_cast<UINT>(sizeof(allow_tearing))
+		))) {
 		ctx->allow_tearing = allow_tearing == TRUE;
 	}
 	factory5->Release();

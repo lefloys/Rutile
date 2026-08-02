@@ -13,7 +13,7 @@ rt_framebuffer rtFramebufferCreate(void) {
 
 void rtFramebufferDestroy(rt_framebuffer framebuffer) {
 	rtvk_framebuffer_destroy(
-		rtvk_get_current_context(), 
+		rtvk_get_current_context(),
 		rtvk_framebuffer_from_handle(framebuffer)
 	);
 }

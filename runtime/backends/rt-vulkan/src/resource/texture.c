@@ -202,19 +202,23 @@ rt_extent_3d rtTextureViewExtent(rt_texture_view texture_view) {
 }
 
 u32 rtvk_view_width(const struct rtvk_texture_view* view) {
-	if (!view || !view->image) return 0;
+	if (!view || !view->image)
+		return 0;
 	return view->image->width;
 }
 u32 rtvk_view_height(const struct rtvk_texture_view* view) {
-	if (!view || !view->image) return 0;
+	if (!view || !view->image)
+		return 0;
 	return view->image->height;
 }
 VkFormat rtvk_view_format(const struct rtvk_texture_view* view) {
-	if (!view || !view->image) return VK_FORMAT_UNDEFINED;
+	if (!view || !view->image)
+		return VK_FORMAT_UNDEFINED;
 	return view->image->vk_format;
 }
 VkImageLayout rtvk_view_layout(const struct rtvk_texture_view* view) {
-	if (!view || !view->image) return VK_IMAGE_LAYOUT_UNDEFINED;
+	if (!view || !view->image)
+		return VK_IMAGE_LAYOUT_UNDEFINED;
 	return view->image->vk_layout;
 }
 

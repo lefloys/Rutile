@@ -7,7 +7,6 @@
 extern "C" {
 #endif
 
-
 typedef enum rtsl_glsl_status {
 	RTSL_GLSL_SUCCESS,
 	RTSL_GLSL_INVALID_PROGRAM,
@@ -60,8 +59,6 @@ typedef struct rtsl_glsl_resource_info {
 } rtsl_glsl_resource_info;
 
 typedef struct rtsl_glsl_translation rtsl_glsl_translation;
-
-
 
 rtsl_glsl_status rtsl_glsl_translate(
 	u64 size,
