@@ -66,7 +66,6 @@ struct rtgl_texture_view {
 	bool parameters_applied;
 };
 RTGL_DECLARE_NEW_RESOURCE(texture_view)
-// @GPT FIXED: unreadable like just a block of functions
 void rtgl_texture_view_bind(struct rtgl_context* ctx, struct rtgl_texture_view* view, struct rtgl_texture* texture);
 void rtgl_texture_view_bind_image(struct rtgl_context* ctx, struct rtgl_texture_view* view, struct rtgl_image_base* image);
 void rtgl_texture_view_image_data(struct rtgl_context* ctx, struct rtgl_texture_view* view, enum rt_texture_type type, u32 mip, u32 width, u32 height, u32 depth, enum rt_format format, const void* data);

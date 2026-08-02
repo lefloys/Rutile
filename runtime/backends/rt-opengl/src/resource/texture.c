@@ -89,7 +89,6 @@ RTGL_DEFINE_RESOURCE_PRIVATE(texture)
 RTGL_DEFINE_RESOURCE_PRIVATE(texture_view)
 
 GLenum rtgl_texture_internal_format(enum rt_format format) {
-	// @GPT FIXED: why is thsi randomly in the texture file. why cant you make this better. please make thisbetter
 	switch (format) {
 	case RT_R8_UNORM:
 		return GL_R8;
@@ -209,7 +208,6 @@ void rtgl_texture_view_bind(struct rtgl_context* ctx, struct rtgl_texture_view* 
 	}
 	rtgl_texture_view_bind_image(ctx, view, &texture->base);
 }
-// @GPT FIXED:why is this at all unsorted
 void rtgl_texture_view_bind_image(struct rtgl_context* ctx, struct rtgl_texture_view* view, struct rtgl_image_base* image) {
 	(void)ctx;
 	if (!view || !image) {
@@ -227,7 +225,6 @@ void rtgl_texture_view_image_data(struct rtgl_context* ctx, struct rtgl_texture_
 	(void)width;
 	(void)height;
 	(void)depth;
-	(void)format; // @GPT FIXED: why are you doing these anti warnings that i never asked for fix that in the whole file
 	(void)data;
 	rtgl_throwf(RT_IMPROPER_USAGE, "OpenGL texture views do not own image data");
 }

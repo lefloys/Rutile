@@ -14,7 +14,6 @@
 #include <stdio.h>
 #include <string.h>
 
-// @GPT FIXED: MOST OF THESE ARENT COMMANDS?? THESE ARE OPERATIONS. THERE IS OPERATIONS AND COMMANDS. operations is something like glCreateBuffer while commands are something that in vulkan would be a command like glBufferData (well only if it goes onto the gpu and not juts into cpu mapped memory)
 
 static GLenum rtgl_buffer_gl_usage(enum rt_buffer_mode mode) {
 	return mode == RT_BUFFER_STATIC ? GL_STATIC_DRAW : GL_DYNAMIC_DRAW;
@@ -407,7 +406,6 @@ void rtgl_execution_texture_subdata(struct rtgl_context* ctx, struct rtgl_image_
 
 struct gl_surface* rtgl_execution_glfw_surface_create(struct rtgl_context* ctx, struct GLFWwindow* window) {
 	struct gl_surface* surface = NULL;
-	// @GPT FIXED: maybe throw an error here if it breaks? obviously not an exception
 	rtgl_execution_submit_sync(ctx, [window, &surface](struct rtgl_context* exec_ctx) {
 		surface = rtgl_create_glfw_surface(exec_ctx->execution.gl_context, window);
 	});

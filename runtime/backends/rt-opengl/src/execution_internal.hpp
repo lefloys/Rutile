@@ -6,8 +6,6 @@
 
 #include <new>
 #include <utility>
-// @GPT FIXED: suck ass name. "internal" right...
-// @GPT FIXED: please fix this file i dont even wanna read it
 
 struct rtgl_execution_command {
 	rtgl_execution_command* next;

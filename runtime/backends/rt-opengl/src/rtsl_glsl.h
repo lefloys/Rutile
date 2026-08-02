@@ -7,7 +7,6 @@
 extern "C" {
 #endif
 
-	// @GPT FIXED: at this point unsupported. and why arent you using rtsl sdk??
 
 typedef enum rtsl_glsl_status {
 	RTSL_GLSL_SUCCESS,

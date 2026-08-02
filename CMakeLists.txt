@@ -7,7 +7,6 @@ if(MSVC)
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
 
-enable_testing()
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 
@@ -21,8 +20,6 @@ add_subdirectory("RTSL" EXCLUDE_FROM_ALL)
 add_subdirectory("bindings/c")
 add_subdirectory("bindings/cpp")
 add_subdirectory("runtime")
-add_subdirectory("examples" EXCLUDE_FROM_ALL)
-
 install(EXPORT RutileTargets
     NAMESPACE Rutile::
     DESTINATION "${RUTILE_INSTALL_CMAKEDIR}"

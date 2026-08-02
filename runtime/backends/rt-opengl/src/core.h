@@ -12,7 +12,6 @@ RTGL_API void rtExit(void);
 RTGL_API void rtSettingApply(const char* name, const char* value);
 RTGL_API const char* rtGetName(void);
 RTGL_API enum rt_format_usage rtQueryFormatCapabilities(enum rt_format format);
-// @GPT FIXED: what the fuck is this function why cant you make it cleaner
 bool rtgl_forced_context_version(u08* major, u08* minor);
 
 RTGL_EXTERN_C_EXIT

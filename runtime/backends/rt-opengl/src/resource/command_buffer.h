@@ -28,7 +28,6 @@ RTGL_API void rtCmdEnd(rt_command_buffer command_buffer);
 
 RTGL_EXTERN_C_EXIT
 
-// @GPT FIXED: why no fucking comment seperators
 
 typedef enum rtgl_recorded_command_kind {
 	RTGL_RECORDED_COMMAND_BEGIN_RENDERING,
@@ -43,7 +42,6 @@ typedef enum rtgl_recorded_command_kind {
 	RTGL_RECORDED_COMMAND_DRAW,
 	RTGL_RECORDED_COMMAND_END_RENDERING,
 } rtgl_recorded_command_kind;
-// @GPT FIXED: union based approach? really? are you nuts?
 typedef struct rtgl_recorded_command {
 	rtgl_recorded_command_kind kind;
 	u32 size;
@@ -106,7 +104,6 @@ struct rtgl_command_buffer {
 };
 
 RTGL_EXTERN_C_ENTER
-// @GPT FIXED:no comments
 RTGL_DECLARE_NEW_RESOURCE(command_buffer)
 
 struct rtgl_timepoint rtgl_command_buffer_submit(struct rtgl_context* ctx, struct rtgl_queue* queue, struct rtgl_command_buffer* command_buffer);

@@ -29,7 +29,6 @@ void rtgl_context_init(struct rtgl_context* ctx) {
 	if (!rtgl_execution_init(ctx)) {
 		return;
 	}
-	// @GPT FIXED: rtgl alloc exists. why are you doing thsi check pattern
 	ctx->queues = calloc(1, sizeof(*ctx->queues));
 	RTGL_CHECK_ALLOC(ctx->queues, sizeof(*ctx->queues), "OpenGL queue handles");
 	if (!ctx->queues) {

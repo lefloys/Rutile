@@ -10,7 +10,6 @@
 /*===============================================================================================*/
 /*                                                                                               */
 /*===============================================================================================*/
-// @GPT FIXED: again not respecting the public vs internal functions ffs. please properly do that ffs
 rt_queue rtQueueQuery(enum rt_queue_capability capability) {
 	return rtgl_queue_to_handle(rtgl_queue_query(rtgl_get_current_context(), capability));
 }
@@ -41,7 +40,6 @@ bool rtTimepointReached(rt_timepoint timepoint) {
 /*===============================================================================================*/
 /*                                                                                               */
 /*===============================================================================================*/
-// @GPT FIXED: please overhaul the entire file it sucks.
 RTGL_DEFINE_RESOURCE_PRIVATE(queue)
 
 void rtgl_queue_init(struct rtgl_context* ctx, struct rtgl_queue* queue) {
