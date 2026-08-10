@@ -7,7 +7,7 @@
 /*                                                                                               */
 /*===============================================================================================*/
 
-void rtSettingApply(const char* name, const char* value) {
+void rtSettingSet(const char* name, const char* value) {
 	(void)name;
 	(void)value;
 }

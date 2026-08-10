@@ -59,9 +59,7 @@
 **   - `RT_BUILD_DLL`       - define when building Rutile itself as a DLL.
 **   - `RUTILE_IMPL`        - define in exactly one translation unit to emit
 **                            the loader implementation.
-**   - `RUTILE_LOADER_ONLY` - define to expose only the loader entry points
 **                            and skip the core API declarations.
-**   - `RT_NO_API_WRAPPERS` - define to skip the static-inline core wrappers
 **                            and use the `rt_rt*` function pointers directly.
 */
 
@@ -93,9 +91,7 @@ typedef struct rt_proc_chain {
 
 typedef const char* (*PFN_rtLayerGetName)(void);
 typedef void (*PFN_rtLayerSetNext)(rt_proc_chain next);
-typedef void (*PFN_rtSettingApply)(const char* name, const char* value);
 
-#ifndef RUTILE_LOADER_ONLY
 
 typedef uint8_t u08;
 typedef uint16_t u16;
@@ -279,14 +275,14 @@ enum rt_blend_op { RT_BLEND_OP__RESERVED = 0x7fffffff };
 
 typedef struct rt_vertex_attribute {
 	const char* name;
-	u32 offset;
+	usize offset;
 	enum rt_format format;
 } rt_vertex_attribute;
 
 typedef struct rt_vertex_layout {
-	u32 stride;
 	const rt_vertex_attribute* attributes;
-	u32 attribute_count;
+	usize stride;
+	usize attribute_count;
 } rt_vertex_layout;
 
 typedef struct rt_texture_t* rt_texture;
@@ -305,9 +301,9 @@ typedef struct rt_timepoint {
 } rt_timepoint;
 
 typedef struct rt_extent_3d {
-	u32 width;
-	u32 height;
-	u32 depth;
+	usize width;
+	usize height;
+	usize depth;
 } rt_extent_3d;
 
 /*!
@@ -340,7 +336,7 @@ typedef struct rt_extent_3d {
 ** @note On failure the loader is left fully unloaded. Use @ref rtGetProc to
 **       resolve optional/extension entry points after a successful load.
 */
-enum rt_error rtLoad(const char* backend_name, const char* const* layer_names, u32 layer_count);
+enum rt_error rtLoad(const char* backend_name, const char* const* layer_names, usize layer_count);
 
 /*!
 ** @brief Load a backend and layers in best-effort mode for development.
@@ -361,38 +357,7 @@ enum rt_error rtLoad(const char* backend_name, const char* const* layer_names, u
 ** @return RT_SUCCESS when the backend is absent or loads successfully;
 **         an error when a requested layer cannot be loaded.
 */
-enum rt_error rtLoadDevelopment(const char* backend_name, const char* const* layer_names, u32 layer_count);
-
-/*!
-** @brief Add a loader setting.
-**
-** Settings are string key/value pairs stored by the loader before a backend is
-** loaded. When a backend is loaded, every setting is offered to that backend.
-** The backend decides which names and values it understands and ignores the
-** rest.
-**
-** Example:
-** @code
-** rtSettingAdd("opengl.version", "4.0");
-** rtLoad("rt-opengl", NULL, 0);
-** @endcode
-**
-** @param name   Setting name.
-** @param value  Setting value.
-**
-** @return RT_SUCCESS on success.
-** @return RT_IMPROPER_USAGE if either string is NULL.
-** @return RT_OUT_OF_HOST_MEMORY if the loader setting pool is full.
-*/
-enum rt_error rtSettingAdd(const char* name, const char* value);
-
-/*!
-** @brief Clear all settings stored by the loader.
-**
-** This does not affect an already-loaded backend. Call before @ref rtLoad to
-** change what settings the next loaded backend sees.
-*/
-void rtSettingClear(void);
+enum rt_error rtLoadDevelopment(const char* backend_name, const char* const* layer_names, usize layer_count);
 
 /*!
 ** @brief Unload the current backend and layers.
@@ -430,162 +395,8 @@ bool rtLoaded(void);
 */
 rt_proc_t rtGetProc(const char* name);
 
-typedef void (*PFN_rtInit)(const char* const* features, u32 feature_count);
-typedef void (*PFN_rtExit)(void);
 typedef void (*PFN_rtOutput)(const char* message, void* user_data);
-typedef void (*PFN_rtSetOutput)(PFN_rtOutput output, void* user_data);
-typedef enum rt_error (*PFN_rtError)(void);
-typedef const char* (*PFN_rtErrorMessage)(void);
-typedef void (*PFN_rtClearError)(void);
-typedef const char* (*PFN_rtGetName)(void);
-typedef enum rt_format_usage (*PFN_rtQueryFormatCapabilities)(enum rt_format format);
 
-typedef rt_buffer (*PFN_rtBufferCreate)(void);
-typedef void (*PFN_rtBufferDestroy)(rt_buffer buffer);
-typedef rt_timepoint (*PFN_rtBufferData)(rt_buffer buffer, enum rt_buffer_mode mode, enum rt_buffer_usage usage, u64 size, const void* data);
-typedef rt_timepoint (*PFN_rtBufferSubdata)(rt_buffer buffer, u64 offset, u64 size, const void* data);
-typedef void (*PFN_rtBufferRead)(rt_buffer buffer, u64 offset, u64 size, void* data);
-
-typedef rt_texture (*PFN_rtTextureCreate)(void);
-typedef void (*PFN_rtTextureDestroy)(rt_texture texture);
-typedef rt_texture_view (*PFN_rtTextureViewCreate)(void);
-typedef void (*PFN_rtTextureViewBind)(rt_texture_view texture_view, rt_texture texture);
-typedef void (*PFN_rtTextureViewDestroy)(rt_texture_view texture_view);
-typedef void (*PFN_rtTextureViewFilter)(rt_texture_view texture_view, enum rt_filter mag_filter, enum rt_filter min_filter, enum rt_mip_filter mip_filter);
-typedef void (*PFN_rtTextureViewAddress)(rt_texture_view texture_view, enum rt_address_mode address_u, enum rt_address_mode address_v, enum rt_address_mode address_w);
-typedef void (*PFN_rtTextureViewAnisotropy)(rt_texture_view texture_view, u32 max_anisotropy);
-typedef void (*PFN_rtTextureViewLod)(rt_texture_view texture_view, f32 min_lod, f32 max_lod, f32 lod_bias);
-
-typedef rt_timepoint (*PFN_rtTextureCopy)(rt_texture src_texture, u32 src_mip, rt_texture dst_texture, u32 dst_mip);
-typedef rt_timepoint (*PFN_rtTextureData)(rt_texture texture, enum rt_texture_type type, u32 mip, u32 width, u32 height, u32 depth, enum rt_format format, const void* data);
-typedef rt_timepoint (*PFN_rtTextureSubcopy)(rt_texture src_texture, u32 src_mip, u32 src_x, u32 src_y, u32 src_z, rt_texture dst_texture, u32 dst_mip, u32 dst_x, u32 dst_y, u32 dst_z, u32 width, u32 height, u32 depth);
-typedef rt_timepoint (*PFN_rtTextureSubdata)(rt_texture texture, u32 mip, u32 offset_x, u32 offset_y, u32 offset_z, u32 width, u32 height, u32 depth, const void* data);
-typedef rt_timepoint (*PFN_rtTextureViewCopyToBuffer)(rt_texture_view texture_view, rt_buffer buffer);
-typedef rt_extent_3d (*PFN_rtTextureViewExtent)(rt_texture_view texture_view);
-typedef rt_framebuffer (*PFN_rtFramebufferCreate)(void);
-typedef void (*PFN_rtFramebufferDestroy)(rt_framebuffer framebuffer);
-typedef rt_texture_view (*PFN_rtFramebufferColorView)(rt_framebuffer framebuffer, u32 slot);
-typedef void (*PFN_rtFramebufferSetColorView)(rt_framebuffer framebuffer, u32 slot, rt_texture_view view);
-typedef void (*PFN_rtFramebufferDepthView)(rt_framebuffer framebuffer, rt_texture_view view);
-
-typedef rt_graphics_program (*PFN_rtGraphicsProgramCreate)(void);
-typedef void (*PFN_rtGraphicsProgramDestroy)(rt_graphics_program program);
-typedef void (*PFN_rtGraphicsProgramLayout)(rt_graphics_program program, const rt_vertex_layout* layout);
-typedef void (*PFN_rtGraphicsProgramSource)(rt_graphics_program program, u64 size, const void* data);
-typedef void (*PFN_rtGraphicsProgramRasterState)(rt_graphics_program program, enum rt_cull_mode cull_mode, enum rt_front_face front_face, enum rt_fill_mode fill_mode);
-typedef void (*PFN_rtGraphicsProgramBlendState)(rt_graphics_program program, bool enabled, enum rt_blend_factor src_color, enum rt_blend_factor dst_color, enum rt_blend_op color_op, enum rt_blend_factor src_alpha, enum rt_blend_factor dst_alpha, enum rt_blend_op alpha_op);
-typedef void (*PFN_rtGraphicsProgramFinalize)(rt_graphics_program program);
-typedef void (*PFN_rtGraphicsProgramReset)(rt_graphics_program program);
-typedef rt_uniform_location (*PFN_rtGraphicsProgramUniformLocation)(rt_graphics_program program, const char* name);
-
-typedef rt_command_context (*PFN_rtCommandContextCreate)(void);
-typedef void (*PFN_rtCommandContextDestroy)(rt_command_context command_context);
-typedef void (*PFN_rtCommandContextBind)(rt_command_context command_context, rt_queue queue);
-typedef rt_command_buffer (*PFN_rtCommandContextAllocate)(rt_command_context command_context);
-typedef void (*PFN_rtCommandBufferDestroy)(rt_command_buffer command_buffer);
-typedef void (*PFN_rtCmdReset)(rt_command_buffer command_buffer);
-typedef void (*PFN_rtCmdBegin)(rt_command_buffer command_buffer);
-typedef void (*PFN_rtCmdUseGraphicsProgram)(rt_command_buffer command_buffer, rt_graphics_program program);
-typedef void (*PFN_rtCmdUniformBuffer)(rt_command_buffer command_buffer, rt_uniform_location location, rt_buffer buffer, u64 offset, u64 size);
-typedef void (*PFN_rtCmdUniformTexture)(rt_command_buffer command_buffer, rt_uniform_location location, rt_texture_view texture_view);
-typedef void (*PFN_rtCmdStorageBuffer)(rt_command_buffer command_buffer, rt_uniform_location location, rt_buffer buffer, u64 offset, u64 size);
-typedef void (*PFN_rtCmdBindVertexBuffer)(rt_command_buffer command_buffer, rt_buffer buffer, u64 offset);
-typedef void (*PFN_rtCmdDraw)(rt_command_buffer command_buffer, u32 vertex_count, u32 first_vertex);
-typedef void (*PFN_rtCmdEnd)(rt_command_buffer command_buffer);
-typedef void (*PFN_rtCommandContextBindFramebuffer)(rt_command_context command_context, rt_framebuffer framebuffer);
-typedef void (*PFN_rtCommandContextClearColor)(rt_command_context command_context, u32 color_index, f32 r, f32 g, f32 b, f32 a);
-typedef void (*PFN_rtCommandContextClearDepth)(rt_command_context command_context, f32 depth);
-typedef void (*PFN_rtCommandContextClearStencil)(rt_command_context command_context, u32 stencil);
-typedef void (*PFN_rtCommandContextSetViewport)(rt_command_context command_context, u32 x, u32 y, u32 width, u32 height, f32 min_depth, f32 max_depth);
-typedef void (*PFN_rtCommandContextSetScissor)(rt_command_context command_context, u32 x, u32 y, u32 width, u32 height);
-typedef void (*PFN_rtCommandContextExecute)(rt_command_context command_context, rt_command_buffer command_buffer);
-typedef void (*PFN_rtCommandContextEndRendering)(rt_command_context command_context);
-
-typedef rt_queue (*PFN_rtQueueQuery)(enum rt_queue_capability capability);
-typedef void (*PFN_rtQueueWait)(rt_queue queue, rt_timepoint timepoint);
-typedef rt_timepoint (*PFN_rtCommandContextSubmit)(rt_command_context command_context);
-typedef rt_timepoint (*PFN_rtQueueFlush)(rt_queue queue);
-typedef void (*PFN_rtTimepointWait)(rt_timepoint timepoint);
-typedef bool (*PFN_rtTimepointReached)(rt_timepoint timepoint);
-
-extern PFN_rtInit rt_rtInit;
-extern PFN_rtExit rt_rtExit;
-extern PFN_rtSetOutput rt_rtSetOutput;
-extern PFN_rtError rt_rtError;
-extern PFN_rtErrorMessage rt_rtErrorMessage;
-extern PFN_rtClearError rt_rtClearError;
-extern PFN_rtGetName rt_rtGetName;
-extern PFN_rtQueryFormatCapabilities rt_rtQueryFormatCapabilities;
-
-extern PFN_rtBufferCreate rt_rtBufferCreate;
-extern PFN_rtBufferDestroy rt_rtBufferDestroy;
-extern PFN_rtBufferData rt_rtBufferData;
-extern PFN_rtBufferSubdata rt_rtBufferSubdata;
-extern PFN_rtBufferRead rt_rtBufferRead;
-
-extern PFN_rtTextureCreate rt_rtTextureCreate;
-extern PFN_rtTextureDestroy rt_rtTextureDestroy;
-extern PFN_rtTextureViewCreate rt_rtTextureViewCreate;
-extern PFN_rtTextureViewBind rt_rtTextureViewBind;
-extern PFN_rtTextureViewDestroy rt_rtTextureViewDestroy;
-extern PFN_rtTextureViewFilter rt_rtTextureViewFilter;
-extern PFN_rtTextureViewAddress rt_rtTextureViewAddress;
-extern PFN_rtTextureViewAnisotropy rt_rtTextureViewAnisotropy;
-extern PFN_rtTextureViewLod rt_rtTextureViewLod;
-
-extern PFN_rtTextureCopy rt_rtTextureCopy;
-extern PFN_rtTextureData rt_rtTextureData;
-extern PFN_rtTextureSubcopy rt_rtTextureSubcopy;
-extern PFN_rtTextureSubdata rt_rtTextureSubdata;
-extern PFN_rtTextureViewCopyToBuffer rt_rtTextureViewCopyToBuffer;
-extern PFN_rtTextureViewExtent rt_rtTextureViewExtent;
-extern PFN_rtFramebufferCreate rt_rtFramebufferCreate;
-extern PFN_rtFramebufferDestroy rt_rtFramebufferDestroy;
-extern PFN_rtFramebufferColorView rt_rtFramebufferColorView;
-extern PFN_rtFramebufferSetColorView rt_rtFramebufferSetColorView;
-extern PFN_rtFramebufferDepthView rt_rtFramebufferDepthView;
-
-extern PFN_rtGraphicsProgramCreate rt_rtGraphicsProgramCreate;
-extern PFN_rtGraphicsProgramDestroy rt_rtGraphicsProgramDestroy;
-extern PFN_rtGraphicsProgramLayout rt_rtGraphicsProgramLayout;
-extern PFN_rtGraphicsProgramSource rt_rtGraphicsProgramSource;
-extern PFN_rtGraphicsProgramRasterState rt_rtGraphicsProgramRasterState;
-extern PFN_rtGraphicsProgramBlendState rt_rtGraphicsProgramBlendState;
-extern PFN_rtGraphicsProgramFinalize rt_rtGraphicsProgramFinalize;
-extern PFN_rtGraphicsProgramReset rt_rtGraphicsProgramReset;
-extern PFN_rtGraphicsProgramUniformLocation rt_rtGraphicsProgramUniformLocation;
-
-extern PFN_rtCommandContextCreate rt_rtCommandContextCreate;
-extern PFN_rtCommandContextDestroy rt_rtCommandContextDestroy;
-extern PFN_rtCommandContextBind rt_rtCommandContextBind;
-extern PFN_rtCommandContextAllocate rt_rtCommandContextAllocate;
-extern PFN_rtCommandBufferDestroy rt_rtCommandBufferDestroy;
-extern PFN_rtCmdReset rt_rtCmdReset;
-extern PFN_rtCmdBegin rt_rtCmdBegin;
-extern PFN_rtCmdUseGraphicsProgram rt_rtCmdUseGraphicsProgram;
-extern PFN_rtCmdUniformBuffer rt_rtCmdUniformBuffer;
-extern PFN_rtCmdUniformTexture rt_rtCmdUniformTexture;
-extern PFN_rtCmdStorageBuffer rt_rtCmdStorageBuffer;
-extern PFN_rtCmdBindVertexBuffer rt_rtCmdBindVertexBuffer;
-extern PFN_rtCmdDraw rt_rtCmdDraw;
-extern PFN_rtCmdEnd rt_rtCmdEnd;
-extern PFN_rtCommandContextBindFramebuffer rt_rtCommandContextBindFramebuffer;
-extern PFN_rtCommandContextClearColor rt_rtCommandContextClearColor;
-extern PFN_rtCommandContextClearDepth rt_rtCommandContextClearDepth;
-extern PFN_rtCommandContextClearStencil rt_rtCommandContextClearStencil;
-extern PFN_rtCommandContextSetViewport rt_rtCommandContextSetViewport;
-extern PFN_rtCommandContextSetScissor rt_rtCommandContextSetScissor;
-extern PFN_rtCommandContextExecute rt_rtCommandContextExecute;
-extern PFN_rtCommandContextEndRendering rt_rtCommandContextEndRendering;
-
-extern PFN_rtQueueQuery rt_rtQueueQuery;
-extern PFN_rtQueueWait rt_rtQueueWait;
-extern PFN_rtCommandContextSubmit rt_rtCommandContextSubmit;
-extern PFN_rtQueueFlush rt_rtQueueFlush;
-extern PFN_rtTimepointWait rt_rtTimepointWait;
-extern PFN_rtTimepointReached rt_rtTimepointReached;
-
-#ifndef RT_NO_API_WRAPPERS
 /*!
 ** @brief Initialize Rutile with an explicit set of features.
 **
@@ -620,9 +431,7 @@ extern PFN_rtTimepointReached rt_rtTimepointReached;
 ** @error RT_OUT_OF_HOST_MEMORY      Host allocation failed during init.
 ** @error RT_OUT_OF_DEVICE_MEMORY    Device allocation failed during init.
 */
-static inline void rtInit(const char* const* features, u32 feature_count) {
-	rt_rtInit(features, feature_count);
-}
+static inline void rtInit(const char* const* features, u32 feature_count);
 
 /*!
 ** @brief Shut down Rutile.
@@ -637,9 +446,7 @@ static inline void rtInit(const char* const* features, u32 feature_count) {
 ** matching @ref rtInit are invalidated. Destroy your own resources before
 ** calling.
 */
-static inline void rtExit(void) {
-	rt_rtExit();
-}
+static inline void rtExit(void);
 
 /*!
 ** @brief Install a callback that receives diagnostic output from Rutile.
@@ -657,11 +464,8 @@ static inline void rtExit(void) {
 **       exact behavior (threading, message format, when it fires) as
 **       unstable.
 */
-static inline void rtSetOutput(PFN_rtOutput output, void* user_data) {
-	rt_rtSetOutput(output, user_data);
-}
+static inline void rtSetOutput(PFN_rtOutput output, void* user_data);
 
-#ifndef RUTILE_IMPL
 /*!
 ** @brief Return the most recently recorded backend/runtime error code.
 **
@@ -671,9 +475,7 @@ static inline void rtSetOutput(PFN_rtOutput output, void* user_data) {
 **
 ** @return The current error code, or RT_SUCCESS if none.
 */
-static inline enum rt_error rtError(void) {
-	return rt_rtError();
-}
+static inline enum rt_error rtError(void);
 
 /*!
 ** @brief Return a human-readable description of the current error.
@@ -685,9 +487,7 @@ static inline enum rt_error rtError(void) {
 **
 ** @return Null-terminated message, owned by Rutile.
 */
-static inline const char* rtErrorMessage(void) {
-	return rt_rtErrorMessage();
-}
+static inline const char* rtErrorMessage(void);
 
 /*!
 ** @brief Clear the current backend/runtime error state.
@@ -695,10 +495,7 @@ static inline const char* rtErrorMessage(void) {
 ** After this call @ref rtError returns RT_SUCCESS and @ref rtErrorMessage
 ** returns an empty string, until the next operation records a new error.
 */
-static inline void rtClearError(void) {
-	rt_rtClearError();
-}
-#endif
+static inline void rtClearError(void);
 
 /*!
 ** @brief Return the loaded backend's self-reported name.
@@ -709,9 +506,7 @@ static inline void rtClearError(void) {
 **
 ** @return Static null-terminated name string.
 */
-static inline const char* rtGetName(void) {
-	return rt_rtGetName();
-}
+static inline const char* rtGetName(void);
 
 /*!
 ** @brief Query which usages are supported for a given pixel format.
@@ -726,9 +521,7 @@ static inline const char* rtGetName(void) {
 **         for formats the backend does not support at all (including
 **         unrecognized values).
 */
-static inline enum rt_format_usage rtQueryFormatCapabilities(enum rt_format format) {
-	return rt_rtQueryFormatCapabilities(format);
-}
+static inline enum rt_format_usage rtQueryFormatCapabilities(enum rt_format format);
 
 /*!
 ** @brief Create a buffer handle with no backing storage.
@@ -738,11 +531,9 @@ static inline enum rt_format_usage rtQueryFormatCapabilities(enum rt_format form
 **
 ** @return New buffer handle, or NULL on failure.
 **
-** @error RT_OUT_OF_HOST_MEMORY  Host allocation for the handle failed.
+** @error RT_OUT_OF_HOST_MEMORY  Allocation of the buffer backing resource failed.
 */
-static inline rt_buffer rtBufferCreate(void) {
-	return rt_rtBufferCreate();
-}
+static inline rt_buffer rtBufferCreate(void);
 
 /*!
 ** @brief Destroy a buffer and release its storage.
@@ -753,9 +544,7 @@ static inline rt_buffer rtBufferCreate(void) {
 **
 ** @param buffer  Buffer to destroy.
 */
-static inline void rtBufferDestroy(rt_buffer buffer) {
-	rt_rtBufferDestroy(buffer);
-}
+static inline void rtBufferDestroy(rt_buffer buffer);
 
 /*!
 ** @brief (Re)define buffer storage and optionally upload initial contents.
@@ -778,9 +567,7 @@ static inline void rtBufferDestroy(rt_buffer buffer) {
 ** @error RT_OUT_OF_HOST_MEMORY    Host staging allocation failed.
 ** @error RT_OUT_OF_DEVICE_MEMORY  Device allocation for the storage failed.
 */
-static inline rt_timepoint rtBufferData(rt_buffer buffer, enum rt_buffer_mode mode, enum rt_buffer_usage usage, u64 size, const void* data) {
-	return rt_rtBufferData(buffer, mode, usage, size, data);
-}
+static inline rt_timepoint rtBufferData(rt_buffer buffer, enum rt_buffer_mode mode, enum rt_buffer_usage usage, usize size, const void* data);
 
 /*!
 ** @brief Upload bytes into an existing range of a buffer.
@@ -800,9 +587,7 @@ static inline rt_timepoint rtBufferData(rt_buffer buffer, enum rt_buffer_mode mo
 ** @error RT_DEVICE_LOST           The device was lost while scheduling the
 **                                 upload.
 */
-static inline rt_timepoint rtBufferSubdata(rt_buffer buffer, u64 offset, u64 size, const void* data) {
-	return rt_rtBufferSubdata(buffer, offset, size, data);
-}
+static inline rt_timepoint rtBufferSubdata(rt_buffer buffer, usize offset, usize size, const void* data);
 
 /*!
 ** @brief Copy bytes out of a buffer into application memory.
@@ -820,9 +605,7 @@ static inline rt_timepoint rtBufferSubdata(rt_buffer buffer, u64 offset, u64 siz
 ** @error RT_DEVICE_LOST           The device was lost while waiting for the
 **                                 contents to become readable.
 */
-static inline void rtBufferRead(rt_buffer buffer, u64 offset, u64 size, void* data) {
-	rt_rtBufferRead(buffer, offset, size, data);
-}
+static inline void rtBufferRead(rt_buffer buffer, usize offset, usize size, void* data);
 
 /*!
 ** @brief Create a texture handle with no backing storage.
@@ -832,11 +615,9 @@ static inline void rtBufferRead(rt_buffer buffer, u64 offset, u64 size, void* da
 **
 ** @return New texture handle, or NULL on failure.
 **
-** @error RT_OUT_OF_HOST_MEMORY  Host allocation for the handle failed.
+** @error RT_OUT_OF_HOST_MEMORY  Allocation of the buffer backing resource failed.
 */
-static inline rt_texture rtTextureCreate(void) {
-	return rt_rtTextureCreate();
-}
+static inline rt_texture rtTextureCreate(void);
 
 /*!
 ** @brief Destroy a texture and release its storage.
@@ -848,9 +629,7 @@ static inline rt_texture rtTextureCreate(void) {
 **
 ** @param texture  Texture to destroy.
 */
-static inline void rtTextureDestroy(rt_texture texture) {
-	rt_rtTextureDestroy(texture);
-}
+static inline void rtTextureDestroy(rt_texture texture);
 
 /*!
 ** @brief Create an unbound texture view with default sampler state.
@@ -861,11 +640,9 @@ static inline void rtTextureDestroy(rt_texture texture) {
 **
 ** @return New texture view handle, or NULL on failure.
 **
-** @error RT_OUT_OF_HOST_MEMORY  Host allocation for the handle failed.
+** @error RT_OUT_OF_HOST_MEMORY  Allocation of the buffer backing resource failed.
 */
-static inline rt_texture_view rtTextureViewCreate(void) {
-	return rt_rtTextureViewCreate();
-}
+static inline rt_texture_view rtTextureViewCreate(void);
 
 /*!
 ** @brief Bind a texture to an existing texture view.
@@ -877,9 +654,7 @@ static inline rt_texture_view rtTextureViewCreate(void) {
 ** @param texture_view  Texture view to update.
 ** @param texture       Texture to view through @p texture_view.
 */
-static inline void rtTextureViewBind(rt_texture_view texture_view, rt_texture texture) {
-	rt_rtTextureViewBind(texture_view, texture);
-}
+static inline void rtTextureViewBind(rt_texture_view texture_view, rt_texture texture);
 
 /*!
 ** @brief Destroy a texture view.
@@ -888,9 +663,7 @@ static inline void rtTextureViewBind(rt_texture_view texture_view, rt_texture te
 **
 ** @param texture_view  Texture view to destroy.
 */
-static inline void rtTextureViewDestroy(rt_texture_view texture_view) {
-	rt_rtTextureViewDestroy(texture_view);
-}
+static inline void rtTextureViewDestroy(rt_texture_view texture_view);
 
 /*!
 ** @brief Set the filtering used when sampling through a texture view.
@@ -903,9 +676,7 @@ static inline void rtTextureViewDestroy(rt_texture_view texture_view) {
 ** @param mip_filter    Filter applied between mip levels, or
 **                      RT_MIP_FILTER_NONE to disable mip sampling.
 */
-static inline void rtTextureViewFilter(rt_texture_view texture_view, enum rt_filter mag_filter, enum rt_filter min_filter, enum rt_mip_filter mip_filter) {
-	rt_rtTextureViewFilter(texture_view, mag_filter, min_filter, mip_filter);
-}
+static inline void rtTextureViewFilter(rt_texture_view texture_view, enum rt_filter mag_filter, enum rt_filter min_filter, enum rt_mip_filter mip_filter);
 
 /*!
 ** @brief Set the per-axis address modes used when sampling through a view.
@@ -919,9 +690,7 @@ static inline void rtTextureViewFilter(rt_texture_view texture_view, enum rt_fil
 ** @param address_w     Address mode for the W (Z) axis. Ignored for 1D/2D
 **                      textures.
 */
-static inline void rtTextureViewAddress(rt_texture_view texture_view, enum rt_address_mode address_u, enum rt_address_mode address_v, enum rt_address_mode address_w) {
-	rt_rtTextureViewAddress(texture_view, address_u, address_v, address_w);
-}
+static inline void rtTextureViewAddress(rt_texture_view texture_view, enum rt_address_mode address_u, enum rt_address_mode address_v, enum rt_address_mode address_w);
 
 /*!
 ** @brief Set the maximum anisotropy used when sampling through a view.
@@ -930,9 +699,7 @@ static inline void rtTextureViewAddress(rt_texture_view texture_view, enum rt_ad
 ** @param max_anisotropy  Maximum anisotropic sample count. 0 maps to the
 **                        backend default (no anisotropy).
 */
-static inline void rtTextureViewAnisotropy(rt_texture_view texture_view, u32 max_anisotropy) {
-	rt_rtTextureViewAnisotropy(texture_view, max_anisotropy);
-}
+static inline void rtTextureViewAnisotropy(rt_texture_view texture_view, u32 max_anisotropy);
 
 /*!
 ** @brief Set the LOD selection state used when sampling through a view.
@@ -942,9 +709,7 @@ static inline void rtTextureViewAnisotropy(rt_texture_view texture_view, u32 max
 ** @param max_lod       Upper clamp on the computed mip level.
 ** @param lod_bias      Bias added to the computed mip level before clamping.
 */
-static inline void rtTextureViewLod(rt_texture_view texture_view, f32 min_lod, f32 max_lod, f32 lod_bias) {
-	rt_rtTextureViewLod(texture_view, min_lod, max_lod, lod_bias);
-}
+static inline void rtTextureViewLod(rt_texture_view texture_view, f32 min_lod, f32 max_lod, f32 lod_bias);
 
 /*!
 ** @brief Copy one entire mip level of a texture to another texture's mip.
@@ -963,15 +728,13 @@ static inline void rtTextureViewLod(rt_texture_view texture_view, f32 min_lod, f
 **
 ** @error RT_DEVICE_LOST  The device was lost while scheduling the copy.
 */
-static inline rt_timepoint rtTextureCopy(rt_texture src_texture, u32 src_mip, rt_texture dst_texture, u32 dst_mip) {
-	return rt_rtTextureCopy(src_texture, src_mip, dst_texture, dst_mip);
-}
+static inline rt_timepoint rtTextureCopy(rt_texture src_texture, u32 src_mip, rt_texture dst_texture, u32 dst_mip);
 
 /*!
 ** @brief (Re)define a mip level of a texture and optionally upload its data.
 **
 ** Configures @p texture to hold a @p type texture of the given @p format,
-** with storage for the mip level @p mip sized @p width × @p height ×
+** with storage for the mip level @p mip sized @p width ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â @p height ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â
 ** @p depth texels. If @p data is non-NULL, the level is initialized from
 ** tightly packed source data in @p format; if NULL, the level is
 ** zero-initialized (matching @ref rtBufferData).
@@ -994,14 +757,12 @@ static inline rt_timepoint rtTextureCopy(rt_texture src_texture, u32 src_mip, rt
 ** @error RT_OUT_OF_HOST_MEMORY    Host staging allocation failed.
 ** @error RT_OUT_OF_DEVICE_MEMORY  Device allocation for the storage failed.
 */
-static inline rt_timepoint rtTextureData(rt_texture texture, enum rt_texture_type type, u32 mip, u32 width, u32 height, u32 depth, enum rt_format format, const void* data) {
-	return rt_rtTextureData(texture, type, mip, width, height, depth, format, data);
-}
+static inline rt_timepoint rtTextureData(rt_texture texture, enum rt_texture_type type, u32 mip, u32 width, u32 height, u32 depth, enum rt_format format, const void* data);
 
 /*!
 ** @brief Copy a sub-region of one texture mip to a sub-region of another.
 **
-** Copies a @p width × @p height × @p depth block of texels from
+** Copies a @p width ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â @p height ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â @p depth block of texels from
 ** (@p src_texture, @p src_mip) at offset (@p src_x, @p src_y, @p src_z)
 ** into (@p dst_texture, @p dst_mip) at offset (@p dst_x, @p dst_y,
 ** @p dst_z). Both source and destination regions must fit within their
@@ -1011,14 +772,12 @@ static inline rt_timepoint rtTextureData(rt_texture texture, enum rt_texture_typ
 **
 ** @error RT_DEVICE_LOST  The device was lost while scheduling the copy.
 */
-static inline rt_timepoint rtTextureSubcopy(rt_texture src_texture, u32 src_mip, u32 src_x, u32 src_y, u32 src_z, rt_texture dst_texture, u32 dst_mip, u32 dst_x, u32 dst_y, u32 dst_z, u32 width, u32 height, u32 depth) {
-	return rt_rtTextureSubcopy(src_texture, src_mip, src_x, src_y, src_z, dst_texture, dst_mip, dst_x, dst_y, dst_z, width, height, depth);
-}
+static inline rt_timepoint rtTextureSubcopy(rt_texture src_texture, u32 src_mip, u32 src_x, u32 src_y, u32 src_z, rt_texture dst_texture, u32 dst_mip, u32 dst_x, u32 dst_y, u32 dst_z, u32 width, u32 height, u32 depth);
 
 /*!
 ** @brief Upload tightly packed texel data into a sub-region of a texture mip.
 **
-** Writes a @p width × @p height × @p depth block of texels from @p data
+** Writes a @p width ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â @p height ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â @p depth block of texels from @p data
 ** into mip level @p mip of @p texture starting at offset (@p offset_x,
 ** @p offset_y, @p offset_z). The region must fit within the level extents
 ** previously defined by @ref rtTextureData.
@@ -1029,9 +788,7 @@ static inline rt_timepoint rtTextureSubcopy(rt_texture src_texture, u32 src_mip,
 ** @error RT_DEVICE_LOST           The device was lost while scheduling the
 **                                 upload.
 */
-static inline rt_timepoint rtTextureSubdata(rt_texture texture, u32 mip, u32 offset_x, u32 offset_y, u32 offset_z, u32 width, u32 height, u32 depth, const void* data) {
-	return rt_rtTextureSubdata(texture, mip, offset_x, offset_y, offset_z, width, height, depth, data);
-}
+static inline rt_timepoint rtTextureSubdata(rt_texture texture, u32 mip, u32 offset_x, u32 offset_y, u32 offset_z, u32 width, u32 height, u32 depth, const void* data);
 
 /*!
 ** @brief Copy the contents seen through a texture view into a buffer.
@@ -1047,9 +804,7 @@ static inline rt_timepoint rtTextureSubdata(rt_texture texture, u32 mip, u32 off
 **
 ** @error RT_DEVICE_LOST  The device was lost while scheduling the copy.
 */
-static inline rt_timepoint rtTextureViewCopyToBuffer(rt_texture_view texture_view, rt_buffer buffer) {
-	return rt_rtTextureViewCopyToBuffer(texture_view, buffer);
-}
+static inline rt_timepoint rtTextureViewCopyToBuffer(rt_texture_view texture_view, rt_buffer buffer);
 
 /*!
 ** @brief Return the texel extent visible through a texture view.
@@ -1061,9 +816,7 @@ static inline rt_timepoint rtTextureViewCopyToBuffer(rt_texture_view texture_vie
 ** @return The view's extent, or `{0, 0, 0}` if the view is invalid or its
 **         backing texture has been destroyed.
 */
-static inline rt_extent_3d rtTextureViewExtent(rt_texture_view texture_view) {
-	return rt_rtTextureViewExtent(texture_view);
-}
+static inline rt_extent_3d rtTextureViewExtent(rt_texture_view texture_view);
 
 /*!
 ** @brief Create an empty framebuffer with no attachments.
@@ -1073,11 +826,9 @@ static inline rt_extent_3d rtTextureViewExtent(rt_texture_view texture_view) {
 **
 ** @return New framebuffer handle, or NULL on failure.
 **
-** @error RT_OUT_OF_HOST_MEMORY  Host allocation for the handle failed.
+** @error RT_OUT_OF_HOST_MEMORY  Allocation of the buffer backing resource failed.
 */
-static inline rt_framebuffer rtFramebufferCreate(void) {
-	return rt_rtFramebufferCreate();
-}
+static inline rt_framebuffer rtFramebufferCreate(void);
 
 /*!
 ** @brief Destroy a framebuffer.
@@ -1087,9 +838,7 @@ static inline rt_framebuffer rtFramebufferCreate(void) {
 **
 ** @param framebuffer  Framebuffer to destroy.
 */
-static inline void rtFramebufferDestroy(rt_framebuffer framebuffer) {
-	rt_rtFramebufferDestroy(framebuffer);
-}
+static inline void rtFramebufferDestroy(rt_framebuffer framebuffer);
 
 /*!
 ** @brief Return the texture view currently attached to a color slot.
@@ -1098,9 +847,7 @@ static inline void rtFramebufferDestroy(rt_framebuffer framebuffer) {
 ** @param slot         Color attachment slot index.
 ** @return The bound texture view, or NULL if @p slot is empty.
 */
-static inline rt_texture_view rtFramebufferColorView(rt_framebuffer framebuffer, u32 slot) {
-	return rt_rtFramebufferColorView(framebuffer, slot);
-}
+static inline rt_texture_view rtFramebufferColorView(rt_framebuffer framebuffer, u32 slot);
 
 /*!
 ** @brief Attach (or detach) a texture view to a color slot of a framebuffer.
@@ -1109,9 +856,7 @@ static inline rt_texture_view rtFramebufferColorView(rt_framebuffer framebuffer,
 ** @param slot         Color attachment slot index.
 ** @param view         Texture view to attach, or NULL to clear the slot.
 */
-static inline void rtFramebufferSetColorView(rt_framebuffer framebuffer, u32 slot, rt_texture_view view) {
-	rt_rtFramebufferSetColorView(framebuffer, slot, view);
-}
+static inline void rtFramebufferSetColorView(rt_framebuffer framebuffer, u32 slot, rt_texture_view view);
 
 /*!
 ** @brief Attach (or detach) the depth/stencil texture view of a framebuffer.
@@ -1120,9 +865,7 @@ static inline void rtFramebufferSetColorView(rt_framebuffer framebuffer, u32 slo
 ** @param view         Texture view of a depth or depth-stencil format to
 **                     attach, or NULL to remove the depth attachment.
 */
-static inline void rtFramebufferDepthView(rt_framebuffer framebuffer, rt_texture_view view) {
-	rt_rtFramebufferDepthView(framebuffer, view);
-}
+static inline void rtFramebufferDepthView(rt_framebuffer framebuffer, rt_texture_view view);
 
 /*!
 ** @brief Create an unconfigured graphics program.
@@ -1133,11 +876,9 @@ static inline void rtFramebufferDepthView(rt_framebuffer framebuffer, rt_texture
 **
 ** @return New graphics program handle, or NULL on failure.
 **
-** @error RT_OUT_OF_HOST_MEMORY  Host allocation for the handle failed.
+** @error RT_OUT_OF_HOST_MEMORY  Allocation of the buffer backing resource failed.
 */
-static inline rt_graphics_program rtGraphicsProgramCreate(void) {
-	return rt_rtGraphicsProgramCreate();
-}
+static inline rt_graphics_program rtGraphicsProgramCreate(void);
 
 /*!
 ** @brief Destroy a graphics program.
@@ -1147,9 +888,7 @@ static inline rt_graphics_program rtGraphicsProgramCreate(void) {
 **
 ** @param program  Graphics program to destroy.
 */
-static inline void rtGraphicsProgramDestroy(rt_graphics_program program) {
-	rt_rtGraphicsProgramDestroy(program);
-}
+static inline void rtGraphicsProgramDestroy(rt_graphics_program program);
 
 /*!
 ** @brief Set the vertex input layout used by a graphics program.
@@ -1164,9 +903,7 @@ static inline void rtGraphicsProgramDestroy(rt_graphics_program program) {
 ** @param program  Graphics program to configure.
 ** @param layout   Vertex layout description, or NULL.
 */
-static inline void rtGraphicsProgramLayout(rt_graphics_program program, const rt_vertex_layout* layout) {
-	rt_rtGraphicsProgramLayout(program, layout);
-}
+static inline void rtGraphicsProgramLayout(rt_graphics_program program, const rt_vertex_layout* layout);
 
 /*!
 ** @brief Provide the shader code for a graphics program.
@@ -1182,9 +919,7 @@ static inline void rtGraphicsProgramLayout(rt_graphics_program program, const rt
 ** @param size     Size of @p data in bytes.
 ** @param data     Pointer to an RTSL Program binary.
 */
-static inline void rtGraphicsProgramSource(rt_graphics_program program, u64 size, const void* data) {
-	rt_rtGraphicsProgramSource(program, size, data);
-}
+static inline void rtGraphicsProgramSource(rt_graphics_program program, usize size, const void* data);
 
 /*!
 ** @brief Set rasterization state for a graphics program.
@@ -1194,9 +929,7 @@ static inline void rtGraphicsProgramSource(rt_graphics_program program, u64 size
 ** @param front_face  Winding order considered front-facing.
 ** @param fill_mode   Triangle fill mode (solid or wireframe).
 */
-static inline void rtGraphicsProgramRasterState(rt_graphics_program program, enum rt_cull_mode cull_mode, enum rt_front_face front_face, enum rt_fill_mode fill_mode) {
-	rt_rtGraphicsProgramRasterState(program, cull_mode, front_face, fill_mode);
-}
+static inline void rtGraphicsProgramRasterState(rt_graphics_program program, enum rt_cull_mode cull_mode, enum rt_front_face front_face, enum rt_fill_mode fill_mode);
 
 /*!
 ** @brief Set color-blend state for a graphics program.
@@ -1218,9 +951,7 @@ static inline void rtGraphicsProgramRasterState(rt_graphics_program program, enu
 ** @param dst_alpha   Destination factor for the alpha channel.
 ** @param alpha_op    Combining operation for the alpha channel.
 */
-static inline void rtGraphicsProgramBlendState(rt_graphics_program program, bool enabled, enum rt_blend_factor src_color, enum rt_blend_factor dst_color, enum rt_blend_op color_op, enum rt_blend_factor src_alpha, enum rt_blend_factor dst_alpha, enum rt_blend_op alpha_op) {
-	rt_rtGraphicsProgramBlendState(program, enabled, src_color, dst_color, color_op, src_alpha, dst_alpha, alpha_op);
-}
+static inline void rtGraphicsProgramBlendState(rt_graphics_program program, bool enabled, enum rt_blend_factor src_color, enum rt_blend_factor dst_color, enum rt_blend_op color_op, enum rt_blend_factor src_alpha, enum rt_blend_factor dst_alpha, enum rt_blend_op alpha_op);
 
 /*!
 ** @brief Finalize a graphics program for use in draw commands.
@@ -1251,9 +982,7 @@ static inline void rtGraphicsProgramBlendState(rt_graphics_program program, bool
 ** @error RT_OUT_OF_DEVICE_MEMORY       Device allocation failed during
 **                                      finalize.
 */
-static inline void rtGraphicsProgramFinalize(rt_graphics_program program) {
-	rt_rtGraphicsProgramFinalize(program);
-}
+static inline void rtGraphicsProgramFinalize(rt_graphics_program program);
 
 /*!
 ** @brief Return a finalized graphics program to a configurable state.
@@ -1267,9 +996,7 @@ static inline void rtGraphicsProgramFinalize(rt_graphics_program program) {
 **
 ** @param program  Graphics program to reset.
 */
-static inline void rtGraphicsProgramReset(rt_graphics_program program) {
-	rt_rtGraphicsProgramReset(program);
-}
+static inline void rtGraphicsProgramReset(rt_graphics_program program);
 
 /*!
 ** @brief Look up a named shader uniform on a finalized graphics program.
@@ -1283,9 +1010,7 @@ static inline void rtGraphicsProgramReset(rt_graphics_program program) {
 ** @param name     Null-terminated uniform name as it appears in the shader.
 ** @return Uniform location handle, or NULL if no such uniform exists.
 */
-static inline rt_uniform_location rtGraphicsProgramUniformLocation(rt_graphics_program program, const char* name) {
-	return rt_rtGraphicsProgramUniformLocation(program, name);
-}
+static inline rt_uniform_location rtGraphicsProgramUniformLocation(rt_graphics_program program, const char* name);
 
 /*!
 ** @brief Create a single-fire command context.
@@ -1298,11 +1023,9 @@ static inline rt_uniform_location rtGraphicsProgramUniformLocation(rt_graphics_p
 **
 ** @return New command context handle, or NULL on failure.
 **
-** @error RT_OUT_OF_HOST_MEMORY  Host allocation for the handle failed.
+** @error RT_OUT_OF_HOST_MEMORY  Allocation of the buffer backing resource failed.
 */
-static inline rt_command_context rtCommandContextCreate(void) {
-	return rt_rtCommandContextCreate();
-}
+static inline rt_command_context rtCommandContextCreate(void);
 
 /*!
 ** @brief Destroy a command context and invalidate all of its child buffers.
@@ -1313,9 +1036,7 @@ static inline rt_command_context rtCommandContextCreate(void) {
 **
 ** @param command_context  Context to destroy.
 */
-static inline void rtCommandContextDestroy(rt_command_context command_context) {
-	rt_rtCommandContextDestroy(command_context);
-}
+static inline void rtCommandContextDestroy(rt_command_context command_context);
 
 /*!
 ** @brief Bind a queue to a command context.
@@ -1327,9 +1048,7 @@ static inline void rtCommandContextDestroy(rt_command_context command_context) {
 ** @param command_context  Context to bind.
 ** @param queue            Queue for this context lifetime.
 */
-static inline void rtCommandContextBind(rt_command_context command_context, rt_queue queue) {
-	rt_rtCommandContextBind(command_context, queue);
-}
+static inline void rtCommandContextBind(rt_command_context command_context, rt_queue queue);
 
 /*!
 ** @brief Allocate a resettable child command buffer.
@@ -1342,9 +1061,7 @@ static inline void rtCommandContextBind(rt_command_context command_context, rt_q
 ** @param command_context  Queue-bound context that owns the child.
 ** @return A new child command buffer, or NULL on failure.
 */
-static inline rt_command_buffer rtCommandContextAllocate(rt_command_context command_context) {
-	return rt_rtCommandContextAllocate(command_context);
-}
+static inline rt_command_buffer rtCommandContextAllocate(rt_command_context command_context);
 
 /*!
 ** @brief Destroy one child command buffer.
@@ -1355,9 +1072,7 @@ static inline rt_command_buffer rtCommandContextAllocate(rt_command_context comm
 **
 ** @param command_buffer  Child command buffer to destroy.
 */
-static inline void rtCommandBufferDestroy(rt_command_buffer command_buffer) {
-	rt_rtCommandBufferDestroy(command_buffer);
-}
+static inline void rtCommandBufferDestroy(rt_command_buffer command_buffer);
 
 /*!
 ** @brief Discard one child buffer's recorded contents.
@@ -1368,9 +1083,7 @@ static inline void rtCommandBufferDestroy(rt_command_buffer command_buffer) {
 **
 ** @param command_buffer  Child command buffer to reset.
 */
-static inline void rtCmdReset(rt_command_buffer command_buffer) {
-	rt_rtCmdReset(command_buffer);
-}
+static inline void rtCmdReset(rt_command_buffer command_buffer);
 
 /*!
 ** @brief Begin recording a child command buffer.
@@ -1387,9 +1100,7 @@ static inline void rtCmdReset(rt_command_buffer command_buffer) {
 **
 ** @param command_buffer  Command buffer to record into.
 */
-static inline void rtCmdBegin(rt_command_buffer command_buffer) {
-	rt_rtCmdBegin(command_buffer);
-}
+static inline void rtCmdBegin(rt_command_buffer command_buffer);
 
 /*!
 ** @brief Bind a graphics program for subsequent draw commands.
@@ -1403,9 +1114,7 @@ static inline void rtCmdBegin(rt_command_buffer command_buffer) {
 ** @param command_buffer  Command buffer being recorded.
 ** @param program         Finalized graphics program to bind.
 */
-static inline void rtCmdUseGraphicsProgram(rt_command_buffer command_buffer, rt_graphics_program program) {
-	rt_rtCmdUseGraphicsProgram(command_buffer, program);
-}
+static inline void rtCmdUseGraphicsProgram(rt_command_buffer command_buffer, rt_graphics_program program);
 
 /*!
 ** @brief Bind a buffer range to a uniform location for subsequent draws.
@@ -1423,9 +1132,7 @@ static inline void rtCmdUseGraphicsProgram(rt_command_buffer command_buffer, rt_
 ** @param offset          Byte offset into @p buffer.
 ** @param size            Number of bytes visible through the binding.
 */
-static inline void rtCmdUniformBuffer(rt_command_buffer command_buffer, rt_uniform_location location, rt_buffer buffer, u64 offset, u64 size) {
-	rt_rtCmdUniformBuffer(command_buffer, location, buffer, offset, size);
-}
+static inline void rtCmdUniformBuffer(rt_command_buffer command_buffer, rt_uniform_location location, rt_buffer buffer, usize offset, usize size);
 
 /*!
 ** @brief Bind a sampled texture view to a uniform location for subsequent draws.
@@ -1440,9 +1147,7 @@ static inline void rtCmdUniformBuffer(rt_command_buffer command_buffer, rt_unifo
 ** @param location        Uniform location obtained from the bound program.
 ** @param texture_view    Texture view to sample.
 */
-static inline void rtCmdUniformTexture(rt_command_buffer command_buffer, rt_uniform_location location, rt_texture_view texture_view) {
-	rt_rtCmdUniformTexture(command_buffer, location, texture_view);
-}
+static inline void rtCmdUniformTexture(rt_command_buffer command_buffer, rt_uniform_location location, rt_texture_view texture_view);
 
 /*!
 ** @brief Bind a storage-buffer range to a uniform location for following draws.
@@ -1458,9 +1163,7 @@ static inline void rtCmdUniformTexture(rt_command_buffer command_buffer, rt_unif
 ** @param offset          Byte offset into @p buffer.
 ** @param size            Number of bytes visible through the binding.
 */
-static inline void rtCmdStorageBuffer(rt_command_buffer command_buffer, rt_uniform_location location, rt_buffer buffer, u64 offset, u64 size) {
-	rt_rtCmdStorageBuffer(command_buffer, location, buffer, offset, size);
-}
+static inline void rtCmdStorageBuffer(rt_command_buffer command_buffer, rt_uniform_location location, rt_buffer buffer, usize offset, usize size);
 
 /*!
 ** @brief Bind a vertex buffer for subsequent draw commands.
@@ -1474,9 +1177,7 @@ static inline void rtCmdStorageBuffer(rt_command_buffer command_buffer, rt_unifo
 ** @param buffer          Buffer to read vertex data from.
 ** @param offset          Byte offset into @p buffer where vertex 0 begins.
 */
-static inline void rtCmdBindVertexBuffer(rt_command_buffer command_buffer, rt_buffer buffer, u64 offset) {
-	rt_rtCmdBindVertexBuffer(command_buffer, buffer, offset);
-}
+static inline void rtCmdBindVertexBuffer(rt_command_buffer command_buffer, rt_buffer buffer, usize offset);
 
 /*!
 ** @brief Record a non-indexed draw.
@@ -1491,9 +1192,7 @@ static inline void rtCmdBindVertexBuffer(rt_command_buffer command_buffer, rt_bu
 ** @param vertex_count    Number of vertices to draw.
 ** @param first_vertex    Index of the first vertex (added to vertex IDs).
 */
-static inline void rtCmdDraw(rt_command_buffer command_buffer, u32 vertex_count, u32 first_vertex) {
-	rt_rtCmdDraw(command_buffer, vertex_count, first_vertex);
-}
+static inline void rtCmdDraw(rt_command_buffer command_buffer, u32 vertex_count, u32 first_vertex);
 
 /*!
 ** @brief Finish recording a child command buffer.
@@ -1503,9 +1202,7 @@ static inline void rtCmdDraw(rt_command_buffer command_buffer, u32 vertex_count,
 **
 ** @param command_buffer  Command buffer being recorded.
 */
-static inline void rtCmdEnd(rt_command_buffer command_buffer) {
-	rt_rtCmdEnd(command_buffer);
-}
+static inline void rtCmdEnd(rt_command_buffer command_buffer);
 
 /*!
 ** @brief Declare the context's one framebuffer scope.
@@ -1518,9 +1215,7 @@ static inline void rtCmdEnd(rt_command_buffer command_buffer) {
 ** @param command_context  Context declaring the framebuffer scope.
 ** @param framebuffer      Framebuffer whose attachments will be rendered to.
 */
-static inline void rtCommandContextBindFramebuffer(rt_command_context command_context, rt_framebuffer framebuffer) {
-	rt_rtCommandContextBindFramebuffer(command_context, framebuffer);
-}
+static inline void rtCommandContextBindFramebuffer(rt_command_context command_context, rt_framebuffer framebuffer);
 
 /*!
 ** @brief Declare a color attachment clear for the context framebuffer scope.
@@ -1536,9 +1231,7 @@ static inline void rtCommandContextBindFramebuffer(rt_command_context command_co
 ** @param b                Blue.
 ** @param a                Alpha.
 */
-static inline void rtCommandContextClearColor(rt_command_context command_context, u32 color_index, f32 r, f32 g, f32 b, f32 a) {
-	rt_rtCommandContextClearColor(command_context, color_index, r, g, b, a);
-}
+static inline void rtCommandContextClearColor(rt_command_context command_context, u32 color_index, f32 r, f32 g, f32 b, f32 a);
 
 /*!
 ** @brief Declare a depth clear for the context framebuffer scope.
@@ -1549,9 +1242,7 @@ static inline void rtCommandContextClearColor(rt_command_context command_context
 ** @param command_context  Context with the active framebuffer scope.
 ** @param depth            Depth clear value (typically in [0, 1]).
 */
-static inline void rtCommandContextClearDepth(rt_command_context command_context, f32 depth) {
-	rt_rtCommandContextClearDepth(command_context, depth);
-}
+static inline void rtCommandContextClearDepth(rt_command_context command_context, f32 depth);
 
 /*!
 ** @brief Declare a stencil clear for the context framebuffer scope.
@@ -1562,9 +1253,7 @@ static inline void rtCommandContextClearDepth(rt_command_context command_context
 ** @param command_context  Context with the active framebuffer scope.
 ** @param stencil          Stencil clear value.
 */
-static inline void rtCommandContextClearStencil(rt_command_context command_context, u32 stencil) {
-	rt_rtCommandContextClearStencil(command_context, stencil);
-}
+static inline void rtCommandContextClearStencil(rt_command_context command_context, u32 stencil);
 
 /*!
 ** @brief Declare the viewport used by every draw packet in the active scope.
@@ -1581,9 +1270,7 @@ static inline void rtCommandContextClearStencil(rt_command_context command_conte
 ** @param min_depth        Minimum depth value.
 ** @param max_depth        Maximum depth value.
 */
-static inline void rtCommandContextSetViewport(rt_command_context command_context, u32 x, u32 y, u32 width, u32 height, f32 min_depth, f32 max_depth) {
-	rt_rtCommandContextSetViewport(command_context, x, y, width, height, min_depth, max_depth);
-}
+static inline void rtCommandContextSetViewport(rt_command_context command_context, u32 x, u32 y, u32 width, u32 height, f32 min_depth, f32 max_depth);
 
 /*!
 ** @brief Declare the scissor used by every draw packet in the active scope.
@@ -1597,9 +1284,7 @@ static inline void rtCommandContextSetViewport(rt_command_context command_contex
 ** @param width            Scissor width in framebuffer pixels.
 ** @param height           Scissor height in framebuffer pixels.
 */
-static inline void rtCommandContextSetScissor(rt_command_context command_context, u32 x, u32 y, u32 width, u32 height) {
-	rt_rtCommandContextSetScissor(command_context, x, y, width, height);
-}
+static inline void rtCommandContextSetScissor(rt_command_context command_context, u32 x, u32 y, u32 width, u32 height);
 
 /*!
 ** @brief Append an ended child packet to the context's ordered submission.
@@ -1612,9 +1297,7 @@ static inline void rtCommandContextSetScissor(rt_command_context command_context
 ** @param command_context  Context receiving the child packet.
 ** @param command_buffer   Ended child buffer owned by the context.
 */
-static inline void rtCommandContextExecute(rt_command_context command_context, rt_command_buffer command_buffer) {
-	rt_rtCommandContextExecute(command_context, command_buffer);
-}
+static inline void rtCommandContextExecute(rt_command_context command_context, rt_command_buffer command_buffer);
 
 /*!
 ** @brief End the context's current rendering scope.
@@ -1626,9 +1309,7 @@ static inline void rtCommandContextExecute(rt_command_context command_context, r
 **
 ** @param command_context  Context whose rendering scope will close.
 */
-static inline void rtCommandContextEndRendering(rt_command_context command_context) {
-	rt_rtCommandContextEndRendering(command_context);
-}
+static inline void rtCommandContextEndRendering(rt_command_context command_context);
 
 /*!
 ** @brief Get a queue offering the requested capability.
@@ -1643,9 +1324,7 @@ static inline void rtCommandContextEndRendering(rt_command_context command_conte
 ** @param capability  Required queue capability.
 ** @return Queue handle, or NULL when no matching queue is available.
 */
-static inline rt_queue rtQueueQuery(enum rt_queue_capability capability) {
-	return rt_rtQueueQuery(capability);
-}
+static inline rt_queue rtQueueQuery(enum rt_queue_capability capability);
 
 /*!
 ** @brief Insert a GPU-side wait for a timepoint on a queue.
@@ -1663,9 +1342,7 @@ static inline rt_queue rtQueueQuery(enum rt_queue_capability capability) {
 ** @param timepoint  Timepoint that must be reached before subsequent
 **                   submissions on @p queue may run.
 */
-static inline void rtQueueWait(rt_queue queue, rt_timepoint timepoint) {
-	rt_rtQueueWait(queue, timepoint);
-}
+static inline void rtQueueWait(rt_queue queue, rt_timepoint timepoint);
 
 /*!
 ** @brief Submit a completed command context.
@@ -1688,9 +1365,7 @@ static inline void rtQueueWait(rt_queue queue, rt_timepoint timepoint) {
 ** @error RT_OUT_OF_DEVICE_MEMORY  Device allocation failed while queuing
 **                                 the submission.
 */
-static inline rt_timepoint rtCommandContextSubmit(rt_command_context command_context) {
-	return rt_rtCommandContextSubmit(command_context);
-}
+static inline rt_timepoint rtCommandContextSubmit(rt_command_context command_context);
 
 /*!
 ** @brief Flush any pending submissions on a queue to the GPU.
@@ -1708,9 +1383,7 @@ static inline rt_timepoint rtCommandContextSubmit(rt_command_context command_con
 ** @error RT_OUT_OF_DEVICE_MEMORY  Device allocation failed during the
 **                                 flush.
 */
-static inline rt_timepoint rtQueueFlush(rt_queue queue) {
-	return rt_rtQueueFlush(queue);
-}
+static inline rt_timepoint rtQueueFlush(rt_queue queue);
 
 /*!
 ** @brief Block the CPU until a timepoint is reached.
@@ -1721,9 +1394,7 @@ static inline rt_timepoint rtQueueFlush(rt_queue queue) {
 **
 ** @param timepoint  Timepoint to wait for.
 */
-static inline void rtTimepointWait(rt_timepoint timepoint) {
-	rt_rtTimepointWait(timepoint);
-}
+static inline void rtTimepointWait(rt_timepoint timepoint);
 
 /*!
 ** @brief Non-blocking check of whether a timepoint has been reached.
@@ -1735,1101 +1406,93 @@ static inline void rtTimepointWait(rt_timepoint timepoint) {
 ** @return true if the timepoint has been signaled (or is the always-reached
 **         sentinel); false otherwise.
 */
-static inline bool rtTimepointReached(rt_timepoint timepoint) {
-	return rt_rtTimepointReached(timepoint);
-}
-#endif /* RT_NO_API_WRAPPERS */
-
-#ifdef RUTILE_IMPL
-#include <stdarg.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-
-#define RT__MAX_LAYERS 16
-#define RT__MAX_DLLS (RT__MAX_LAYERS + 1)
-#define RT__MAX_SETTINGS 64
-#define RT__MAX_SETTING_NAME 64
-#define RT__MAX_SETTING_VALUE 256
-
-#if defined(_WIN32)
-#define RT__THREAD_LOCAL __declspec(thread)
-#elif defined(__cplusplus)
-#define RT__THREAD_LOCAL thread_local
-#else
-#define RT__THREAD_LOCAL _Thread_local
-#endif
-
-#if defined(_WIN32)
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
-typedef HMODULE rt__dll_handle;
-#else
-#include <dlfcn.h>
-#include <limits.h>
-#include <unistd.h>
-typedef void* rt__dll_handle;
-#endif
-
-static rt__dll_handle rt__dll_open(const char* path);
-static void* rt__dll_symbol(rt__dll_handle dll, const char* symbol);
-static void rt__dll_close(rt__dll_handle dll);
-
-#if defined(_WIN32)
-static rt__dll_handle rt__dll_open(const char* path) {
-	return LoadLibraryA(path);
-}
-
-static bool rt__exe_dir_path(char* out, usize out_size) {
-	DWORD length;
-	char* slash;
-	char* backslash;
-
-	if (!out || out_size == 0) {
-		return false;
-	}
-	out[0] = '\0';
-
-	length = GetModuleFileNameA(NULL, out, (DWORD)out_size);
-	if (length == 0 || length >= out_size) {
-		out[0] = '\0';
-		return false;
-	}
-
-	slash = strrchr(out, '/');
-	backslash = strrchr(out, '\\');
-	if (backslash && (!slash || backslash > slash)) {
-		slash = backslash;
-	}
-	if (!slash) {
-		out[0] = '\0';
-		return false;
-	}
-
-	slash[1] = '\0';
-	return true;
-}
-
-static void rt__dll_last_error_message(char* out, usize out_size) {
-	DWORD err;
-	DWORD written;
-
-	if (!out || out_size == 0) {
-		return;
-	}
-	out[0] = '\0';
-
-	err = GetLastError();
-	if (!err) {
-		return;
-	}
-
-	written = FormatMessageA(
-		FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
-		NULL,
-		err,
-		MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
-		out,
-		(DWORD)out_size,
-		NULL
-	);
-	if (written == 0) {
-		snprintf(out, out_size, "Windows error %llu", (u64)err);
-	}
-	out[out_size - 1] = '\0';
-}
-
-static void* rt__dll_symbol(rt__dll_handle dll, const char* symbol) {
-	return (void*)GetProcAddress(dll, symbol);
-}
-
-static void rt__dll_close(rt__dll_handle dll) {
-	if (dll) {
-		FreeLibrary(dll);
-	}
-}
-#else
-static rt__dll_handle rt__dll_open(const char* path) {
-	return dlopen(path, RTLD_NOW | RTLD_LOCAL);
-}
-
-static bool rt__exe_dir_path(char* out, usize out_size) {
-	if (!out || out_size == 0) {
-		return false;
-	}
-	out[0] = '\0';
-
-#if defined(__linux__)
-	char path[PATH_MAX];
-	ssize_t length = readlink("/proc/self/exe", path, sizeof(path) - 1);
-	if (length <= 0) {
-		return false;
-	}
-	path[length] = '\0';
-
-	char* slash = strrchr(path, '/');
-	if (!slash) {
-		return false;
-	}
-	*(slash + 1) = '\0';
-
-	snprintf(out, out_size, "%s", path);
-	out[out_size - 1] = '\0';
-	return true;
-#else
-	return false;
-#endif
-}
-
-static void rt__dll_last_error_message(char* out, usize out_size) {
-	const char* err;
-
-	if (!out || out_size == 0) {
-		return;
-	}
-	out[0] = '\0';
-
-	err = dlerror();
-	if (err) {
-		snprintf(out, out_size, "%s", err);
-		out[out_size - 1] = '\0';
-	}
-}
-
-static void* rt__dll_symbol(rt__dll_handle dll, const char* symbol) {
-	return dlsym(dll, symbol);
-}
-
-static void rt__dll_close(rt__dll_handle dll) {
-	if (dll) {
-		dlclose(dll);
-	}
-}
-#endif
-
-typedef struct rt_layer_link {
-	rt_proc_chain chain;
-	rt__dll_handle dll;
-	rt_proc_chain next;
-} rt_layer_link;
-
-typedef struct rt_setting_entry {
-	char name[RT__MAX_SETTING_NAME];
-	char value[RT__MAX_SETTING_VALUE];
-} rt_setting_entry;
-
-static rt__dll_handle rt__backend_dll;
-static rt_layer_link rt__layer_links[RT__MAX_LAYERS];
-static rt_proc_chain rt__chain;
-bool rt_loaded = false;
-
-static rt__dll_handle rt__dlls[RT__MAX_DLLS];
-static u32 rt__dll_count;
-static rt_setting_entry rt__settings[RT__MAX_SETTINGS];
-static u32 rt__setting_count;
-
-static rt_proc_t rt__backend_proc(const rt_proc_chain* chain, const char* name) {
-
-	if (!rt__backend_dll || !name) {
-		return NULL;
-	}
-
-	rt_proc_t proc = (rt_proc_t)rt__dll_symbol(rt__backend_dll, name);
-	if (proc) {
-		return proc;
-	}
-
-	return NULL;
-}
-
-static rt_proc_t rt__layer_proc_at(u32 index, const char* name) {
-	if (index >= RT__MAX_LAYERS || !name) {
-		return NULL;
-	}
-
-	rt_layer_link* link = &rt__layer_links[index];
-	if (!link->next.get_proc) {
-		return NULL;
-	}
-
-	rt_proc_t next_proc = link->next.get_proc(&link->next, name);
-	if (!next_proc) {
-		return NULL;
-	}
-
-	rt_proc_t wrapper = (rt_proc_t)rt__dll_symbol(link->dll, name);
-	if (wrapper) {
-		return wrapper;
-	}
-
-	return next_proc;
-}
-
-#define RT__LAYER_PROC_LIST(X) \
-	X(0)                       \
-	X(1)                       \
-	X(2)                       \
-	X(3)                       \
-	X(4)                       \
-	X(5)                       \
-	X(6)                       \
-	X(7)                       \
-	X(8)                       \
-	X(9)                       \
-	X(10)                      \
-	X(11)                      \
-	X(12)                      \
-	X(13)                      \
-	X(14)                      \
-	X(15)
-
-#define RT__LAYER_PROC(index)                                                                \
-	static rt_proc_t rt__layer##index##_proc(const rt_proc_chain* chain, const char* name) { \
-		return rt__layer_proc_at(index, name);                                               \
-	}
-
-RT__LAYER_PROC_LIST(RT__LAYER_PROC)
-
-#undef RT__LAYER_PROC
-
-#define RT__LAYER_PROC_ENTRY(index) rt__layer##index##_proc,
-
-static rt_proc_t (*rt__layer_procs[RT__MAX_LAYERS])(const rt_proc_chain* chain, const char* name) = {
-	RT__LAYER_PROC_LIST(RT__LAYER_PROC_ENTRY)
-};
-
-#undef RT__LAYER_PROC_ENTRY
-#undef RT__LAYER_PROC_LIST
-
-static enum rt_error rt__remember_dll(rt__dll_handle dll) {
-	if (rt__dll_count >= RT__MAX_DLLS) {
-		rt__dll_close(dll);
-		return RT_IMPROPER_USAGE;
-	}
-	rt__dlls[rt__dll_count++] = dll;
-	return RT_SUCCESS;
-}
-
-static void rt__close_dlls(void) {
-	for (u32 i = rt__dll_count; i > 0; i--) {
-		rt__dll_close(rt__dlls[i - 1]);
-		rt__dlls[i - 1] = (rt__dll_handle)0;
-	}
-	rt__dll_count = 0;
-}
-
-static void rt__backend_dll_name(const char* name, char* out, usize out_size) {
-#if defined(_WIN32)
-	snprintf(out, out_size, "%s.dll", name);
-#elif defined(__APPLE__)
-	snprintf(out, out_size, "lib%s.dylib", name);
-#else
-	snprintf(out, out_size, "lib%s.so", name);
-#endif
-}
-
-static void rt__layer_dll_name(const char* name, char* out, usize out_size) {
-	const char* stem = name;
-	if (strncmp(stem, "RT_", 3) == 0) {
-		stem += 3;
-	}
-
-#if defined(_WIN32)
-	snprintf(out, out_size, "rt-%s.dll", stem);
-#elif defined(__APPLE__)
-	snprintf(out, out_size, "librt-%s.dylib", stem);
-#else
-	snprintf(out, out_size, "librt-%s.so", stem);
-#endif
-	for (char* p = out; *p; p++) {
-		if (*p == '_') {
-			*p = '-';
-		}
-		if (*p >= 'A' && *p <= 'Z') {
-			*p = (char)(*p - 'A' + 'a');
-		}
-	}
-}
-
-static enum rt_error rt__load_backend_dll(const char* path, const char* requested_name, rt__dll_handle* out_dll, char* message, usize message_size) {
-	if (message && message_size) {
-		message[0] = '\0';
-	}
-	if (!path || !requested_name || !out_dll) {
-		return RT_IMPROPER_USAGE;
-	}
-	*out_dll = (rt__dll_handle)0;
-
-	rt__dll_handle dll = rt__dll_open(path);
-	if (!dll) {
-		char dll_error[512];
-		rt__dll_last_error_message(dll_error, sizeof(dll_error));
-		if (message && message_size && dll_error[0]) {
-			snprintf(message, message_size, "failed to load implementation DLL %s: %s", path, dll_error);
-			message[message_size - 1] = '\0';
-		} else if (message && message_size) {
-			snprintf(message, message_size, "failed to load implementation DLL %s", path);
-			message[message_size - 1] = '\0';
-		}
-		return RT_NO_BACKEND;
-	}
-
-	PFN_rtGetName get_name = (PFN_rtGetName)rt__dll_symbol(dll, "rtGetName");
-	if (!get_name) {
-		if (message && message_size) {
-			snprintf(message, message_size, "implementation DLL %s does not export rtGetName", path);
-			message[message_size - 1] = '\0';
-		}
-		rt__dll_close(dll);
-		return RT_NO_BACKEND;
-	}
-	if (!get_name() || strcmp(get_name(), requested_name) != 0) {
-		if (message && message_size) {
-			snprintf(message, message_size, "implementation DLL %s reported name %s, expected %s", path, get_name() ? get_name() : "<null>", requested_name);
-			message[message_size - 1] = '\0';
-		}
-		rt__dll_close(dll);
-		return RT_NO_BACKEND;
-	}
-
-	enum rt_error err = rt__remember_dll(dll);
-	if (err != RT_SUCCESS) {
-		if (message && message_size) {
-			snprintf(message, message_size, "too many loaded DLLs while loading %s", path);
-			message[message_size - 1] = '\0';
-		}
-		return err;
-	}
-
-	*out_dll = dll;
-	return RT_SUCCESS;
-}
-
-static enum rt_error rt__load_layer_dll(const char* path, const char* requested_name, rt_layer_link* out_link, char* message, usize message_size) {
-	if (message && message_size) {
-		message[0] = '\0';
-	}
-	if (!path || !requested_name || !out_link) {
-		return RT_IMPROPER_USAGE;
-	}
-	out_link->dll = (rt__dll_handle)0;
-
-	rt__dll_handle dll = rt__dll_open(path);
-	if (!dll) {
-		char dll_error[512];
-		rt__dll_last_error_message(dll_error, sizeof(dll_error));
-		if (message && message_size && dll_error[0]) {
-			snprintf(message, message_size, "failed to load layer DLL %s: %s", path, dll_error);
-			message[message_size - 1] = '\0';
-		} else if (message && message_size) {
-			snprintf(message, message_size, "failed to load layer DLL %s", path);
-			message[message_size - 1] = '\0';
-		}
-		return RT_IMPROPER_USAGE;
-	}
-
-	PFN_rtLayerGetName get_name = (PFN_rtLayerGetName)rt__dll_symbol(dll, "rtLayerGetName");
-	if (!get_name) {
-		if (message && message_size) {
-			snprintf(message, message_size, "layer DLL %s does not export rtLayerGetName", path);
-			message[message_size - 1] = '\0';
-		}
-		rt__dll_close(dll);
-		return RT_IMPROPER_USAGE;
-	}
-	if (!get_name() || strcmp(get_name(), requested_name) != 0) {
-		if (message && message_size) {
-			snprintf(message, message_size, "layer DLL %s reported name %s, expected %s", path, get_name() ? get_name() : "<null>", requested_name);
-			message[message_size - 1] = '\0';
-		}
-		rt__dll_close(dll);
-		return RT_IMPROPER_USAGE;
-	}
-
-	enum rt_error err = rt__remember_dll(dll);
-	if (err != RT_SUCCESS) {
-		if (message && message_size) {
-			snprintf(message, message_size, "too many loaded DLLs while loading %s", path);
-			message[message_size - 1] = '\0';
-		}
-		return err;
-	}
-
-	out_link->dll = dll;
-	return RT_SUCCESS;
-}
-
-static enum rt_error rt__load_backend_named(const char* name, rt__dll_handle* out_dll, char* message, usize message_size) {
-	char dll[128];
-	rt__backend_dll_name(name, dll, sizeof(dll));
-	enum rt_error err = rt__load_backend_dll(dll, name, out_dll, message, message_size);
-	if (err == RT_SUCCESS) {
-		return err;
-	}
-
-	{
-		char exe_dir[1024];
-		if (rt__exe_dir_path(exe_dir, sizeof(exe_dir))) {
-			char path[1152];
-			snprintf(path, sizeof(path), "%s%s", exe_dir, dll);
-			path[sizeof(path) - 1] = '\0';
-			err = rt__load_backend_dll(path, name, out_dll, message, message_size);
-		}
-	}
-	return err;
-}
-
-static enum rt_error rt__load_layer_named(const char* name, rt_layer_link* out_link, char* message, usize message_size) {
-	char dll[128];
-	rt__layer_dll_name(name, dll, sizeof(dll));
-	enum rt_error err = rt__load_layer_dll(dll, name, out_link, message, message_size);
-	if (err == RT_SUCCESS) {
-		return err;
-	}
-
-	{
-		char exe_dir[1024];
-		if (rt__exe_dir_path(exe_dir, sizeof(exe_dir))) {
-			char path[1152];
-			snprintf(path, sizeof(path), "%s%s", exe_dir, dll);
-			path[sizeof(path) - 1] = '\0';
-			err = rt__load_layer_dll(path, name, out_link, message, message_size);
-		}
-	}
-	return err;
-}
-
-static void rt__layer_set_next(u32 index, rt_proc_chain next) {
-	if (index >= RT__MAX_LAYERS) {
-		return;
-	}
-
-	rt_layer_link* link = &rt__layer_links[index];
-	link->next = next;
-
-	PFN_rtLayerSetNext set_next = (PFN_rtLayerSetNext)rt__dll_symbol(link->dll, "rtLayerSetNext");
-	if (set_next) {
-		set_next(next);
-	}
-
-	link->chain.get_proc = rt__layer_procs[index];
-}
-
-static void rt__apply_backend_settings(const char* backend_name) {
-	(void)backend_name;
-	if (!rt__backend_dll) {
-		return;
-	}
-
-	PFN_rtSettingApply apply = (PFN_rtSettingApply)rt__dll_symbol(rt__backend_dll, "rtSettingApply");
-	if (!apply) {
-		return;
-	}
-
-	for (u32 i = 0; i < rt__setting_count; i++) {
-		apply(rt__settings[i].name, rt__settings[i].value);
-	}
-}
-
-PFN_rtInit rt_rtInit = NULL;
-PFN_rtExit rt_rtExit = NULL;
-PFN_rtSetOutput rt_rtSetOutput = NULL;
-PFN_rtError rt_rtError = NULL;
-PFN_rtErrorMessage rt_rtErrorMessage = NULL;
-PFN_rtClearError rt_rtClearError = NULL;
-PFN_rtGetName rt_rtGetName = NULL;
-PFN_rtQueryFormatCapabilities rt_rtQueryFormatCapabilities = NULL;
-
-PFN_rtBufferCreate rt_rtBufferCreate = NULL;
-PFN_rtBufferDestroy rt_rtBufferDestroy = NULL;
-PFN_rtBufferData rt_rtBufferData = NULL;
-PFN_rtBufferSubdata rt_rtBufferSubdata = NULL;
-PFN_rtBufferRead rt_rtBufferRead = NULL;
-
-PFN_rtTextureCreate rt_rtTextureCreate = NULL;
-PFN_rtTextureDestroy rt_rtTextureDestroy = NULL;
-PFN_rtTextureViewCreate rt_rtTextureViewCreate = NULL;
-PFN_rtTextureViewBind rt_rtTextureViewBind = NULL;
-PFN_rtTextureViewDestroy rt_rtTextureViewDestroy = NULL;
-PFN_rtTextureViewFilter rt_rtTextureViewFilter = NULL;
-PFN_rtTextureViewAddress rt_rtTextureViewAddress = NULL;
-PFN_rtTextureViewAnisotropy rt_rtTextureViewAnisotropy = NULL;
-PFN_rtTextureViewLod rt_rtTextureViewLod = NULL;
-
-PFN_rtTextureCopy rt_rtTextureCopy = NULL;
-PFN_rtTextureData rt_rtTextureData = NULL;
-PFN_rtTextureSubcopy rt_rtTextureSubcopy = NULL;
-PFN_rtTextureSubdata rt_rtTextureSubdata = NULL;
-PFN_rtTextureViewCopyToBuffer rt_rtTextureViewCopyToBuffer = NULL;
-PFN_rtTextureViewExtent rt_rtTextureViewExtent = NULL;
-PFN_rtFramebufferCreate rt_rtFramebufferCreate = NULL;
-PFN_rtFramebufferDestroy rt_rtFramebufferDestroy = NULL;
-PFN_rtFramebufferColorView rt_rtFramebufferColorView = NULL;
-PFN_rtFramebufferSetColorView rt_rtFramebufferSetColorView = NULL;
-PFN_rtFramebufferDepthView rt_rtFramebufferDepthView = NULL;
-
-PFN_rtGraphicsProgramCreate rt_rtGraphicsProgramCreate = NULL;
-PFN_rtGraphicsProgramDestroy rt_rtGraphicsProgramDestroy = NULL;
-PFN_rtGraphicsProgramLayout rt_rtGraphicsProgramLayout = NULL;
-PFN_rtGraphicsProgramSource rt_rtGraphicsProgramSource = NULL;
-PFN_rtGraphicsProgramRasterState rt_rtGraphicsProgramRasterState = NULL;
-PFN_rtGraphicsProgramBlendState rt_rtGraphicsProgramBlendState = NULL;
-PFN_rtGraphicsProgramFinalize rt_rtGraphicsProgramFinalize = NULL;
-PFN_rtGraphicsProgramReset rt_rtGraphicsProgramReset = NULL;
-PFN_rtGraphicsProgramUniformLocation rt_rtGraphicsProgramUniformLocation = NULL;
-
-PFN_rtCommandContextCreate rt_rtCommandContextCreate = NULL;
-PFN_rtCommandContextDestroy rt_rtCommandContextDestroy = NULL;
-PFN_rtCommandContextBind rt_rtCommandContextBind = NULL;
-PFN_rtCommandContextAllocate rt_rtCommandContextAllocate = NULL;
-PFN_rtCommandBufferDestroy rt_rtCommandBufferDestroy = NULL;
-PFN_rtCmdReset rt_rtCmdReset = NULL;
-PFN_rtCmdBegin rt_rtCmdBegin = NULL;
-PFN_rtCmdUseGraphicsProgram rt_rtCmdUseGraphicsProgram = NULL;
-PFN_rtCmdUniformBuffer rt_rtCmdUniformBuffer = NULL;
-PFN_rtCmdUniformTexture rt_rtCmdUniformTexture = NULL;
-PFN_rtCmdStorageBuffer rt_rtCmdStorageBuffer = NULL;
-PFN_rtCmdBindVertexBuffer rt_rtCmdBindVertexBuffer = NULL;
-PFN_rtCmdDraw rt_rtCmdDraw = NULL;
-PFN_rtCmdEnd rt_rtCmdEnd = NULL;
-PFN_rtCommandContextBindFramebuffer rt_rtCommandContextBindFramebuffer = NULL;
-PFN_rtCommandContextClearColor rt_rtCommandContextClearColor = NULL;
-PFN_rtCommandContextClearDepth rt_rtCommandContextClearDepth = NULL;
-PFN_rtCommandContextClearStencil rt_rtCommandContextClearStencil = NULL;
-PFN_rtCommandContextSetViewport rt_rtCommandContextSetViewport = NULL;
-PFN_rtCommandContextSetScissor rt_rtCommandContextSetScissor = NULL;
-PFN_rtCommandContextExecute rt_rtCommandContextExecute = NULL;
-PFN_rtCommandContextEndRendering rt_rtCommandContextEndRendering = NULL;
-
-PFN_rtQueueQuery rt_rtQueueQuery = NULL;
-PFN_rtQueueWait rt_rtQueueWait = NULL;
-PFN_rtCommandContextSubmit rt_rtCommandContextSubmit = NULL;
-PFN_rtQueueFlush rt_rtQueueFlush = NULL;
-PFN_rtTimepointWait rt_rtTimepointWait = NULL;
-PFN_rtTimepointReached rt_rtTimepointReached = NULL;
-
-static RT__THREAD_LOCAL enum rt_error rt__loader_error = RT_SUCCESS;
-static RT__THREAD_LOCAL char rt__loader_error_message[1024] = "";
-
-static void rt__loader_set_error(enum rt_error error, const char* message) {
-	rt__loader_error = error;
-	if (!message) {
-		rt__loader_error_message[0] = '\0';
-		return;
-	}
-	snprintf(rt__loader_error_message, sizeof(rt__loader_error_message), "%s", message);
-	rt__loader_error_message[sizeof(rt__loader_error_message) - 1] = '\0';
-}
-
-static void rt__loader_set_errorf(enum rt_error error, const char* format, ...) {
-	va_list args;
-
-	rt__loader_error = error;
-	if (!format) {
-		rt__loader_error_message[0] = '\0';
-		return;
-	}
-
-	va_start(args, format);
-	vsnprintf(rt__loader_error_message, sizeof(rt__loader_error_message), format, args);
-	va_end(args);
-	rt__loader_error_message[sizeof(rt__loader_error_message) - 1] = '\0';
-}
-
-static void rt__loader_print_error(void) {
-	if (rt__loader_error != RT_SUCCESS && rt__loader_error_message[0]) {
-		fprintf(stderr, "%s\n", rt__loader_error_message);
-	}
-}
-
-static void rt__loader_clear_error_state(void) {
-	rt__loader_error = RT_SUCCESS;
-	rt__loader_error_message[0] = '\0';
-}
-
-static enum rt_error rt__loader_error_code(void) {
-	return rt__loader_error;
-}
-
-static const char* rt__loader_error_message_text(void) {
-	return rt__loader_error_message;
-}
-
-static void rt__loader_clear_error(void) {
-	rt__loader_clear_error_state();
-}
-
-#undef RT__THREAD_LOCAL
-
-static enum rt_error rt__resolve_required_proc(const char* name, rt_proc_t* out_proc, char* message, usize message_size) {
-	if (message && message_size) {
-		message[0] = '\0';
-	}
-	if (!name || !out_proc) {
-		return RT_IMPROPER_USAGE;
-	}
-
-	rt_proc_t proc = rtGetProc(name);
-	if (!proc) {
-		*out_proc = NULL;
-		if (message && message_size) {
-			snprintf(message, message_size, "loaded implementation did not provide required proc: %s", name);
-			message[message_size - 1] = '\0';
-		}
-		return RT_EXTENSION_NOT_PRESENT;
-	}
-
-	*out_proc = proc;
-	return RT_SUCCESS;
-}
-
-#define RT__CORE_RESOLVE(name)                                                             \
-	do {                                                                                   \
-		rt_proc_t _p = NULL;                                                               \
-		enum rt_error _err = rt__resolve_required_proc(#name, &_p, message, message_size); \
-		if (_err != RT_SUCCESS) {                                                          \
-			return _err;                                                                   \
-		}                                                                                  \
-		rt_##name = (PFN_##name)_p;                                                        \
-	} while (0)
-
-static enum rt_error rt__load_core(char* message, usize message_size) {
-	if (message && message_size) {
-		message[0] = '\0';
-	}
-	RT__CORE_RESOLVE(rtInit);
-	RT__CORE_RESOLVE(rtExit);
-	RT__CORE_RESOLVE(rtSetOutput);
-	RT__CORE_RESOLVE(rtError);
-	RT__CORE_RESOLVE(rtErrorMessage);
-	RT__CORE_RESOLVE(rtClearError);
-	RT__CORE_RESOLVE(rtGetName);
-	RT__CORE_RESOLVE(rtQueryFormatCapabilities);
-
-	RT__CORE_RESOLVE(rtBufferCreate);
-	RT__CORE_RESOLVE(rtBufferDestroy);
-	RT__CORE_RESOLVE(rtBufferData);
-	RT__CORE_RESOLVE(rtBufferSubdata);
-	RT__CORE_RESOLVE(rtBufferRead);
-
-	RT__CORE_RESOLVE(rtTextureCreate);
-	RT__CORE_RESOLVE(rtTextureDestroy);
-	RT__CORE_RESOLVE(rtTextureViewCreate);
-	RT__CORE_RESOLVE(rtTextureViewBind);
-	RT__CORE_RESOLVE(rtTextureViewDestroy);
-	RT__CORE_RESOLVE(rtTextureViewFilter);
-	RT__CORE_RESOLVE(rtTextureViewAddress);
-	RT__CORE_RESOLVE(rtTextureViewAnisotropy);
-	RT__CORE_RESOLVE(rtTextureViewLod);
-
-	RT__CORE_RESOLVE(rtTextureCopy);
-	RT__CORE_RESOLVE(rtTextureData);
-	RT__CORE_RESOLVE(rtTextureSubcopy);
-	RT__CORE_RESOLVE(rtTextureSubdata);
-	RT__CORE_RESOLVE(rtTextureViewCopyToBuffer);
-	RT__CORE_RESOLVE(rtTextureViewExtent);
-	RT__CORE_RESOLVE(rtFramebufferCreate);
-	RT__CORE_RESOLVE(rtFramebufferDestroy);
-	RT__CORE_RESOLVE(rtFramebufferColorView);
-	RT__CORE_RESOLVE(rtFramebufferSetColorView);
-	RT__CORE_RESOLVE(rtFramebufferDepthView);
-
-	RT__CORE_RESOLVE(rtGraphicsProgramCreate);
-	RT__CORE_RESOLVE(rtGraphicsProgramDestroy);
-	RT__CORE_RESOLVE(rtGraphicsProgramLayout);
-	RT__CORE_RESOLVE(rtGraphicsProgramSource);
-	RT__CORE_RESOLVE(rtGraphicsProgramRasterState);
-	RT__CORE_RESOLVE(rtGraphicsProgramBlendState);
-	RT__CORE_RESOLVE(rtGraphicsProgramFinalize);
-	RT__CORE_RESOLVE(rtGraphicsProgramReset);
-	RT__CORE_RESOLVE(rtGraphicsProgramUniformLocation);
-
-	RT__CORE_RESOLVE(rtCommandContextCreate);
-	RT__CORE_RESOLVE(rtCommandContextDestroy);
-	RT__CORE_RESOLVE(rtCommandContextBind);
-	RT__CORE_RESOLVE(rtCommandContextAllocate);
-	RT__CORE_RESOLVE(rtCommandBufferDestroy);
-	RT__CORE_RESOLVE(rtCmdReset);
-	RT__CORE_RESOLVE(rtCmdBegin);
-	RT__CORE_RESOLVE(rtCmdUseGraphicsProgram);
-	RT__CORE_RESOLVE(rtCmdUniformBuffer);
-	RT__CORE_RESOLVE(rtCmdUniformTexture);
-	RT__CORE_RESOLVE(rtCmdStorageBuffer);
-	RT__CORE_RESOLVE(rtCmdBindVertexBuffer);
-	RT__CORE_RESOLVE(rtCmdDraw);
-	RT__CORE_RESOLVE(rtCmdEnd);
-	RT__CORE_RESOLVE(rtCommandContextBindFramebuffer);
-	RT__CORE_RESOLVE(rtCommandContextClearColor);
-	RT__CORE_RESOLVE(rtCommandContextClearDepth);
-	RT__CORE_RESOLVE(rtCommandContextClearStencil);
-	RT__CORE_RESOLVE(rtCommandContextSetViewport);
-	RT__CORE_RESOLVE(rtCommandContextSetScissor);
-	RT__CORE_RESOLVE(rtCommandContextExecute);
-	RT__CORE_RESOLVE(rtCommandContextEndRendering);
-
-	RT__CORE_RESOLVE(rtQueueQuery);
-	RT__CORE_RESOLVE(rtQueueWait);
-	RT__CORE_RESOLVE(rtCommandContextSubmit);
-	RT__CORE_RESOLVE(rtQueueFlush);
-	RT__CORE_RESOLVE(rtTimepointWait);
-	RT__CORE_RESOLVE(rtTimepointReached);
-
-	return RT_SUCCESS;
-}
-
-#define RT__CORE_TRY_RESOLVE(name)       \
-	do {                                 \
-		rt_proc_t _p = rtGetProc(#name); \
-		if (_p) {                        \
-			rt_##name = (PFN_##name)_p;  \
-		}                                \
-	} while (0)
-
-static void rt__load_core_development(void) {
-	RT__CORE_TRY_RESOLVE(rtInit);
-	RT__CORE_TRY_RESOLVE(rtExit);
-	RT__CORE_TRY_RESOLVE(rtSetOutput);
-	RT__CORE_TRY_RESOLVE(rtError);
-	RT__CORE_TRY_RESOLVE(rtErrorMessage);
-	RT__CORE_TRY_RESOLVE(rtClearError);
-	RT__CORE_TRY_RESOLVE(rtGetName);
-	RT__CORE_TRY_RESOLVE(rtQueryFormatCapabilities);
-
-	RT__CORE_TRY_RESOLVE(rtBufferCreate);
-	RT__CORE_TRY_RESOLVE(rtBufferDestroy);
-	RT__CORE_TRY_RESOLVE(rtBufferData);
-	RT__CORE_TRY_RESOLVE(rtBufferSubdata);
-	RT__CORE_TRY_RESOLVE(rtBufferRead);
-
-	RT__CORE_TRY_RESOLVE(rtTextureCreate);
-	RT__CORE_TRY_RESOLVE(rtTextureDestroy);
-	RT__CORE_TRY_RESOLVE(rtTextureViewCreate);
-	RT__CORE_TRY_RESOLVE(rtTextureViewBind);
-	RT__CORE_TRY_RESOLVE(rtTextureViewDestroy);
-	RT__CORE_TRY_RESOLVE(rtTextureViewFilter);
-	RT__CORE_TRY_RESOLVE(rtTextureViewAddress);
-	RT__CORE_TRY_RESOLVE(rtTextureViewAnisotropy);
-	RT__CORE_TRY_RESOLVE(rtTextureViewLod);
-
-	RT__CORE_TRY_RESOLVE(rtTextureCopy);
-	RT__CORE_TRY_RESOLVE(rtTextureData);
-	RT__CORE_TRY_RESOLVE(rtTextureSubcopy);
-	RT__CORE_TRY_RESOLVE(rtTextureSubdata);
-	RT__CORE_TRY_RESOLVE(rtTextureViewCopyToBuffer);
-	RT__CORE_TRY_RESOLVE(rtTextureViewExtent);
-	RT__CORE_TRY_RESOLVE(rtFramebufferCreate);
-	RT__CORE_TRY_RESOLVE(rtFramebufferDestroy);
-	RT__CORE_TRY_RESOLVE(rtFramebufferColorView);
-	RT__CORE_TRY_RESOLVE(rtFramebufferSetColorView);
-	RT__CORE_TRY_RESOLVE(rtFramebufferDepthView);
-
-	RT__CORE_TRY_RESOLVE(rtGraphicsProgramCreate);
-	RT__CORE_TRY_RESOLVE(rtGraphicsProgramDestroy);
-	RT__CORE_TRY_RESOLVE(rtGraphicsProgramLayout);
-	RT__CORE_TRY_RESOLVE(rtGraphicsProgramSource);
-	RT__CORE_TRY_RESOLVE(rtGraphicsProgramRasterState);
-	RT__CORE_TRY_RESOLVE(rtGraphicsProgramBlendState);
-	RT__CORE_TRY_RESOLVE(rtGraphicsProgramFinalize);
-	RT__CORE_TRY_RESOLVE(rtGraphicsProgramReset);
-	RT__CORE_TRY_RESOLVE(rtGraphicsProgramUniformLocation);
-
-	RT__CORE_TRY_RESOLVE(rtCommandContextCreate);
-	RT__CORE_TRY_RESOLVE(rtCommandContextDestroy);
-	RT__CORE_TRY_RESOLVE(rtCommandContextBind);
-	RT__CORE_TRY_RESOLVE(rtCommandContextAllocate);
-	RT__CORE_TRY_RESOLVE(rtCommandBufferDestroy);
-	RT__CORE_TRY_RESOLVE(rtCmdReset);
-	RT__CORE_TRY_RESOLVE(rtCmdBegin);
-	RT__CORE_TRY_RESOLVE(rtCmdUseGraphicsProgram);
-	RT__CORE_TRY_RESOLVE(rtCmdUniformBuffer);
-	RT__CORE_TRY_RESOLVE(rtCmdUniformTexture);
-	RT__CORE_TRY_RESOLVE(rtCmdStorageBuffer);
-	RT__CORE_TRY_RESOLVE(rtCmdBindVertexBuffer);
-	RT__CORE_TRY_RESOLVE(rtCmdDraw);
-	RT__CORE_TRY_RESOLVE(rtCmdEnd);
-	RT__CORE_TRY_RESOLVE(rtCommandContextBindFramebuffer);
-	RT__CORE_TRY_RESOLVE(rtCommandContextClearColor);
-	RT__CORE_TRY_RESOLVE(rtCommandContextClearDepth);
-	RT__CORE_TRY_RESOLVE(rtCommandContextClearStencil);
-	RT__CORE_TRY_RESOLVE(rtCommandContextSetViewport);
-	RT__CORE_TRY_RESOLVE(rtCommandContextSetScissor);
-	RT__CORE_TRY_RESOLVE(rtCommandContextExecute);
-	RT__CORE_TRY_RESOLVE(rtCommandContextEndRendering);
-
-	RT__CORE_TRY_RESOLVE(rtQueueQuery);
-	RT__CORE_TRY_RESOLVE(rtQueueWait);
-	RT__CORE_TRY_RESOLVE(rtCommandContextSubmit);
-	RT__CORE_TRY_RESOLVE(rtQueueFlush);
-	RT__CORE_TRY_RESOLVE(rtTimepointWait);
-	RT__CORE_TRY_RESOLVE(rtTimepointReached);
-}
-
-#undef RT__CORE_RESOLVE
-
-enum rt_error rtSettingAdd(const char* name, const char* value) {
-	rt__loader_clear_error_state();
-	if (!name || !value) {
-		rt__loader_set_errorf(RT_IMPROPER_USAGE, "rtSettingAdd requires non-NULL name and value");
-		return RT_IMPROPER_USAGE;
-	}
-	if (rt__setting_count >= RT__MAX_SETTINGS) {
-		rt__loader_set_errorf(RT_OUT_OF_HOST_MEMORY, "rtSettingAdd setting pool is full");
-		return RT_OUT_OF_HOST_MEMORY;
-	}
-
-	rt_setting_entry* setting = &rt__settings[rt__setting_count++];
-	snprintf(setting->name, sizeof(setting->name), "%s", name);
-	setting->name[sizeof(setting->name) - 1] = '\0';
-	snprintf(setting->value, sizeof(setting->value), "%s", value);
-	setting->value[sizeof(setting->value) - 1] = '\0';
-	return RT_SUCCESS;
-}
-
-void rtSettingClear(void) {
-	rt__setting_count = 0;
-}
-
-enum rt_error rtLoad(const char* backend_name, const char* const* layer_names, u32 layer_count) {
-	rt__loader_clear_error_state();
-	if (!backend_name) {
-		rt__loader_set_errorf(RT_NO_BACKEND, "rtLoad backend_name is NULL");
-		rt__loader_print_error();
-		return RT_NO_BACKEND;
-	}
-	if (layer_count > RT__MAX_LAYERS) {
-		rt__loader_set_errorf(RT_IMPROPER_USAGE, "rtLoad requested too many layers: %u", layer_count);
-		rt__loader_print_error();
-		return RT_IMPROPER_USAGE;
-	}
-	if (layer_count && !layer_names) {
-		rt__loader_set_errorf(RT_IMPROPER_USAGE, "rtLoad layer_count is %u but layer_names is NULL", layer_count);
-		rt__loader_print_error();
-		return RT_IMPROPER_USAGE;
-	}
-	for (u32 i = 0; i < layer_count; i++) {
-		if (!layer_names[i] || !layer_names[i][0]) {
-			rt__loader_set_errorf(RT_IMPROPER_USAGE, "rtLoad layer %u has no name", i);
-			rt__loader_print_error();
-			return RT_IMPROPER_USAGE;
-		}
-	}
-
-	rtUnload();
-
-	char message[1024];
-	enum rt_error err = rt__load_backend_named(backend_name, &rt__backend_dll, message, sizeof(message));
-	if (err != RT_SUCCESS) {
-		rt__close_dlls();
-		if (rt__loader_error == RT_SUCCESS) {
-			rt__loader_set_errorf(err, "%s", message[0] ? message : "failed to load implementation");
-		}
-		rt__loader_print_error();
-		return err;
-	}
-	rt__apply_backend_settings(backend_name);
-	for (u32 i = 0; i < layer_count; i++) {
-		err = rt__load_layer_named(layer_names[i], &rt__layer_links[i], message, sizeof(message));
-		if (err != RT_SUCCESS) {
-			rt__close_dlls();
-			rt__loader_set_errorf(err, "%s", message[0] ? message : "failed to load layer");
-			rt__loader_print_error();
-			return err;
-		}
-	}
-
-	rt_proc_chain chain;
-	chain.get_proc = rt__backend_proc;
-	for (u32 i = 0; i < layer_count; i++) {
-		rt__layer_set_next(i, chain);
-		chain = rt__layer_links[i].chain;
-	}
-	rt__chain = chain;
-
-	err = rt__load_core(message, sizeof(message));
-	if (err != RT_SUCCESS) {
-		if (rt__loader_error == RT_SUCCESS) {
-			rt__loader_set_errorf(err, "%s", message[0] ? message : "failed to resolve required core procedures");
-		}
-		rtUnload();
-		rt__loader_print_error();
-		return err;
-	}
-	rt_loaded = true;
-	return RT_SUCCESS;
-}
-
-enum rt_error rtLoadDevelopment(const char* backend_name, const char* const* layer_names, u32 layer_count) {
-	rt__loader_clear_error_state();
-	if (layer_count > RT__MAX_LAYERS) {
-		rt__loader_set_errorf(RT_IMPROPER_USAGE, "rtLoadDevelopment requested too many layers: %u", layer_count);
-		rt__loader_print_error();
-		return RT_IMPROPER_USAGE;
-	}
-	if (layer_count && !layer_names) {
-		rt__loader_set_errorf(RT_IMPROPER_USAGE, "rtLoadDevelopment layer_count is %u but layer_names is NULL", layer_count);
-		rt__loader_print_error();
-		return RT_IMPROPER_USAGE;
-	}
-	for (u32 i = 0; i < layer_count; i++) {
-		if (!layer_names[i] || !layer_names[i][0]) {
-			rt__loader_set_errorf(RT_IMPROPER_USAGE, "rtLoadDevelopment layer %u has no name", i);
-			rt__loader_print_error();
-			return RT_IMPROPER_USAGE;
-		}
-	}
-
-	rtUnload();
-
-	char message[1024];
-	enum rt_error err = RT_SUCCESS;
-	if (backend_name) {
-		err = rt__load_backend_named(backend_name, &rt__backend_dll, message, sizeof(message));
-		if (err != RT_SUCCESS) {
-			rt__loader_set_errorf(RT_SUCCESS, "development loader skipped backend %s", backend_name);
-			rt__loader_print_error();
-		}
-	}
-
-	if (!rt__backend_dll) {
-		rt_loaded = false;
-		return RT_SUCCESS;
-	}
-	rt__apply_backend_settings(backend_name);
-
-	u32 loaded_layers = 0;
-	for (u32 i = 0; i < layer_count; i++) {
-		err = rt__load_layer_named(layer_names[i], &rt__layer_links[loaded_layers], message, sizeof(message));
-		if (err != RT_SUCCESS) {
-			/* Layers are part of the requested dispatch chain. Skipping one
-			 * would silently run a different program, so development loading is
-			 * still strict about layer availability. */
-			rt__close_dlls();
-			rt__loader_set_errorf(err, "%s", message[0] ? message : "failed to load layer");
-			rt__loader_print_error();
-			return err;
-		}
-		loaded_layers++;
-	}
-
-	rt_proc_chain chain;
-	chain.get_proc = rt__backend_proc;
-	for (u32 i = 0; i < loaded_layers; i++) {
-		rt__layer_set_next(i, chain);
-		chain = rt__layer_links[i].chain;
-	}
-	rt__chain = chain;
-
-	rt__load_core_development();
-	rt_loaded = true;
-	return RT_SUCCESS;
-}
-
-void rtUnload(void) {
-	rt_loaded = false;
-	rt__chain.get_proc = NULL;
-	rt__backend_dll = (rt__dll_handle)0;
-	rt_rtInit = NULL;
-	rt_rtExit = NULL;
-	rt_rtSetOutput = NULL;
-	rt_rtError = NULL;
-	rt_rtErrorMessage = NULL;
-	rt_rtClearError = NULL;
-	rt_rtGetName = NULL;
-	rt_rtQueryFormatCapabilities = NULL;
-	rt_rtBufferCreate = NULL;
-	rt_rtBufferDestroy = NULL;
-	rt_rtBufferData = NULL;
-	rt_rtBufferSubdata = NULL;
-	rt_rtBufferRead = NULL;
-	rt_rtTextureCreate = NULL;
-	rt_rtTextureDestroy = NULL;
-	rt_rtTextureViewCreate = NULL;
-	rt_rtTextureViewDestroy = NULL;
-	rt_rtTextureViewFilter = NULL;
-	rt_rtTextureViewAddress = NULL;
-	rt_rtTextureViewAnisotropy = NULL;
-	rt_rtTextureViewLod = NULL;
-
-	rt_rtTextureCopy = NULL;
-	rt_rtTextureData = NULL;
-	rt_rtTextureSubcopy = NULL;
-	rt_rtTextureSubdata = NULL;
-	rt_rtTextureViewCopyToBuffer = NULL;
-	rt_rtTextureViewExtent = NULL;
-	rt_rtFramebufferCreate = NULL;
-	rt_rtFramebufferDestroy = NULL;
-	rt_rtFramebufferColorView = NULL;
-	rt_rtFramebufferSetColorView = NULL;
-	rt_rtFramebufferDepthView = NULL;
-	rt_rtGraphicsProgramCreate = NULL;
-	rt_rtGraphicsProgramDestroy = NULL;
-	rt_rtGraphicsProgramLayout = NULL;
-	rt_rtGraphicsProgramSource = NULL;
-	rt_rtGraphicsProgramRasterState = NULL;
-	rt_rtGraphicsProgramBlendState = NULL;
-	rt_rtGraphicsProgramFinalize = NULL;
-	rt_rtGraphicsProgramReset = NULL;
-	rt_rtGraphicsProgramUniformLocation = NULL;
-	rt_rtCommandContextCreate = NULL;
-	rt_rtCommandContextDestroy = NULL;
-	rt_rtCommandContextBind = NULL;
-	rt_rtCommandContextAllocate = NULL;
-	rt_rtCommandBufferDestroy = NULL;
-	rt_rtCmdReset = NULL;
-	rt_rtCmdBegin = NULL;
-	rt_rtCmdUseGraphicsProgram = NULL;
-	rt_rtCmdUniformBuffer = NULL;
-	rt_rtCmdUniformTexture = NULL;
-	rt_rtCmdStorageBuffer = NULL;
-	rt_rtCmdBindVertexBuffer = NULL;
-	rt_rtCmdDraw = NULL;
-	rt_rtCmdEnd = NULL;
-	rt_rtCommandContextBindFramebuffer = NULL;
-	rt_rtCommandContextClearColor = NULL;
-	rt_rtCommandContextClearDepth = NULL;
-	rt_rtCommandContextClearStencil = NULL;
-	rt_rtCommandContextSetViewport = NULL;
-	rt_rtCommandContextSetScissor = NULL;
-	rt_rtCommandContextExecute = NULL;
-	rt_rtCommandContextEndRendering = NULL;
-	rt_rtQueueQuery = NULL;
-	rt_rtQueueWait = NULL;
-	rt_rtCommandContextSubmit = NULL;
-	rt_rtQueueFlush = NULL;
-	rt_rtTimepointWait = NULL;
-	rt_rtTimepointReached = NULL;
-	rt__close_dlls();
-}
-
-rt_proc_t rtGetProc(const char* name) {
-	if (!name || !rt__chain.get_proc) {
-		return NULL;
-	}
-	return rt__chain.get_proc(&rt__chain, name);
-}
-
-bool rtLoaded(void) {
-	return rt_loaded;
-}
-
-#ifndef RT_NO_API_WRAPPERS
-/* See the matching declarations outside #ifdef RUTILE_IMPL for documentation. */
-static inline enum rt_error rtError(void) {
-	return rt_rtError();
-}
-
-static inline const char* rtErrorMessage(void) {
-	return rt_rtErrorMessage();
-}
-
-static inline void rtClearError(void) {
-	rt_rtClearError();
-}
-#endif
-
-#endif /* RUTILE_IMPL */
-
-#endif /* RUTILE_LOADER_ONLY */
+static inline bool rtTimepointReached(rt_timepoint timepoint);
+
+/*===============================================================================================*/
+/*                                                                                               */
+/*===============================================================================================*/
+
+#define RT_CORE_PROCEDURES(X) \
+	X(rt_buffer           , rtBufferCreate                  , (void)                                                                                                                                                                                                                           ) \
+	X(rt_timepoint        , rtBufferData                    , (rt_buffer buffer, enum rt_buffer_mode mode, enum rt_buffer_usage usage, u64 size, const void* data)                                                                                                                             ) \
+	X(void                , rtBufferDestroy                 , (rt_buffer buffer)                                                                                                                                                                                                               ) \
+	X(void                , rtBufferRead                    , (rt_buffer buffer, u64 offset, u64 size, void* data)                                                                                                                                                                             ) \
+	X(rt_timepoint        , rtBufferSubdata                 , (rt_buffer buffer, u64 offset, u64 size, const void* data)                                                                                                                                                                       ) \
+	X(void                , rtClearError                    , (void)                                                                                                                                                                                                                           ) \
+	X(void                , rtCmdBegin                      , (rt_command_buffer command_buffer)                                                                                                                                                                                               ) \
+	X(void                , rtCmdBindVertexBuffer           , (rt_command_buffer command_buffer, rt_buffer buffer, u64 offset)                                                                                                                                                                 ) \
+	X(void                , rtCmdDraw                       , (rt_command_buffer command_buffer, u32 vertex_count, u32 first_vertex)                                                                                                                                                           ) \
+	X(void                , rtCmdEnd                        , (rt_command_buffer command_buffer)                                                                                                                                                                                               ) \
+	X(void                , rtCmdReset                      , (rt_command_buffer command_buffer)                                                                                                                                                                                               ) \
+	X(void                , rtCmdStorageBuffer              , (rt_command_buffer command_buffer, rt_uniform_location location, rt_buffer buffer, u64 offset, u64 size)                                                                                                                         ) \
+	X(void                , rtCmdUniformBuffer              , (rt_command_buffer command_buffer, rt_uniform_location location, rt_buffer buffer, u64 offset, u64 size)                                                                                                                         ) \
+	X(void                , rtCmdUniformTexture             , (rt_command_buffer command_buffer, rt_uniform_location location, rt_texture_view texture_view)                                                                                                                                   ) \
+	X(void                , rtCmdUseGraphicsProgram         , (rt_command_buffer command_buffer, rt_graphics_program program)                                                                                                                                                                  ) \
+	X(void                , rtCommandBufferDestroy          , (rt_command_buffer command_buffer)                                                                                                                                                                                               ) \
+	X(rt_command_buffer   , rtCommandContextAllocate        , (rt_command_context command_context)                                                                                                                                                                                             ) \
+	X(void                , rtCommandContextBind            , (rt_command_context command_context, rt_queue queue)                                                                                                                                                                             ) \
+	X(void                , rtCommandContextBindFramebuffer , (rt_command_context command_context, rt_framebuffer framebuffer)                                                                                                                                                                 ) \
+	X(void                , rtCommandContextClearColor      , (rt_command_context command_context, u32 color_index, f32 r, f32 g, f32 b, f32 a)                                                                                                                                                ) \
+	X(void                , rtCommandContextClearDepth      , (rt_command_context command_context, f32 depth)                                                                                                                                                                                  ) \
+	X(void                , rtCommandContextClearStencil    , (rt_command_context command_context, u32 stencil)                                                                                                                                                                                ) \
+	X(rt_command_context  , rtCommandContextCreate          , (void)                                                                                                                                                                                                                           ) \
+	X(void                , rtCommandContextDestroy         , (rt_command_context command_context)                                                                                                                                                                                             ) \
+	X(void                , rtCommandContextEndRendering    , (rt_command_context command_context)                                                                                                                                                                                             ) \
+	X(void                , rtCommandContextExecute         , (rt_command_context command_context, rt_command_buffer command_buffer)                                                                                                                                                           ) \
+	X(void                , rtCommandContextSetScissor      , (rt_command_context command_context, u32 x, u32 y, u32 width, u32 height)                                                                                                                                                        ) \
+	X(void                , rtCommandContextSetViewport     , (rt_command_context command_context, u32 x, u32 y, u32 width, u32 height, f32 min_depth, f32 max_depth)                                                                                                                          ) \
+	X(rt_timepoint        , rtCommandContextSubmit          , (rt_command_context command_context)                                                                                                                                                                                             ) \
+	X(enum rt_error       , rtError                         , (void)                                                                                                                                                                                                                           ) \
+	X(const char*         , rtErrorMessage                  , (void)                                                                                                                                                                                                                           ) \
+	X(void                , rtExit                          , (void)                                                                                                                                                                                                                           ) \
+	X(rt_texture_view     , rtFramebufferColorView          , (rt_framebuffer framebuffer, u32 slot)                                                                                                                                                                                           ) \
+	X(rt_framebuffer      , rtFramebufferCreate             , (void)                                                                                                                                                                                                                           ) \
+	X(void                , rtFramebufferDepthView          , (rt_framebuffer framebuffer, rt_texture_view view)                                                                                                                                                                               ) \
+	X(void                , rtFramebufferDestroy            , (rt_framebuffer framebuffer)                                                                                                                                                                                                     ) \
+	X(void                , rtFramebufferSetColorView       , (rt_framebuffer framebuffer, u32 slot, rt_texture_view view)                                                                                                                                                                     ) \
+	X(const char*         , rtGetName                       , (void)                                                                                                                                                                                                                           ) \
+	X(void                , rtGraphicsProgramBlendState     , (rt_graphics_program program, bool enabled, enum rt_blend_factor src_color, enum rt_blend_factor dst_color, enum rt_blend_op color_op, enum rt_blend_factor src_alpha, enum rt_blend_factor dst_alpha, enum rt_blend_op alpha_op)) \
+	X(rt_graphics_program , rtGraphicsProgramCreate         , (void)                                                                                                                                                                                                                           ) \
+	X(void                , rtGraphicsProgramDestroy        , (rt_graphics_program program)                                                                                                                                                                                                    ) \
+	X(void                , rtGraphicsProgramFinalize       , (rt_graphics_program program)                                                                                                                                                                                                    ) \
+	X(void                , rtGraphicsProgramLayout         , (rt_graphics_program program, const rt_vertex_layout* layout)                                                                                                                                                                    ) \
+	X(void                , rtGraphicsProgramRasterState    , (rt_graphics_program program, enum rt_cull_mode cull_mode, enum rt_front_face front_face, enum rt_fill_mode fill_mode)                                                                                                           ) \
+	X(void                , rtGraphicsProgramReset          , (rt_graphics_program program)                                                                                                                                                                                                    ) \
+	X(void                , rtGraphicsProgramSource         , (rt_graphics_program program, u64 size, const void* data)                                                                                                                                                                        ) \
+	X(rt_uniform_location , rtGraphicsProgramUniformLocation, (rt_graphics_program program, const char* name)                                                                                                                                                                                  ) \
+	X(void                , rtInit                          , (const char* const* features, u32 feature_count)                                                                                                                                                                                 ) \
+	X(void                , rtOutput                        , (const char* message, void* user_data)                                                                                                                                                                                           ) \
+	X(enum rt_format_usage, rtQueryFormatCapabilities       , (enum rt_format format)                                                                                                                                                                                                          ) \
+	X(rt_timepoint        , rtQueueFlush                    , (rt_queue queue)                                                                                                                                                                                                                 ) \
+	X(rt_queue            , rtQueueQuery                    , (enum rt_queue_capability capability)                                                                                                                                                                                            ) \
+	X(void                , rtQueueWait                     , (rt_queue queue, rt_timepoint timepoint)                                                                                                                                                                                         ) \
+	X(void                , rtSetOutput                     , (PFN_rtOutput output, void* user_data)                                                                                                                                                                                           ) \
+	X(rt_timepoint        , rtTextureCopy                   , (rt_texture src_texture, u32 src_mip, rt_texture dst_texture, u32 dst_mip)                                                                                                                                                       ) \
+	X(rt_texture          , rtTextureCreate                 , (void)                                                                                                                                                                                                                           ) \
+	X(rt_timepoint        , rtTextureData                   , (rt_texture texture, enum rt_texture_type type, u32 mip, u32 width, u32 height, u32 depth, enum rt_format format, const void* data)                                                                                              ) \
+	X(void                , rtTextureDestroy                , (rt_texture texture)                                                                                                                                                                                                             ) \
+	X(rt_timepoint        , rtTextureSubcopy                , (rt_texture src_texture, u32 src_mip, u32 src_x, u32 src_y, u32 src_z, rt_texture dst_texture, u32 dst_mip, u32 dst_x, u32 dst_y, u32 dst_z, u32 width, u32 height, u32 depth)                                                   ) \
+	X(rt_timepoint        , rtTextureSubdata                , (rt_texture texture, u32 mip, u32 offset_x, u32 offset_y, u32 offset_z, u32 width, u32 height, u32 depth, const void* data)                                                                                                      ) \
+	X(void                , rtTextureViewAddress            , (rt_texture_view texture_view, enum rt_address_mode address_u, enum rt_address_mode address_v, enum rt_address_mode address_w)                                                                                                   ) \
+	X(void                , rtTextureViewAnisotropy         , (rt_texture_view texture_view, u32 max_anisotropy)                                                                                                                                                                               ) \
+	X(void                , rtTextureViewBind               , (rt_texture_view texture_view, rt_texture texture)                                                                                                                                                                               ) \
+	X(rt_timepoint        , rtTextureViewCopyToBuffer       , (rt_texture_view texture_view, rt_buffer buffer)                                                                                                                                                                                 ) \
+	X(rt_texture_view     , rtTextureViewCreate             , (void)                                                                                                                                                                                                                           ) \
+	X(void                , rtTextureViewDestroy            , (rt_texture_view texture_view)                                                                                                                                                                                                   ) \
+	X(rt_extent_3d        , rtTextureViewExtent             , (rt_texture_view texture_view)                                                                                                                                                                                                   ) \
+	X(void                , rtTextureViewFilter             , (rt_texture_view texture_view, enum rt_filter mag_filter, enum rt_filter min_filter, enum rt_mip_filter mip_filter)                                                                                                              ) \
+	X(void                , rtTextureViewLod                , (rt_texture_view texture_view, f32 min_lod, f32 max_lod, f32 lod_bias)                                                                                                                                                           ) \
+	X(bool                , rtTimepointReached              , (rt_timepoint timepoint)                                                                                                                                                                                                         ) \
+	X(void                , rtTimepointWait                 , (rt_timepoint timepoint)                                                                                                                                                                                                         )
+/* RT_CORE_PROCEDURES */
+
+#define RT_DECLARE_CORE_PROCEDURE(return_type, name, parameters) typedef return_type (*PFN_##name) parameters; extern PFN_##name rt_##name;
+RT_CORE_PROCEDURES(RT_DECLARE_CORE_PROCEDURE)
+#undef RT_DECLARE_CORE_PROCEDURE
+
+#define RT_DEFINE_CORE_PROCEDURE(return_type, name, parameters) static inline return_type name parameters { return rt_##name arguments; }
+RT_CORE_PROCEDURES(RT_DEFINE_CORE_PROCEDURE)
+#undef RT_DEFINE_CORE_PROCEDURE
 
 #ifdef __cplusplus
 }

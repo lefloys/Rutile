@@ -30,7 +30,7 @@ void rtExit(void) {
 	rtvk_context_destroy(current_context);
 	current_context = NULL;
 }
-void rtSettingApply(const char* name, const char* value) {
+void rtSettingSet(const char* name, const char* value) {
 	(void)name;
 	(void)value;
 }

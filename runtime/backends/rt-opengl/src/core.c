@@ -50,7 +50,7 @@ RTGL_API void rtExit(void) {
 	current_context = NULL;
 }
 
-RTGL_API void rtSettingApply(const char* name, const char* value) {
+RTGL_API void rtSettingSet(const char* name, const char* value) {
 	unsigned major = 0;
 	unsigned minor = 0;
 
