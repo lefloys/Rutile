@@ -184,8 +184,6 @@ enum rt_format_usage { RT_FORMAT_USAGE__RESERVED = 0x7fffffff };
 #define RT_FORMAT_USAGE_TRANSFER_SRC ((enum rt_format_usage)0x10)
 #define RT_FORMAT_USAGE_TRANSFER_DST ((enum rt_format_usage)0x20)
 
-#define RT_FEATURE_PRESENTATION "RT_FEATURE_PRESENTATION"
-
 enum rt_buffer_mode { RT_BUFFER_MODE__RESERVED = 0x7fffffff };
 #define RT_BUFFER_STATIC ((enum rt_buffer_mode)1)
 #define RT_BUFFER_DYNAMIC ((enum rt_buffer_mode)2)
@@ -306,6 +304,11 @@ typedef struct rt_extent_3d {
 	usize depth;
 } rt_extent_3d;
 
+typedef void (*PFN_rtOutput)(const char* message, void* user_data);
+
+#define RT_FEATURE_PRESENTATION "RT_FEATURE_PRESENTATION"
+
+
 /*!
 ** @brief Load a backend and an optional ordered chain of layers.
 **
@@ -395,7 +398,6 @@ bool rtLoaded(void);
 */
 rt_proc_t rtGetProc(const char* name);
 
-typedef void (*PFN_rtOutput)(const char* message, void* user_data);
 
 /*!
 ** @brief Initialize Rutile with an explicit set of features.
@@ -1497,5 +1499,8 @@ RT_CORE_PROCEDURES(RT_DEFINE_CORE_PROCEDURE)
 #ifdef __cplusplus
 }
 #endif
+
+#include "rt_ext_swapchain.h"
+#include "rt_ext_glfw.h"
 
 #endif /* RUTILE_H */

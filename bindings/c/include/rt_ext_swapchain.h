@@ -1,9 +1,13 @@
 #ifndef RT_EXT_SWAPCHAIN_H
 #define RT_EXT_SWAPCHAIN_H
 
-/*
- * RT_EXT_SWAPCHAIN extension package.
- */
+/*!
+** @file rt_ext_swapchain.h
+** @brief Rutile's presentation extension.
+**
+** Load this extension with @ref rtLoad_RT_EXT_SWAPCHAIN after loading a
+** backend and before using any swapchain procedure.
+*/
 
 #include "rutile.h"
 
@@ -19,66 +23,43 @@ typedef struct rt_swapchain_acquire_result {
 	rt_timepoint timepoint;
 } rt_swapchain_acquire_result;
 
-typedef rt_swapchain (*PFN_rtSwapchainCreate)(void);
-typedef void (*PFN_rtSwapchainDestroy)(rt_swapchain swapchain);
-typedef void (*PFN_rtSwapchainResize)(rt_swapchain swapchain, u32 width, u32 height);
-typedef rt_swapchain_acquire_result (*PFN_rtSwapchainAcquire)(rt_swapchain swapchain);
-typedef void (*PFN_rtSwapchainPresent)(rt_swapchain swapchain, rt_timepoint rendered);
-
-extern PFN_rtSwapchainCreate rt_rtSwapchainCreate;
-extern PFN_rtSwapchainDestroy rt_rtSwapchainDestroy;
-extern PFN_rtSwapchainResize rt_rtSwapchainResize;
-extern PFN_rtSwapchainAcquire rt_rtSwapchainAcquire;
-extern PFN_rtSwapchainPresent rt_rtSwapchainPresent;
+/*!
+** @brief Resolve the presentation procedures exposed by the loaded backend.
+** @return RT_SUCCESS, or RT_EXTENSION_NOT_PRESENT when the backend does not
+**         implement presentation.
+*/
 enum rt_error rtLoad_RT_EXT_SWAPCHAIN(void);
 
-#ifndef RT_NO_API_WRAPPERS
+/*! @brief Create an unbound presentation swapchain. */
+static inline rt_swapchain rtSwapchainCreate(void);
+/*! @brief Destroy a swapchain and its presentation resources. */
+static inline void rtSwapchainDestroy(rt_swapchain swapchain);
+/*! @brief Resize swapchain images to the requested pixel extent. */
+static inline void rtSwapchainResize(rt_swapchain swapchain, u32 width, u32 height);
+/*! @brief Acquire the next presentation image and its framebuffer. */
+static inline rt_swapchain_acquire_result rtSwapchainAcquire(rt_swapchain swapchain);
+/*! @brief Present work completed by @p rendered. */
+static inline void rtSwapchainPresent(rt_swapchain swapchain, rt_timepoint rendered);
+
+/* One inventory drives the dispatch types and shared loader storage. */
+#define RT_SWAPCHAIN_PROCEDURES(X) \
+	X(rt_swapchain,                rtSwapchainCreate,  (void)) \
+	X(void,                        rtSwapchainDestroy, (rt_swapchain swapchain)) \
+	X(void,                        rtSwapchainResize,  (rt_swapchain swapchain, u32 width, u32 height)) \
+	X(rt_swapchain_acquire_result, rtSwapchainAcquire, (rt_swapchain swapchain)) \
+	X(void,                        rtSwapchainPresent, (rt_swapchain swapchain, rt_timepoint rendered))
+
+#define RT_DECLARE_SWAPCHAIN_PROCEDURE(return_type, name, parameters) \
+	typedef return_type (*PFN_##name) parameters; \
+	extern PFN_##name rt_##name;
+RT_SWAPCHAIN_PROCEDURES(RT_DECLARE_SWAPCHAIN_PROCEDURE)
+#undef RT_DECLARE_SWAPCHAIN_PROCEDURE
+
 static inline rt_swapchain rtSwapchainCreate(void) { return rt_rtSwapchainCreate(); }
 static inline void rtSwapchainDestroy(rt_swapchain swapchain) { rt_rtSwapchainDestroy(swapchain); }
 static inline void rtSwapchainResize(rt_swapchain swapchain, u32 width, u32 height) { rt_rtSwapchainResize(swapchain, width, height); }
 static inline rt_swapchain_acquire_result rtSwapchainAcquire(rt_swapchain swapchain) { return rt_rtSwapchainAcquire(swapchain); }
 static inline void rtSwapchainPresent(rt_swapchain swapchain, rt_timepoint rendered) { rt_rtSwapchainPresent(swapchain, rendered); }
-#endif
-
-#ifdef RUTILE_IMPL
-
-PFN_rtSwapchainCreate rt_rtSwapchainCreate = NULL;
-PFN_rtSwapchainDestroy rt_rtSwapchainDestroy = NULL;
-PFN_rtSwapchainResize rt_rtSwapchainResize = NULL;
-PFN_rtSwapchainAcquire rt_rtSwapchainAcquire = NULL;
-PFN_rtSwapchainPresent rt_rtSwapchainPresent = NULL;
-
-static void rt__clear_RT_EXT_SWAPCHAIN(void) {
-	rt_rtSwapchainCreate = NULL;
-	rt_rtSwapchainDestroy = NULL;
-	rt_rtSwapchainResize = NULL;
-	rt_rtSwapchainAcquire = NULL;
-	rt_rtSwapchainPresent = NULL;
-}
-
-#define RT__SWAPCHAIN_RESOLVE(name)          \
-	do {                                     \
-		rt_proc_t _p = rtGetProc(#name);     \
-		if (!_p) {                           \
-			rt__clear_RT_EXT_SWAPCHAIN();    \
-			return RT_EXTENSION_NOT_PRESENT; \
-		}                                    \
-		rt_##name = (PFN_##name)_p;          \
-	} while (0)
-
-enum rt_error rtLoad_RT_EXT_SWAPCHAIN(void) {
-	rt__clear_RT_EXT_SWAPCHAIN();
-	RT__SWAPCHAIN_RESOLVE(rtSwapchainCreate);
-	RT__SWAPCHAIN_RESOLVE(rtSwapchainDestroy);
-	RT__SWAPCHAIN_RESOLVE(rtSwapchainResize);
-	RT__SWAPCHAIN_RESOLVE(rtSwapchainAcquire);
-	RT__SWAPCHAIN_RESOLVE(rtSwapchainPresent);
-	return RT_SUCCESS;
-}
-
-#undef RT__SWAPCHAIN_RESOLVE
-
-#endif /* RUTILE_IMPL */
 
 #ifdef __cplusplus
 }

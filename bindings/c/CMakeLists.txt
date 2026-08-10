@@ -1,4 +1,8 @@
-add_library(rutile STATIC rutile.c)
+add_library(rutile STATIC
+    rutile.c
+    rt_ext_swapchain.c
+    rt_ext_glfw.c
+)
 add_library(Rutile::rutile ALIAS rutile)
 
 target_include_directories(rutile
