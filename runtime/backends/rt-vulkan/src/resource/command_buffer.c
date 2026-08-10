@@ -1,9 +1,9 @@
 #include "command_buffer.h"
 #include "context.h"
 #include "error.h"
-#include "resource/queue.h"
-#include "resource/swapchain.h"
-#include "resource/texture.h"
+#include "command_context.h"
+#include "queue.h"
+#include "texture.h"
 #include <assert.h>
 
 #include <stdint.h>
@@ -14,127 +14,203 @@
 /*                                                                                               */
 /*===============================================================================================*/
 
-rt_command_buffer rtCommandBufferCreate(void) {
-	return rtvk_command_buffer_to_handle(rtvk_command_buffer_create(rtvk_get_current_context()));
+struct rtvk_command_context* rtvk_command_buffer_lock_context(struct rtvk_command_buffer* command_buffer) {
+	if (!command_buffer || !command_buffer->command_context_lock) {
+		rtvk_throwf(RT_IMPROPER_USAGE, "command buffer requires a live context-owned buffer");
+		return NULL;
+	}
+	rt_mutex_lock(command_buffer->command_context_lock);
+	struct rtvk_command_context* command_context = command_buffer->command_context;
+	if (!command_context) {
+		rtvk_throwf(RT_IMPROPER_USAGE, "command buffer requires a live context-owned buffer");
+		rt_mutex_unlock(command_buffer->command_context_lock);
+		return NULL;
+	}
+	rtvk_retain_resource(command_context);
+	rt_mutex_unlock(command_buffer->command_context_lock);
+	rtvk_command_context_lock(command_context);
+	if (command_context->destroyed) {
+		rtvk_throwf(RT_IMPROPER_USAGE, "command buffer context has been destroyed");
+		rtvk_command_buffer_unlock_context(command_context);
+		return NULL;
+	}
+	return command_context;
 }
+
+void rtvk_command_buffer_unlock_context(struct rtvk_command_context* command_context) {
+	rtvk_command_context_unlock(command_context);
+	rtvk_release_resource(command_context);
+}
+
+void rtvk_command_buffer_detach_context(struct rtvk_command_buffer* command_buffer) {
+	if (!command_buffer || !command_buffer->command_context_lock) {
+		return;
+	}
+	rt_mutex_lock(command_buffer->command_context_lock);
+	command_buffer->command_context = NULL;
+	command_buffer->next_child = NULL;
+	rt_mutex_unlock(command_buffer->command_context_lock);
+}
+
 void rtCommandBufferDestroy(rt_command_buffer command_buffer) {
-	rtvk_command_buffer_destroy(
-		rtvk_get_current_context(),
-		rtvk_command_buffer_from_handle(command_buffer)
-	);
+	struct rtvk_command_buffer* child = rtvk_command_buffer_from_handle(command_buffer);
+	if (!child) {
+		return;
+	}
+	struct rtvk_command_context* command_context = rtvk_command_buffer_lock_context(child);
+	if (command_context) {
+		struct rtvk_command_buffer** link = &command_context->children;
+		while (*link && *link != child) {
+			link = &(*link)->next_child;
+		}
+		if (*link) {
+			*link = child->next_child;
+		}
+		rtvk_command_buffer_discard(rtvk_get_current_context(), child);
+		rtvk_command_buffer_detach_context(child);
+		rtvk_command_buffer_unlock_context(command_context);
+		rtvk_command_buffer_destroy(rtvk_get_current_context(), child);
+		rtvk_release_resource(child);
+		return;
+	}
+	rtvk_command_buffer_detach_context(child);
+	rtvk_command_buffer_destroy(rtvk_get_current_context(), child);
 }
-
-void rtCmdBegin(rt_command_buffer command_buffer, rt_queue queue) {
-	rtvk_command_buffer_begin(
-		rtvk_get_current_context(),
-		rtvk_command_buffer_from_handle(command_buffer),
-		rtvk_queue_from_handle(queue)
-	);
+void rtCmdReset(rt_command_buffer command_buffer) {
+	struct rtvk_command_buffer* child = rtvk_command_buffer_from_handle(command_buffer);
+	if (!child || !child->command_context) {
+		rtvk_throwf(RT_IMPROPER_USAGE, "command buffer reset requires a live context-owned buffer");
+		return;
+	}
+	struct rtvk_command_context* command_context = rtvk_command_buffer_lock_context(child);
+	if (!command_context) {
+		return;
+	}
+	if (child->recording || (child->executed && !command_context->submitted)) {
+		rtvk_throwf(RT_IMPROPER_USAGE, "cannot reset a recording or executed-unsubmitted command buffer");
+		rtvk_command_buffer_unlock_context(command_context);
+		return;
+	}
+	rtvk_command_buffer_reset(rtvk_get_current_context(), child);
+	rtvk_command_buffer_unlock_context(command_context);
 }
-void rtCmdBeginRendering(rt_command_buffer command_buffer, rt_framebuffer framebuffer) {
-	rtvk_command_buffer_begin_rendering(
-		rtvk_get_current_context(),
-		rtvk_command_buffer_from_handle(command_buffer),
-		rtvk_framebuffer_from_handle(framebuffer)
-	);
+void rtCmdBegin(rt_command_buffer command_buffer) {
+	struct rtvk_command_buffer* child = rtvk_command_buffer_from_handle(command_buffer);
+	struct rtvk_command_context* command_context = rtvk_command_buffer_lock_context(child);
+	if (!command_context) {
+		return;
+	}
+	if (!command_context->queue || !command_context->framebuffer || !command_context->rendering ||
+		command_context->submitted || child->recording || child->executable) {
+		rtvk_throwf(RT_IMPROPER_USAGE, "command buffer begin requires an initial child in an active framebuffer scope");
+		rtvk_command_buffer_unlock_context(command_context);
+		return;
+	}
+	rtvk_command_buffer_begin(rtvk_get_current_context(), child);
+	rtvk_command_buffer_unlock_context(command_context);
 }
-void rtCmdClearColor(rt_command_buffer command_buffer, u32 color_index, f32 r, f32 g, f32 b, f32 a) {
-	rtvk_command_buffer_clear_color(
-		rtvk_get_current_context(),
-		rtvk_command_buffer_from_handle(command_buffer),
-		color_index,
-		r,
-		g,
-		b,
-		a
-	);
-}
-void rtCmdClearDepth(rt_command_buffer command_buffer, f32 depth) {
-	rtvk_command_buffer_clear_depth(
-		rtvk_get_current_context(),
-		rtvk_command_buffer_from_handle(command_buffer),
-		depth
-	);
-}
-void rtCmdClearStencil(rt_command_buffer command_buffer, u32 stencil) {
-	rtvk_command_buffer_clear_stencil(
-		rtvk_get_current_context(),
-		rtvk_command_buffer_from_handle(command_buffer),
-		stencil
-	);
-}
-void rtCmdEndRendering(rt_command_buffer command_buffer) {
-	rtvk_command_buffer_end_rendering(
-		rtvk_get_current_context(),
-		rtvk_command_buffer_from_handle(command_buffer)
-	);
-}
-void rtCmdEnd(rt_command_buffer command_buffer) {
-	rtvk_command_buffer_end(
-		rtvk_get_current_context(),
-		rtvk_command_buffer_from_handle(command_buffer)
-	);
-}
-
 void rtCmdUseGraphicsProgram(rt_command_buffer command_buffer, rt_graphics_program program) {
+	struct rtvk_command_buffer* child = rtvk_command_buffer_from_handle(command_buffer);
+	struct rtvk_command_context* command_context = rtvk_command_buffer_lock_context(child);
+	if (!command_context) {
+		return;
+	}
 	rtvk_command_buffer_use_graphics_program(
 		rtvk_get_current_context(),
-		rtvk_command_buffer_from_handle(command_buffer),
+		child,
 		rtvk_graphics_program_from_handle(program)
 	);
-}
-
-void rtCmdSetScissor(rt_command_buffer command_buffer, u32 x, u32 y, u32 width, u32 height) {
-	rtvk_command_buffer_set_scissor(
-		rtvk_get_current_context(),
-		rtvk_command_buffer_from_handle(command_buffer),
-		x,
-		y,
-		width,
-		height
-	);
+	rtvk_command_buffer_unlock_context(command_context);
 }
 
 void rtCmdUniformBuffer(rt_command_buffer command_buffer, rt_uniform_location location, rt_buffer buffer, u64 offset, u64 size) {
+	struct rtvk_command_buffer* child = rtvk_command_buffer_from_handle(command_buffer);
+	struct rtvk_command_context* command_context = rtvk_command_buffer_lock_context(child);
+	if (!command_context) {
+		return;
+	}
 	rtvk_command_buffer_uniform_buffer(
 		rtvk_get_current_context(),
-		rtvk_command_buffer_from_handle(command_buffer),
+		child,
 		rtvk_uniform_location_from_handle(location),
 		rtvk_buffer_from_handle(buffer),
 		offset,
 		size
 	);
+	rtvk_command_buffer_unlock_context(command_context);
 }
 
 void rtCmdUniformTexture(rt_command_buffer command_buffer, rt_uniform_location location, rt_texture_view texture_view) {
+	struct rtvk_command_buffer* child = rtvk_command_buffer_from_handle(command_buffer);
+	struct rtvk_command_context* command_context = rtvk_command_buffer_lock_context(child);
+	if (!command_context) {
+		return;
+	}
 	rtvk_command_buffer_uniform_texture(
 		rtvk_get_current_context(),
-		rtvk_command_buffer_from_handle(command_buffer),
+		child,
 		rtvk_uniform_location_from_handle(location),
 		rtvk_texture_view_from_handle(texture_view)
 	);
+	rtvk_command_buffer_unlock_context(command_context);
 }
 
 void rtCmdStorageBuffer(rt_command_buffer command_buffer, rt_uniform_location location, rt_buffer buffer, u64 offset, u64 size) {
-	rtvk_command_buffer_storage_buffer(rtvk_get_current_context(), rtvk_command_buffer_from_handle(command_buffer), rtvk_uniform_location_from_handle(location), rtvk_buffer_from_handle(buffer), offset, size);
+	struct rtvk_command_buffer* child = rtvk_command_buffer_from_handle(command_buffer);
+	struct rtvk_command_context* command_context = rtvk_command_buffer_lock_context(child);
+	if (!command_context) {
+		return;
+	}
+	rtvk_command_buffer_storage_buffer(rtvk_get_current_context(), child, rtvk_uniform_location_from_handle(location), rtvk_buffer_from_handle(buffer), offset, size);
+	rtvk_command_buffer_unlock_context(command_context);
 }
 
 void rtCmdBindVertexBuffer(rt_command_buffer command_buffer, rt_buffer buffer, u64 offset) {
+	struct rtvk_command_buffer* child = rtvk_command_buffer_from_handle(command_buffer);
+	struct rtvk_command_context* command_context = rtvk_command_buffer_lock_context(child);
+	if (!command_context) {
+		return;
+	}
 	rtvk_command_buffer_bind_vertex_buffer(
 		rtvk_get_current_context(),
-		rtvk_command_buffer_from_handle(command_buffer),
+		child,
 		rtvk_buffer_from_handle(buffer),
 		offset
 	);
+	rtvk_command_buffer_unlock_context(command_context);
 }
 
 void rtCmdDraw(rt_command_buffer command_buffer, u32 vertex_count, u32 first_vertex) {
+	struct rtvk_command_buffer* child = rtvk_command_buffer_from_handle(command_buffer);
+	struct rtvk_command_context* command_context = rtvk_command_buffer_lock_context(child);
+	if (!command_context) {
+		return;
+	}
 	rtvk_command_buffer_draw(
 		rtvk_get_current_context(),
-		rtvk_command_buffer_from_handle(command_buffer),
+		child,
 		vertex_count,
 		first_vertex
 	);
+	rtvk_command_context_unlock(command_context);
+}
+
+void rtCmdEnd(rt_command_buffer command_buffer) {
+	struct rtvk_command_buffer* child = rtvk_command_buffer_from_handle(command_buffer);
+	struct rtvk_command_context* command_context = rtvk_command_buffer_lock_context(child);
+	if (!command_context) {
+		return;
+	}
+	if (!child->recording) {
+		rtvk_throwf(RT_IMPROPER_USAGE, "command buffer end requires a recording context-owned child");
+		rtvk_command_buffer_unlock_context(command_context);
+		return;
+	}
+	rtvk_command_buffer_end(rtvk_get_current_context(), child);
+	if (!child->recording) {
+		child->executable = rtvk_error() == RT_SUCCESS;
+	}
+	rtvk_command_buffer_unlock_context(command_context);
 }
 
 /*===============================================================================================*/
@@ -146,7 +222,10 @@ RTVK_DEFINE_RESOURCE_PRIVATE(command_buffer)
 void rtvk_command_buffer_init(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer) {
 	assert(ctx);
 	rtvk_init_resource_base(ctx, RTVK_RESOURCE_BASE(command_buffer), RT_RESOURCE_COMMAND_BUFFER);
-	command_buffer->queue = NULL;
+	command_buffer->command_context_lock = rt_mutex_create();
+	if (!command_buffer->command_context_lock) {
+		rtvk_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate command buffer context lock");
+	}
 	command_buffer->family_index = (u32)-1;
 }
 void rtvk_command_buffer_finish(struct rtvk_command_buffer* command_buffer) {
@@ -171,6 +250,8 @@ void rtvk_command_buffer_finish(struct rtvk_command_buffer* command_buffer) {
 		rtvk_command_buffer_destroy_descriptor_pools(ctx, command_buffer);
 		rtvk_command_buffer_destroy_vk_handles(ctx, command_buffer);
 	}
+	rt_mutex_destroy(command_buffer->command_context_lock);
+	command_buffer->command_context_lock = NULL;
 	rtvk_finish_resource_base(RTVK_RESOURCE_BASE(command_buffer));
 }
 
@@ -180,7 +261,7 @@ void rtvk_command_buffer_release_recorded_resources(struct rtvk_command_buffer* 
 		rtvk_release_resource(command_buffer->vertex_buffer_node);
 	}
 	command_buffer->vertex_buffer_node = NULL;
-	if (command_buffer->graphics_program) {
+	if (command_buffer->vk_command_buffer && command_buffer->graphics_program) {
 		rtvk_release_resource(command_buffer->graphics_program);
 	}
 	command_buffer->graphics_program = NULL;
@@ -200,7 +281,7 @@ void rtvk_command_buffer_clear_uniform_slot(rtvk_uniform_slot* slot) {
 	if (slot->kind == RTVK_UNIFORM_SLOT_BUFFER || slot->kind == RTVK_UNIFORM_SLOT_STORAGE_BUFFER) {
 		rtvk_release_resource(slot->buffer.node);
 	}
-	if (slot->kind == RTVK_UNIFORM_SLOT_TEXTURE || slot->kind == RTVK_UNIFORM_SLOT_STORAGE_TEXTURE) {
+	if (slot->kind == RTVK_UNIFORM_SLOT_TEXTURE) {
 		if (slot->texture.view) {
 			rtvk_release_resource(slot->texture.view);
 		}
@@ -269,7 +350,7 @@ void rtvk_command_buffer_destroy_vk_handles(struct rtvk_context* ctx, struct rtv
 		vkFreeCommandBuffers(ctx->vk_device, command_buffer->vk_command_pool, 1, &command_buffer->vk_command_buffer);
 	}
 	command_buffer->vk_command_buffer = VK_NULL_HANDLE;
-	if (command_buffer->vk_command_pool) {
+	if (command_buffer->owns_command_pool && command_buffer->vk_command_pool) {
 		vkDestroyCommandPool(ctx->vk_device, command_buffer->vk_command_pool, VK_ALLOCATOR);
 	}
 	command_buffer->vk_command_pool = VK_NULL_HANDLE;
@@ -289,34 +370,42 @@ void rtvk_command_buffer_wait_pending(struct rtvk_context* ctx, struct rtvk_comm
 	command_buffer->pending_timepoint.queue = NULL;
 	command_buffer->pending_timepoint.value = 0;
 }
-struct rtvk_command_buffer* rtvk_command_buffer_node_create(struct rtvk_context* ctx, u32 family_index) {
+struct rtvk_command_buffer* rtvk_command_buffer_node_create(struct rtvk_context* ctx, u32 family_index, bool secondary, VkCommandPool shared_pool) {
 	struct rtvk_command_buffer* node = calloc(1, sizeof(*node));
 	if (!node) {
 		rtvk_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate command buffer node");
 		return NULL;
 	}
 
-	VkCommandPoolCreateInfo pool_info = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
-	pool_info.pNext = NULL;
-	pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-	pool_info.queueFamilyIndex = family_index;
-
-	VkResult result = vkCreateCommandPool(ctx->vk_device, &pool_info, VK_ALLOCATOR, &node->vk_command_pool);
-	if (result != VK_SUCCESS) {
-		free(node);
-		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
-		return NULL;
+	VkResult result;
+	if (shared_pool) {
+		node->vk_command_pool = shared_pool;
+		node->owns_command_pool = false;
+	} else {
+		VkCommandPoolCreateInfo pool_info = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
+		pool_info.pNext = NULL;
+		pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+		pool_info.queueFamilyIndex = family_index;
+		result = vkCreateCommandPool(ctx->vk_device, &pool_info, VK_ALLOCATOR, &node->vk_command_pool);
+		if (result != VK_SUCCESS) {
+			free(node);
+			rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
+			return NULL;
+		}
+		node->owns_command_pool = true;
 	}
 
 	VkCommandBufferAllocateInfo allocate_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
 	allocate_info.pNext = NULL;
 	allocate_info.commandPool = node->vk_command_pool;
-	allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+	allocate_info.level = secondary ? VK_COMMAND_BUFFER_LEVEL_SECONDARY : VK_COMMAND_BUFFER_LEVEL_PRIMARY;
 	allocate_info.commandBufferCount = 1;
 
 	result = vkAllocateCommandBuffers(ctx->vk_device, &allocate_info, &node->vk_command_buffer);
 	if (result != VK_SUCCESS) {
-		vkDestroyCommandPool(ctx->vk_device, node->vk_command_pool, VK_ALLOCATOR);
+		if (node->owns_command_pool) {
+			vkDestroyCommandPool(ctx->vk_device, node->vk_command_pool, VK_ALLOCATOR);
+		}
 		free(node);
 		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return NULL;
@@ -325,6 +414,7 @@ struct rtvk_command_buffer* rtvk_command_buffer_node_create(struct rtvk_context*
 	rtvk_init_resource_base(ctx, RTVK_RESOURCE_BASE(node), RT_RESOURCE_COMMAND_BUFFER);
 	rtvk_atomic_bool_store(&node->base.zombie, true);
 	node->family_index = family_index;
+	node->secondary = secondary;
 	return node;
 }
 
@@ -349,17 +439,18 @@ static struct rtvk_command_buffer* rtvk_command_buffer_take_reusable_node(struct
 	}
 	return NULL;
 }
-void rtvk_command_buffer_prepare(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer, struct rtvk_queue* queue) {
+void rtvk_command_buffer_prepare(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer) {
 	rtvk_command_buffer_recycle_node(command_buffer, command_buffer->active);
 	command_buffer->active = NULL;
 
-	struct rtvk_command_buffer* node = rtvk_command_buffer_take_reusable_node(command_buffer, queue->family_index);
+	struct rtvk_command_context* command_context = command_buffer->command_context;
+	struct rtvk_command_buffer* node = rtvk_command_buffer_take_reusable_node(command_buffer, command_context->queue->family_index);
 	if (!node) {
-		rtvk_queue_collect_to_value(ctx, queue, rtvk_queue_completed_value(ctx, queue));
-		node = rtvk_command_buffer_take_reusable_node(command_buffer, queue->family_index);
+		rtvk_queue_collect_to_value(ctx, command_context->queue, rtvk_queue_completed_value(ctx, command_context->queue));
+		node = rtvk_command_buffer_take_reusable_node(command_buffer, command_context->queue->family_index);
 	}
 	if (!node) {
-		node = rtvk_command_buffer_node_create(ctx, queue->family_index);
+		node = rtvk_command_buffer_node_create(ctx, command_context->queue->family_index, command_buffer->secondary, command_context->vk_command_pool);
 	}
 	if (!node) {
 		return;
@@ -369,207 +460,145 @@ void rtvk_command_buffer_prepare(struct rtvk_context* ctx, struct rtvk_command_b
 	command_buffer->active = node;
 }
 
-void rtvk_command_buffer_begin(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer, struct rtvk_queue* queue) {
-	command_buffer->queue = queue;
-	rtvk_command_buffer_prepare(ctx, command_buffer, queue);
+void rtvk_command_buffer_discard(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer) {
+	if (!command_buffer) {
+		return;
+	}
+	rtvk_command_buffer_wait_pending(ctx, command_buffer);
+	if (command_buffer->active) {
+		rtvk_command_buffer_wait_pending(ctx, command_buffer->active);
+		if (command_buffer->recording) {
+			vkResetCommandBuffer(command_buffer->active->vk_command_buffer, 0);
+		}
+		rtvk_release_resource(command_buffer->active);
+	}
+	command_buffer->active = NULL;
+	while (command_buffer->next) {
+		struct rtvk_command_buffer* node = command_buffer->next;
+		command_buffer->next = node->next;
+		node->next = NULL;
+		rtvk_command_buffer_wait_pending(ctx, node);
+		rtvk_release_resource(node);
+	}
+	rtvk_command_buffer_release_recorded_resources(command_buffer);
+	command_buffer->recording = false;
+	command_buffer->executable = false;
+	command_buffer->executed = false;
+}
+
+void rtvk_command_buffer_begin(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer) {
+	struct rtvk_command_context* command_context = command_buffer ? command_buffer->command_context : NULL;
+	bool reserved_declaration_boundary = false;
+	if (command_buffer && command_buffer->secondary) {
+		if (!command_context || !command_context->rendering || !command_context->framebuffer) {
+			rtvk_throwf(RT_IMPROPER_USAGE, "secondary command buffer requires a context framebuffer");
+			return;
+		}
+		if (!rtvk_atomic_bool_load(&command_context->draw_packet_begun)) {
+			rtvk_atomic_bool_store(&command_context->draw_packet_begun, true);
+			reserved_declaration_boundary = true;
+		}
+	}
+	rtvk_command_buffer_prepare(ctx, command_buffer);
 	if (rtvk_error() != RT_SUCCESS) {
+		if (reserved_declaration_boundary) {
+			rtvk_atomic_bool_store(&command_context->draw_packet_begun, false);
+		}
 		return;
 	}
 
 	struct rtvk_command_buffer* node = command_buffer->active;
 	vkResetCommandBuffer(node->vk_command_buffer, 0);
 
+	VkCommandBufferInheritanceRenderingInfo rendering_inheritance = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_RENDERING_INFO };
+	VkCommandBufferInheritanceInfo inheritance = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO };
 	VkCommandBufferBeginInfo begin_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
 	begin_info.pNext = NULL;
-	begin_info.flags = 0;
+	begin_info.flags = command_buffer->secondary ? VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT : VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 	begin_info.pInheritanceInfo = NULL;
+	if (command_buffer->secondary) {
+		struct rtvk_command_context* command_context = command_buffer->command_context;
+		if (!command_context || command_context->color_view_count == 0) {
+			rtvk_throwf(RT_IMPROPER_USAGE, "secondary command buffer requires a context framebuffer");
+			if (reserved_declaration_boundary) {
+				rtvk_atomic_bool_store(&command_context->draw_packet_begun, false);
+			}
+			return;
+		}
+		VkFormat color_formats[RTVK_MAX_FRAMEBUFFER_COLOR_ATTACHMENTS];
+		for (u32 i = 0; i < command_context->color_view_count; i++) {
+			struct rtvk_texture_view* color = command_context->color_views[i];
+			if (!color || !color->image) {
+				rtvk_throwf(RT_IMPROPER_USAGE, "secondary command buffer requires complete context color attachments");
+				if (reserved_declaration_boundary) {
+					rtvk_atomic_bool_store(&command_context->draw_packet_begun, false);
+				}
+				return;
+			}
+			color_formats[i] = color->image->vk_format;
+		}
+		rendering_inheritance.viewMask = 0;
+		rendering_inheritance.colorAttachmentCount = command_context->color_view_count;
+		rendering_inheritance.pColorAttachmentFormats = color_formats;
+		rendering_inheritance.depthAttachmentFormat = command_context->depth_view ? command_context->depth_view->image->vk_format : VK_FORMAT_UNDEFINED;
+		rendering_inheritance.stencilAttachmentFormat = command_context->stencil_view ? command_context->stencil_view->image->vk_format :
+			(command_context->depth_view && (rtvk_texture_format_aspect(rtvk_view_format(command_context->depth_view)) & VK_IMAGE_ASPECT_STENCIL_BIT) ? command_context->depth_view->image->vk_format : VK_FORMAT_UNDEFINED);
+		rendering_inheritance.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+		inheritance.pNext = &rendering_inheritance;
+		begin_info.pInheritanceInfo = &inheritance;
+	}
 
 	VkResult result = vkBeginCommandBuffer(node->vk_command_buffer, &begin_info);
 	if (result != VK_SUCCESS) {
 		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
+		if (reserved_declaration_boundary) {
+			rtvk_atomic_bool_store(&command_context->draw_packet_begun, false);
+		}
 		return;
 	}
 
 	command_buffer->recording = true;
-	command_buffer->framebuffer = NULL;
 	command_buffer->graphics_program = NULL;
 	command_buffer->vertex_buffer = NULL;
+	if (command_buffer->secondary) {
+		struct rtvk_command_context* command_context = command_buffer->command_context;
+		VkViewport viewport = { 0 };
+		viewport.x = (f32)command_context->viewport_x;
+		viewport.y = (f32)(command_context->viewport_y + command_context->viewport_height);
+		viewport.width = (f32)command_context->viewport_width;
+		viewport.height = -(f32)command_context->viewport_height;
+		viewport.minDepth = command_context->min_depth;
+		viewport.maxDepth = command_context->max_depth;
+		vkCmdSetViewport(node->vk_command_buffer, 0, 1, &viewport);
+
+		VkRect2D scissor = { 0 };
+		scissor.offset.x = (int32_t)command_context->scissor_x;
+		scissor.offset.y = (int32_t)command_context->scissor_y;
+		scissor.extent.width = command_context->scissor_width;
+		scissor.extent.height = command_context->scissor_height;
+		vkCmdSetScissor(node->vk_command_buffer, 0, 1, &scissor);
+	}
 	node->bound_descriptor_set = VK_NULL_HANDLE;
 	node->uniforms_dirty = true;
 }
-void rtvk_command_buffer_begin_rendering(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer, struct rtvk_framebuffer* framebuffer) {
-	struct rtvk_command_buffer* node = command_buffer ? command_buffer->active : NULL;
-	if (!node || !command_buffer->recording) {
-		rtvk_throwf(RT_IMPROPER_USAGE, "begin rendering requires a recording command buffer");
+void rtvk_command_buffer_reset(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer) {
+	if (!command_buffer) {
 		return;
 	}
-	if (!framebuffer) {
-		rtvk_throwf(RT_IMPROPER_USAGE, "begin rendering requires a framebuffer");
+	if (command_buffer->recording) {
+		rtvk_throwf(RT_IMPROPER_USAGE, "cannot reset a recording command buffer");
 		return;
 	}
-	struct rtvk_texture_view* color_view = framebuffer->color_views[0];
-	struct rtvk_texture_view* depth_view = framebuffer->depth_view;
-	if (!color_view || !color_view->image || !color_view->vk_image_view) {
-		rtvk_throwf(RT_IMPROPER_USAGE, "begin rendering requires a valid color attachment");
-		return;
+	if (command_buffer->active) {
+		rtvk_command_buffer_wait_pending(ctx, command_buffer->active);
+		rtvk_command_buffer_release_recorded_resources(command_buffer->active);
+		vkResetCommandBuffer(command_buffer->active->vk_command_buffer, 0);
 	}
-	VkRenderingAttachmentInfo color_attachment = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
-	color_attachment.pNext = NULL;
-	color_attachment.imageView = color_view->vk_image_view;
-	color_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-	color_attachment.resolveMode = VK_RESOLVE_MODE_NONE;
-	color_attachment.resolveImageView = VK_NULL_HANDLE;
-	color_attachment.resolveImageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-	color_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-	color_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-
-	rtvk_command_buffer_transition_texture(
-		node,
-		color_view,
-		VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-		VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-		VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-		VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT
-	);
-
-	VkRenderingAttachmentInfo depth_attachment = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
-	depth_attachment.pNext = NULL;
-	depth_attachment.imageView = depth_view ? depth_view->vk_image_view : VK_NULL_HANDLE;
-	depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-	depth_attachment.resolveMode = VK_RESOLVE_MODE_NONE;
-	depth_attachment.resolveImageView = VK_NULL_HANDLE;
-	depth_attachment.resolveImageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-	depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-	depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-	if (depth_view) {
-		rtvk_command_buffer_transition_texture(
-			node,
-			depth_view,
-			VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-			VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-			VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-			VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT
-		);
-	}
-
-	VkRenderingInfo rendering_info = { VK_STRUCTURE_TYPE_RENDERING_INFO };
-	rendering_info.pNext = NULL;
-	rendering_info.flags = 0;
-	rendering_info.renderArea.offset.x = 0;
-	rendering_info.renderArea.offset.y = 0;
-	rendering_info.renderArea.extent.width = rtvk_view_width(color_view);
-	rendering_info.renderArea.extent.height = rtvk_view_height(color_view);
-	rendering_info.layerCount = 1;
-	rendering_info.viewMask = 0;
-	rendering_info.colorAttachmentCount = 1;
-	rendering_info.pColorAttachments = &color_attachment;
-	rendering_info.pDepthAttachment = depth_view ? &depth_attachment : NULL;
-	rendering_info.pStencilAttachment = NULL;
-
-	vkCmdBeginRendering(node->vk_command_buffer, &rendering_info);
-	command_buffer->framebuffer = framebuffer;
-}
-void rtvk_command_buffer_clear_color(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer, u32 color_index, f32 r, f32 g, f32 b, f32 a) {
-	struct rtvk_command_buffer* node = command_buffer ? command_buffer->active : NULL;
-	if (!node || !command_buffer->recording || !command_buffer->framebuffer) {
-		rtvk_throwf(RT_IMPROPER_USAGE, "clear color requires active rendering");
-		return;
-	}
-
-	struct rtvk_framebuffer* framebuffer = command_buffer->framebuffer;
-	if (!framebuffer || color_index >= framebuffer->color_texture_count) {
-		rtvk_throwf(RT_IMPROPER_USAGE, "color attachment index is out of range");
-		return;
-	}
-
-	struct rtvk_texture_view* color_view = framebuffer->color_views[color_index];
-	if (!color_view || !color_view->vk_image_view) {
-		rtvk_throwf(RT_IMPROPER_USAGE, "color attachment view is NULL");
-		return;
-	}
-
-	VkClearAttachment attachment = { 0 };
-	attachment.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-	attachment.colorAttachment = color_index;
-	attachment.clearValue.color.float32[0] = r;
-	attachment.clearValue.color.float32[1] = g;
-	attachment.clearValue.color.float32[2] = b;
-	attachment.clearValue.color.float32[3] = a;
-
-	VkClearRect rect = { 0 };
-	rect.rect.offset.x = 0;
-	rect.rect.offset.y = 0;
-	rect.rect.extent.width = rtvk_view_width(color_view);
-	rect.rect.extent.height = rtvk_view_height(color_view);
-	rect.baseArrayLayer = 0;
-	rect.layerCount = 1;
-
-	vkCmdClearAttachments(node->vk_command_buffer, 1, &attachment, 1, &rect);
-}
-void rtvk_command_buffer_clear_depth(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer, f32 depth) {
-	struct rtvk_command_buffer* node = command_buffer ? command_buffer->active : NULL;
-	if (!node || !command_buffer->recording || !command_buffer->framebuffer) {
-		rtvk_throwf(RT_IMPROPER_USAGE, "clear depth requires active rendering");
-		return;
-	}
-
-	struct rtvk_texture_view* depth_view = command_buffer->framebuffer->depth_view;
-	if (!depth_view || !depth_view->vk_image_view) {
-		/* A swapchain framebuffer may legitimately have no depth attachment.
-		 * Clearing depth in that framebuffer is therefore a no-op, matching the
-		 * other backends and allowing colour-only render passes. */
-		return;
-	}
-
-	VkClearAttachment attachment = { 0 };
-	attachment.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-	attachment.clearValue.depthStencil.depth = depth;
-
-	VkClearRect rect = { 0 };
-	rect.rect.offset.x = 0;
-	rect.rect.offset.y = 0;
-	rect.rect.extent.width = rtvk_view_width(depth_view);
-	rect.rect.extent.height = rtvk_view_height(depth_view);
-	rect.baseArrayLayer = 0;
-	rect.layerCount = 1;
-
-	vkCmdClearAttachments(node->vk_command_buffer, 1, &attachment, 1, &rect);
-}
-void rtvk_command_buffer_clear_stencil(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer, u32 stencil) {
-	struct rtvk_command_buffer* node = command_buffer ? command_buffer->active : NULL;
-	if (!node || !command_buffer->recording || !command_buffer->framebuffer) {
-		rtvk_throwf(RT_IMPROPER_USAGE, "clear stencil requires active rendering");
-		return;
-	}
-
-	struct rtvk_texture_view* depth_view = command_buffer->framebuffer->depth_view;
-	if (!depth_view || !depth_view->vk_image_view) {
-		rtvk_throwf(RT_IMPROPER_USAGE, "depth attachment view is NULL");
-		return;
-	}
-
-	VkClearAttachment attachment = { 0 };
-	attachment.aspectMask = VK_IMAGE_ASPECT_STENCIL_BIT;
-	attachment.clearValue.depthStencil.stencil = stencil;
-
-	VkClearRect rect = { 0 };
-	rect.rect.offset.x = 0;
-	rect.rect.offset.y = 0;
-	rect.rect.extent.width = rtvk_view_width(depth_view);
-	rect.rect.extent.height = rtvk_view_height(depth_view);
-	rect.baseArrayLayer = 0;
-	rect.layerCount = 1;
-
-	vkCmdClearAttachments(node->vk_command_buffer, 1, &attachment, 1, &rect);
-}
-void rtvk_command_buffer_end_rendering(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer) {
-	struct rtvk_command_buffer* node = command_buffer ? command_buffer->active : NULL;
-	if (!node || !command_buffer->recording || !command_buffer->framebuffer) {
-		rtvk_throwf(RT_IMPROPER_USAGE, "end rendering requires an active rendering pass");
-		return;
-	}
-	vkCmdEndRendering(node->vk_command_buffer);
-	command_buffer->framebuffer = NULL;
+	command_buffer->graphics_program = NULL;
+	command_buffer->vertex_buffer = NULL;
+	command_buffer->recording = false;
+	command_buffer->executable = false;
+	command_buffer->executed = false;
 }
 void rtvk_command_buffer_end(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer) {
 	struct rtvk_command_buffer* node = command_buffer ? command_buffer->active : NULL;
@@ -583,10 +612,6 @@ void rtvk_command_buffer_end(struct rtvk_context* ctx, struct rtvk_command_buffe
 		return;
 	}
 	command_buffer->recording = false;
-}
-
-bool rtvk_command_buffer_has_queue(struct rtvk_command_buffer* command_buffer) {
-	return command_buffer && command_buffer->queue;
 }
 
 static VkAccessFlags rtvk_command_buffer_layout_access(VkImageLayout layout) {
@@ -673,60 +698,39 @@ void rtvk_command_buffer_transition_texture(struct rtvk_command_buffer* command_
 	*vk_layout = layout;
 }
 
-void rtvk_command_buffer_suspend_rendering(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer) {
-	(void)ctx;
-	if (!command_buffer || !command_buffer->framebuffer) {
-		return;
-	}
-	struct rtvk_command_buffer* node = command_buffer->active;
-	vkCmdEndRendering(node->vk_command_buffer);
-	command_buffer->framebuffer = NULL;
-}
-
-void rtvk_command_buffer_resume_rendering(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer, struct rtvk_framebuffer* framebuffer) {
-	if (!framebuffer) {
-		return;
-	}
-	rtvk_command_buffer_begin_rendering(ctx, command_buffer, framebuffer);
-}
-
 void rtvk_command_buffer_use_graphics_program(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer, struct rtvk_graphics_program* program) {
-	struct rtvk_command_buffer* node = command_buffer->active;
-	struct rtvk_framebuffer* framebuffer = command_buffer->framebuffer;
-	struct rtvk_texture_view* color_view = framebuffer ? framebuffer->color_views[0] : NULL;
-	struct rtvk_texture_view* depth_view = framebuffer ? framebuffer->depth_view : NULL;
+	struct rtvk_command_buffer* node = command_buffer ? command_buffer->active : NULL;
+	struct rtvk_command_context* command_context = command_buffer ? command_buffer->command_context : NULL;
+	struct rtvk_texture_view* color_view = command_context && command_context->color_view_count ? command_context->color_views[0] : NULL;
 
-	if (!color_view) {
-		rtvk_throwf(RT_IMPROPER_USAGE, "command buffer has no color attachment");
+	if (!node || !command_buffer->recording || !command_buffer->command_context->rendering || !program || !color_view) {
+		rtvk_throwf(RT_IMPROPER_USAGE, "graphics program requires a recording draw packet and context color attachment");
 		return;
 	}
 
-	VkFormat depth_format = rtvk_view_format(depth_view);
-	VkFormat color_format = rtvk_view_format(color_view);
-	rtvk_graphics_program_prepare(ctx, program, color_format, depth_format);
-	if (rtvk_error() != RT_SUCCESS) {
+	VkFormat color_formats[RTVK_MAX_FRAMEBUFFER_COLOR_ATTACHMENTS];
+	for (u32 i = 0; i < command_context->color_view_count; i++) {
+		if (!command_context->color_views[i]) {
+			rtvk_throwf(RT_IMPROPER_USAGE, "graphics program requires complete context color attachments");
+			return;
+		}
+		color_formats[i] = rtvk_view_format(command_context->color_views[i]);
+	}
+	VkPipeline pipeline = rtvk_graphics_program_prepare(
+		ctx,
+		program,
+		color_formats,
+		command_context->color_view_count,
+		rtvk_view_format(command_context->depth_view),
+		command_context->stencil_view ? rtvk_view_format(command_context->stencil_view) :
+			(command_context->depth_view && (rtvk_texture_format_aspect(rtvk_view_format(command_context->depth_view)) & VK_IMAGE_ASPECT_STENCIL_BIT) ? rtvk_view_format(command_context->depth_view) : VK_FORMAT_UNDEFINED),
+		VK_SAMPLE_COUNT_1_BIT
+	);
+	if (!pipeline) {
 		return;
 	}
 
-	vkCmdBindPipeline(node->vk_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, program->vk_pipeline);
-
-	u32 color_w = rtvk_view_width(color_view);
-	u32 color_h = rtvk_view_height(color_view);
-	VkViewport viewport = { 0 };
-	viewport.x = 0.0f;
-	viewport.y = (f32)color_h;
-	viewport.width = (f32)color_w;
-	viewport.height = -(f32)color_h;
-	viewport.minDepth = 0.0f;
-	viewport.maxDepth = 1.0f;
-	vkCmdSetViewport(node->vk_command_buffer, 0, 1, &viewport);
-
-	VkRect2D scissor = { 0 };
-	scissor.offset.x = 0;
-	scissor.offset.y = 0;
-	scissor.extent.width = color_w;
-	scissor.extent.height = color_h;
-	vkCmdSetScissor(node->vk_command_buffer, 0, 1, &scissor);
+	vkCmdBindPipeline(node->vk_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
 
 	if (command_buffer->graphics_program != program) {
 		node->bound_descriptor_set = VK_NULL_HANDLE;
@@ -740,22 +744,6 @@ void rtvk_command_buffer_use_graphics_program(struct rtvk_context* ctx, struct r
 	command_buffer->graphics_program = program;
 }
 
-void rtvk_command_buffer_set_scissor(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer, u32 x, u32 y, u32 width, u32 height) {
-	(void)ctx;
-	struct rtvk_command_buffer* node = command_buffer ? command_buffer->active : NULL;
-	if (!node || !command_buffer->recording || !command_buffer->framebuffer) {
-		rtvk_throwf(RT_IMPROPER_USAGE, "setting a scissor requires active rendering");
-		return;
-	}
-
-	VkRect2D scissor = { 0 };
-	scissor.offset.x = (int32_t)x;
-	scissor.offset.y = (int32_t)y;
-	scissor.extent.width = width;
-	scissor.extent.height = height;
-	vkCmdSetScissor(node->vk_command_buffer, 0, 1, &scissor);
-}
-
 void rtvk_command_buffer_uniform_buffer(
 	struct rtvk_context* ctx,
 	struct rtvk_command_buffer* command_buffer,
@@ -767,7 +755,7 @@ void rtvk_command_buffer_uniform_buffer(
 	struct rtvk_command_buffer* node = command_buffer ? command_buffer->active : NULL;
 	struct rtvk_buffer* buffer_node = buffer ? buffer->active : NULL;
 
-	if (!node || !command_buffer->recording || !command_buffer->framebuffer) {
+	if (!node || !command_buffer->recording || !command_buffer->command_context || !command_buffer->command_context->rendering) {
 		rtvk_throwf(RT_IMPROPER_USAGE, "setting a uniform buffer requires active rendering");
 		return;
 	}
@@ -824,7 +812,7 @@ void rtvk_command_buffer_storage_buffer(struct rtvk_context* ctx, struct rtvk_co
 	(void)ctx;
 	struct rtvk_command_buffer* node = command_buffer ? command_buffer->active : NULL;
 	struct rtvk_buffer* buffer_node = buffer ? buffer->active : NULL;
-	if (!node || !command_buffer->recording || !command_buffer->framebuffer) {
+	if (!node || !command_buffer->recording || !command_buffer->command_context || !command_buffer->command_context->rendering) {
 		rtvk_throwf(RT_IMPROPER_USAGE, "setting a storage buffer requires active rendering");
 		return;
 	}
@@ -872,7 +860,7 @@ void rtvk_command_buffer_uniform_texture(
 	struct rtvk_texture_view* texture_view
 ) {
 	struct rtvk_command_buffer* node = command_buffer ? command_buffer->active : NULL;
-	if (!node || !command_buffer->recording || !command_buffer->framebuffer) {
+	if (!node || !command_buffer->recording || !command_buffer->command_context || !command_buffer->command_context->rendering) {
 		rtvk_throwf(RT_IMPROPER_USAGE, "setting a uniform texture requires active rendering");
 		return;
 	}
@@ -892,14 +880,9 @@ void rtvk_command_buffer_uniform_texture(
 		rtvk_throwf(RT_IMPROPER_USAGE, "uniform texture view is NULL");
 		return;
 	}
-	struct rtvk_framebuffer* active_framebuffer = command_buffer->framebuffer;
-	bool resume_rendering = rtvk_view_layout(texture_view) != VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-	if (resume_rendering) {
-		rtvk_command_buffer_suspend_rendering(ctx, command_buffer);
-	}
-	rtvk_command_buffer_transition_texture(node, texture_view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
-	if (resume_rendering) {
-		rtvk_command_buffer_resume_rendering(ctx, command_buffer, active_framebuffer);
+	if (rtvk_view_layout(texture_view) != VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+		rtvk_throwf(RT_IMPROPER_USAGE, "uniform texture must be shader-readable before draw-packet recording");
+		return;
 	}
 	rtvk_uniform_slot* slot = rtvk_command_buffer_uniform_slot(node, location->index);
 	if (!slot) {
@@ -917,11 +900,11 @@ void rtvk_command_buffer_uniform_texture(
 }
 
 void rtvk_command_buffer_bind_vertex_buffer(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer, struct rtvk_buffer* buffer, u64 offset) {
-	struct rtvk_command_buffer* command_buffer_node = command_buffer->active;
+	struct rtvk_command_buffer* command_buffer_node = command_buffer ? command_buffer->active : NULL;
 	struct rtvk_buffer* node = buffer ? buffer->active : NULL;
 
-	if (!node || !node->vk_buffer) {
-		rtvk_throwf(RT_IMPROPER_USAGE, "vertex buffer has no storage");
+	if (!command_buffer_node || !command_buffer->recording || !command_buffer->command_context || !command_buffer->command_context->rendering || !node || !node->vk_buffer) {
+		rtvk_throwf(RT_IMPROPER_USAGE, "vertex buffer binding requires a recording draw packet and allocated buffer");
 		return;
 	}
 	if (!(node->usage & RT_BUFFER_USAGE_VERTEX) || (node->usage & RT_BUFFER_USAGE_STAGING)) {
@@ -1153,6 +1136,11 @@ static void rtvk_command_buffer_bind_uniform_buffers(struct rtvk_context* ctx, s
 }
 
 void rtvk_command_buffer_draw(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer, u32 vertex_count, u32 first_vertex) {
+	if (!command_buffer || !command_buffer->active || !command_buffer->recording || !command_buffer->command_context ||
+		!command_buffer->command_context->rendering || !command_buffer->graphics_program) {
+		rtvk_throwf(RT_IMPROPER_USAGE, "draw requires a recording draw packet with a graphics program");
+		return;
+	}
 	rtvk_command_buffer_bind_uniform_buffers(ctx, command_buffer);
 	if (rtvk_error() != RT_SUCCESS) {
 		return;

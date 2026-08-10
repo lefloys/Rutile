@@ -35,6 +35,8 @@ target_sources(${PROJECT_NAME} PRIVATE
     
     "src/resource/command_buffer.c"
     "src/resource/command_buffer.h"
+    "src/resource/command_context.c"
+    "src/resource/command_context.h"
     "src/resource/framebuffer.c"
     "src/resource/framebuffer.h"
     "src/resource/graphics_program.c"

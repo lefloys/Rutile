@@ -8,7 +8,6 @@
 
 RTDX_API rt_queue rtQueueQuery(rt_queue_capability capability);
 RTDX_API void rtQueueWait(rt_queue queue, rt_timepoint timepoint);
-RTDX_API rt_timepoint rtQueueSubmit(rt_queue queue, rt_command_buffer command_buffer);
 RTDX_API rt_timepoint rtQueueFlush(rt_queue queue);
 RTDX_API void rtTimepointWait(rt_timepoint timepoint);
 RTDX_API bool rtTimepointReached(rt_timepoint timepoint);

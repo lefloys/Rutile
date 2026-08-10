@@ -9,13 +9,17 @@
 
 RTGL_EXTERN_C_ENTER
 
-RTGL_API rt_command_buffer rtCommandBufferCreate(void);
+RTGL_API rt_command_context rtCommandContextCreate(void);
+RTGL_API void rtCommandContextDestroy(rt_command_context command_context);
+RTGL_API void rtCommandContextBind(rt_command_context command_context, rt_queue queue);
+RTGL_API rt_command_buffer rtCommandContextAllocate(rt_command_context command_context);
 RTGL_API void rtCommandBufferDestroy(rt_command_buffer command_buffer);
-RTGL_API void rtCmdBegin(rt_command_buffer command_buffer, rt_queue queue);
-RTGL_API void rtCmdBeginRendering(rt_command_buffer command_buffer, rt_framebuffer framebuffer);
-RTGL_API void rtCmdClearColor(rt_command_buffer command_buffer, u32 color_index, f32 r, f32 g, f32 b, f32 a);
-RTGL_API void rtCmdClearDepth(rt_command_buffer command_buffer, f32 depth);
-RTGL_API void rtCmdClearStencil(rt_command_buffer command_buffer, u32 stencil);
+RTGL_API void rtCmdReset(rt_command_buffer command_buffer);
+RTGL_API void rtCmdBegin(rt_command_buffer command_buffer);
+RTGL_API void rtCommandContextBindFramebuffer(rt_command_context command_context, rt_framebuffer framebuffer);
+RTGL_API void rtCommandContextClearColor(rt_command_context command_context, u32 color_index, f32 r, f32 g, f32 b, f32 a);
+RTGL_API void rtCommandContextClearDepth(rt_command_context command_context, f32 depth);
+RTGL_API void rtCommandContextClearStencil(rt_command_context command_context, u32 stencil);
 RTGL_API void rtCmdUseGraphicsProgram(rt_command_buffer command_buffer, rt_graphics_program program);
 RTGL_API void rtCmdSetScissor(rt_command_buffer command_buffer, u32 x, u32 y, u32 width, u32 height);
 RTGL_API void rtCmdUniformBuffer(rt_command_buffer command_buffer, rt_uniform_location location, rt_buffer buffer, u64 offset, u64 size);
@@ -23,8 +27,10 @@ RTGL_API void rtCmdUniformTexture(rt_command_buffer command_buffer, rt_uniform_l
 RTGL_API void rtCmdStorageBuffer(rt_command_buffer command_buffer, rt_uniform_location location, rt_buffer buffer, u64 offset, u64 size);
 RTGL_API void rtCmdBindVertexBuffer(rt_command_buffer command_buffer, rt_buffer buffer, u64 offset);
 RTGL_API void rtCmdDraw(rt_command_buffer command_buffer, u32 vertex_count, u32 first_vertex);
-RTGL_API void rtCmdEndRendering(rt_command_buffer command_buffer);
+RTGL_API void rtCommandContextEndRendering(rt_command_context command_context);
+RTGL_API void rtCommandContextExecute(rt_command_context command_context, rt_command_buffer command_buffer);
 RTGL_API void rtCmdEnd(rt_command_buffer command_buffer);
+RTGL_API rt_timepoint rtCommandContextSubmit(rt_command_context command_context);
 
 RTGL_EXTERN_C_EXIT
 
@@ -97,13 +103,28 @@ typedef struct rtgl_recorded_command {
 struct rtgl_command_buffer {
 	struct rtgl_resource_base base;
 	struct rtgl_queue* queue;
+	struct rtgl_command_context* command_context;
+	struct rtgl_command_buffer* next_child;
 	rtgl_recorded_command* commands;
 	u32 command_count;
 	u32 command_capacity;
+	bool recording;
+	bool executable;
+	bool executed;
+};
+
+struct rtgl_command_context {
+	struct rtgl_command_buffer* primary;
+	struct rtgl_command_buffer* children;
+	struct rtgl_queue* queue;
+	struct rtgl_framebuffer* framebuffer;
+	bool rendering;
+	bool submitted;
 };
 
 RTGL_EXTERN_C_ENTER
 RTGL_DECLARE_NEW_RESOURCE(command_buffer)
+RTGL_DECLARE_NEW_RESOURCE(command_context)
 
 struct rtgl_timepoint rtgl_command_buffer_submit(struct rtgl_context* ctx, struct rtgl_queue* queue, struct rtgl_command_buffer* command_buffer);
 void rtgl_command_buffer_execute(struct rtgl_context* ctx, struct rtgl_command_buffer* command_buffer, struct rtgl_queue* queue, u64 complete_value);

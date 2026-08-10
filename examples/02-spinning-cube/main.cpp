@@ -175,7 +175,9 @@ int main(int argc, char** argv) {
 	rtTextureViewBind(depth_view, depth);
 	u32 depth_width = 1280;
 	u32 depth_height = 720;
-	rt_command_buffer command_buffer = rtCommandBufferCreate();
+	rt_command_context command_context = rtCommandContextCreate();
+	rtCommandContextBind(command_context, queue);
+	rt_command_buffer command_buffer = rtCommandContextAllocate(command_context);
 	Camera camera;
 	const auto start = std::chrono::steady_clock::now();
 	auto previous = start;
@@ -209,23 +211,27 @@ int main(int argc, char** argv) {
 		}
 		rtQueueWait(queue, acquired.timepoint);
 		rtFramebufferDepthView(acquired.framebuffer, depth_view);
-		rtCmdBegin(command_buffer, queue);
-		rtCmdBeginRendering(command_buffer, acquired.framebuffer);
-		rtCmdClearColor(command_buffer, 0, 0.035f, 0.045f, 0.075f, 1.0f);
-		rtCmdClearDepth(command_buffer, 1.0f);
+		rtCommandContextBind(command_context, queue);
+		rtCommandContextBindFramebuffer(command_context, acquired.framebuffer);
+		rtCommandContextClearColor(command_context, 0, 0.035f, 0.045f, 0.075f, 1.0f);
+		rtCommandContextClearDepth(command_context, 1.0f);
+		rtCmdBegin(command_buffer);
 		rtCmdUseGraphicsProgram(command_buffer, program);
 		rtCmdUniformBuffer(command_buffer, scene_location, scene_buffer, 0, sizeof(scene));
 		rtCmdBindVertexBuffer(command_buffer, vertex_buffer, 0);
 		rtCmdDraw(command_buffer, static_cast<u32>(vertices.size()), 0);
-		rtCmdEndRendering(command_buffer);
 		rtCmdEnd(command_buffer);
-		rt_timepoint rendered = rtQueueSubmit(queue, command_buffer);
+		rtCommandContextExecute(command_context, command_buffer);
+		rtCommandContextEndRendering(command_context);
+		rt_timepoint rendered = rtCommandContextSubmit(command_context);
 		rtFramebufferDepthView(acquired.framebuffer, RT_NULL_HANDLE);
 		rtSwapchainPresent(swapchain, rendered);
 		rendered_frames++;
 	}
 
+	rtTimepointWait(rtQueueFlush(queue));
 	rtCommandBufferDestroy(command_buffer);
+	rtCommandContextDestroy(command_context);
 	rtTextureViewDestroy(depth_view);
 	rtTextureDestroy(depth);
 	rtGraphicsProgramDestroy(program);

@@ -7,58 +7,115 @@
 #include <stdlib.h>
 #include <string.h>
 
+struct rtdx_context_submission {
+	rtdx_timepoint timepoint;
+	rtdx_command_buffer** children;
+	u32 child_count;
+	rtdx_context_submission* next;
+};
+
+static void rtdx_command_context_collect(rtdx_context* ctx, rtdx_command_context* context, bool wait) {
+	rtdx_context_submission** link = &context->submissions;
+	while (*link) {
+		rtdx_context_submission* submission = *link;
+		if (wait) rtdx_timepoint_wait(ctx, submission->timepoint);
+		if (!rtdx_timepoint_reached(ctx, submission->timepoint)) { link = &submission->next; continue; }
+		*link = submission->next;
+		for (u32 i = 0; i < submission->child_count; ++i) rtdx_release_resource(submission->children[i]);
+		free(submission->children);
+		free(submission);
+	}
+}
+
+static rtdx_context_submission* rtdx_command_context_capture_children(rtdx_command_context* context) {
+	u32 count = 0;
+	for (rtdx_command_buffer* child = context->children; child; child = child->next_child) if (child->executed && child->active) ++count;
+	rtdx_context_submission* submission = (rtdx_context_submission*)calloc(1, sizeof(*submission));
+	if (!submission) { rtdx_throwf(RT_OUT_OF_HOST_MEMORY, "failed to retain executed command buffers"); return NULL; }
+	if (count) {
+		submission->children = (rtdx_command_buffer**)calloc(count, sizeof(*submission->children));
+		if (!submission->children) { free(submission); rtdx_throwf(RT_OUT_OF_HOST_MEMORY, "failed to retain executed command buffers"); return NULL; }
+	}
+	for (rtdx_command_buffer* child = context->children; child; child = child->next_child) {
+		if (child->executed && child->active) { rtdx_retain_resource(child->active); submission->children[submission->child_count++] = child->active; }
+	}
+	return submission;
+}
+
 /*===============================================================================================*/
 /*                                                                                               */
 /*===============================================================================================*/
 
-rt_command_buffer rtCommandBufferCreate(void) {
-	struct rtdx_command_buffer* command_buffer = rtdx_command_buffer_create(rtdx_get_current_context());
-	return rtdx_command_buffer_to_handle(command_buffer);
+rt_command_context rtCommandContextCreate(void) {
+	auto* command_context = (rtdx_command_context*)calloc(1, sizeof(*command_context));
+	if (!command_context) { rtdx_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate command context"); return NULL; }
+	command_context->primary = rtdx_command_buffer_create(rtdx_get_current_context());
+	if (!command_context->primary) { free(command_context); return NULL; }
+	return rtdx_command_context_to_handle(command_context);
 }
-
+void rtCommandContextDestroy(rt_command_context command_context) {
+	auto* context = rtdx_command_context_from_handle(command_context); if (!context) return;
+	auto* ctx = rtdx_get_current_context();
+	/* A context owns its submitted bundle references even if callers destroy the
+	 * child handles.  Draining them here prevents releasing native bundles while
+	 * the retained primary can still execute them. */
+	rtdx_command_context_collect(ctx, context, true);
+	while (context->children) { auto* child = context->children; context->children = child->next_child; child->command_context = NULL; rtdx_command_buffer_destroy(ctx, child); }
+	rtdx_command_buffer_destroy(ctx, context->primary); free(context);
+}
+void rtCommandContextBind(rt_command_context command_context, rt_queue queue) {
+	auto* context = rtdx_command_context_from_handle(command_context); auto* ctx = rtdx_get_current_context();
+	if (!context || !queue) { rtdx_throwf(RT_IMPROPER_USAGE, "command context bind requires valid context and queue"); return; }
+	rtdx_command_context_collect(ctx, context, false);
+	if (context->rendering) { rtdx_command_buffer_end_rendering(ctx, context->primary); context->rendering = false; }
+	if (context->primary->recording) rtdx_command_buffer_end(ctx, context->primary);
+	rtdx_command_buffer_reset(ctx, context->primary);
+	for (auto* child = context->children; child; child = child->next_child) {
+		child->recording = false;
+		child->executable = false;
+		child->executed = false;
+		child->framebuffer = NULL;
+	}
+	context->queue = rtdx_queue_from_handle(queue); context->framebuffer = NULL; context->rendering = false; context->submitted = false;
+	rtdx_command_buffer_begin(ctx, context->primary, context->queue);
+}
+rt_command_buffer rtCommandContextAllocate(rt_command_context command_context) {
+	auto* context = rtdx_command_context_from_handle(command_context); if (!context) { rtdx_throwf(RT_IMPROPER_USAGE, "command buffer allocation requires a context"); return NULL; }
+	auto* child = rtdx_command_buffer_create(rtdx_get_current_context()); if (!child) return NULL;
+	child->bundle = true; child->command_context = context; child->next_child = context->children; context->children = child;
+	return rtdx_command_buffer_to_handle(child);
+}
 void rtCommandBufferDestroy(rt_command_buffer command_buffer) {
-	rtdx_command_buffer_destroy(rtdx_get_current_context(), rtdx_command_buffer_from_handle(command_buffer));
+	auto* child = rtdx_command_buffer_from_handle(command_buffer); if (!child) return;
+	if (child->command_context && child->executed && !child->command_context->submitted) { rtdx_throwf(RT_IMPROPER_USAGE, "cannot destroy an executed command buffer before its context is submitted"); return; }
+	if (child->command_context) { auto** link = &child->command_context->children; while (*link && *link != child) link = &(*link)->next_child; if (*link) *link = child->next_child; }
+	rtdx_command_buffer_destroy(rtdx_get_current_context(), child);
 }
-
-void rtCmdBegin(rt_command_buffer command_buffer, rt_queue queue) {
-	rtdx_command_buffer_begin(
-		rtdx_get_current_context(),
-		rtdx_command_buffer_from_handle(command_buffer),
-		rtdx_queue_from_handle(queue)
-	);
+void rtCmdReset(rt_command_buffer command_buffer) {
+	auto* child = rtdx_command_buffer_from_handle(command_buffer);
+	if (!child || !child->command_context) { rtdx_throwf(RT_IMPROPER_USAGE, "command buffer reset requires a live context-owned buffer"); return; }
+	if (child->recording || (child->executed && !child->command_context->submitted)) { rtdx_throwf(RT_IMPROPER_USAGE, "cannot reset a recording or executed-unsubmitted command buffer"); return; }
+	rtdx_command_buffer_reset(rtdx_get_current_context(), child);
 }
-
-void rtCmdBeginRendering(rt_command_buffer command_buffer, rt_framebuffer framebuffer) {
-	rtdx_command_buffer_begin_rendering(
-		rtdx_get_current_context(),
-		rtdx_command_buffer_from_handle(command_buffer),
-		rtdx_framebuffer_from_handle(framebuffer)
-	);
+void rtCmdBegin(rt_command_buffer command_buffer) {
+	auto* child = rtdx_command_buffer_from_handle(command_buffer);
+	if (!child || !child->command_context || !child->command_context->queue || !child->command_context->framebuffer || child->recording || child->executable) { rtdx_throwf(RT_IMPROPER_USAGE, "command buffer begin requires a reset child and bound context framebuffer"); return; }
+	rtdx_command_buffer_begin(rtdx_get_current_context(), child, child->command_context->queue);
+	child->framebuffer = child->command_context->framebuffer;
+	rtdx_texture_view* color_view = child->framebuffer->color_views[0];
+	rtdx_texture_view* depth_view = child->framebuffer->depth_view;
+	/* Bundles cannot bind render targets, but their pipeline state must use the
+	 * context rendering compatibility.  Store retained attachment views on the
+	 * native bundle node where program binding reads them. */
+	rtdx_retain_resource(color_view);
+	rtdx_retain_resource(depth_view);
+	child->active->color_texture_view = color_view;
+	child->active->depth_texture_view = depth_view;
 }
-void rtCmdClearColor(rt_command_buffer command_buffer, u32 color_index, f32 r, f32 g, f32 b, f32 a) {
-	rtdx_command_buffer_clear_color(
-		rtdx_get_current_context(),
-		rtdx_command_buffer_from_handle(command_buffer),
-		color_index,
-		r,
-		g,
-		b,
-		a
-	);
-}
-void rtCmdClearDepth(rt_command_buffer command_buffer, f32 depth) {
-	rtdx_command_buffer_clear_depth(
-		rtdx_get_current_context(),
-		rtdx_command_buffer_from_handle(command_buffer),
-		depth
-	);
-}
-void rtCmdClearStencil(rt_command_buffer command_buffer, u32 stencil) {
-	rtdx_command_buffer_clear_stencil(
-		rtdx_get_current_context(),
-		rtdx_command_buffer_from_handle(command_buffer),
-		stencil
-	);
+void rtCommandContextBindFramebuffer(rt_command_context command_context, rt_framebuffer framebuffer) {
+	auto* context = rtdx_command_context_from_handle(command_context);
+	if (!context || !context->queue || context->submitted || context->rendering) { rtdx_throwf(RT_IMPROPER_USAGE, "command context framebuffer bind requires a bound, unsubmitted context"); return; }
+	context->framebuffer = rtdx_framebuffer_from_handle(framebuffer); rtdx_command_buffer_begin_rendering(rtdx_get_current_context(), context->primary, context->framebuffer); context->rendering = rtdx_error() == RT_SUCCESS;
 }
 
 void rtCmdUseGraphicsProgram(rt_command_buffer command_buffer, rt_graphics_program program) {
@@ -129,11 +186,26 @@ void rtCmdDraw(rt_command_buffer command_buffer, u32 vertex_count, u32 first_ver
 	);
 }
 
-void rtCmdEndRendering(rt_command_buffer command_buffer) {
-	rtdx_command_buffer_end_rendering(
-		rtdx_get_current_context(),
-		rtdx_command_buffer_from_handle(command_buffer)
-	);
+void rtCommandContextClearColor(rt_command_context c, u32 i, f32 r, f32 g, f32 b, f32 a) { auto* x = rtdx_command_context_from_handle(c); if (x) rtdx_command_buffer_clear_color(rtdx_get_current_context(), x->primary, i, r, g, b, a); }
+void rtCommandContextClearDepth(rt_command_context c, f32 d) { auto* x = rtdx_command_context_from_handle(c); if (x) rtdx_command_buffer_clear_depth(rtdx_get_current_context(), x->primary, d); }
+void rtCommandContextClearStencil(rt_command_context c, u32 s) { auto* x = rtdx_command_context_from_handle(c); if (x) rtdx_command_buffer_clear_stencil(rtdx_get_current_context(), x->primary, s); }
+void rtCommandContextEndRendering(rt_command_context c) { auto* x = rtdx_command_context_from_handle(c); if (!x || !x->rendering) { rtdx_throwf(RT_IMPROPER_USAGE, "command context is not rendering"); return; } rtdx_command_buffer_end_rendering(rtdx_get_current_context(), x->primary); x->rendering = false; }
+void rtCommandContextExecute(rt_command_context c, rt_command_buffer b) {
+	auto* x = rtdx_command_context_from_handle(c); auto* child = rtdx_command_buffer_from_handle(b);
+	if (!x || !child || child->command_context != x || !x->rendering || child->recording || !child->executable || !child->active) { rtdx_throwf(RT_IMPROPER_USAGE, "command context execute requires an ended owned buffer in active rendering"); return; }
+	x->primary->active->d3d_command_list->ExecuteBundle(child->active->d3d_command_list);
+	child->executed = true;
+}
+rt_timepoint rtCommandContextSubmit(rt_command_context c) {
+	auto* x = rtdx_command_context_from_handle(c); if (!x || !x->queue || x->submitted || x->rendering) { rtdx_throwf(RT_IMPROPER_USAGE, "command context submit requires ended one-shot context"); return {}; }
+	rtdx_context_submission* submission = rtdx_command_context_capture_children(x);
+	if (!submission) return {};
+	rtdx_command_buffer_end(rtdx_get_current_context(), x->primary);
+	submission->timepoint = rtdx_queue_submit(rtdx_get_current_context(), x->queue, x->primary);
+	submission->next = x->submissions;
+	x->submissions = submission;
+	x->submitted = true;
+	return rtdx_timepoint_to_public(submission->timepoint);
 }
 
 void rtCmdEnd(rt_command_buffer command_buffer) {
@@ -141,6 +213,8 @@ void rtCmdEnd(rt_command_buffer command_buffer) {
 		rtdx_get_current_context(),
 		rtdx_command_buffer_from_handle(command_buffer)
 	);
+	auto* child = rtdx_command_buffer_from_handle(command_buffer);
+	if (child && !child->recording) child->executable = rtdx_error() == RT_SUCCESS;
 }
 
 /*===============================================================================================*/
@@ -153,7 +227,7 @@ static void rtdx_command_buffer_release_recorded_resources(struct rtdx_command_b
 static void rtdx_command_buffer_clear_uniform_slot(rtdx_uniform_slot* slot);
 static rtdx_uniform_slot* rtdx_command_buffer_uniform_slot(struct rtdx_command_buffer* command_buffer, u32 index);
 static bool rtdx_command_buffer_record_texture_view(struct rtdx_command_buffer* command_buffer, struct rtdx_texture_view* texture_view);
-static struct rtdx_command_buffer* rtdx_command_buffer_node_create(struct rtdx_context* ctx);
+static struct rtdx_command_buffer* rtdx_command_buffer_node_create(struct rtdx_context* ctx, bool bundle);
 static bool rtdx_command_buffer_prepare(struct rtdx_context* ctx, struct rtdx_command_buffer* command_buffer, struct rtdx_queue* queue);
 
 static constexpr u32 RTDX_COMMAND_BUFFER_DESCRIPTOR_COUNT = 1024;
@@ -305,14 +379,15 @@ static D3D12_GPU_DESCRIPTOR_HANDLE rtdx_heap_gpu_handle(struct rtdx_context* ctx
 	return handle;
 }
 
-static struct rtdx_command_buffer* rtdx_command_buffer_node_create(struct rtdx_context* ctx) {
+static struct rtdx_command_buffer* rtdx_command_buffer_node_create(struct rtdx_context* ctx, bool bundle) {
 	struct rtdx_command_buffer* node = RTDX_ALLOC_RESOURCE(rtdx_command_buffer);
 	if (!node) {
 		rtdx_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate command buffer node");
 		return NULL;
 	}
 
-	HRESULT result = ctx->d3d_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&node->d3d_allocator));
+	D3D12_COMMAND_LIST_TYPE type = bundle ? D3D12_COMMAND_LIST_TYPE_BUNDLE : D3D12_COMMAND_LIST_TYPE_DIRECT;
+	HRESULT result = ctx->d3d_device->CreateCommandAllocator(type, IID_PPV_ARGS(&node->d3d_allocator));
 	if (FAILED(result)) {
 		RTDX_FREE_RESOURCE(node);
 		rtdx_throwf(rtdx_error_from_hresult(result), "CreateCommandAllocator failed: 0x%08x", (u32)result);
@@ -321,7 +396,7 @@ static struct rtdx_command_buffer* rtdx_command_buffer_node_create(struct rtdx_c
 
 	result = ctx->d3d_device->CreateCommandList(
 		0,
-		D3D12_COMMAND_LIST_TYPE_DIRECT,
+		type,
 		node->d3d_allocator,
 		NULL,
 		IID_PPV_ARGS(&node->d3d_command_list)
@@ -333,6 +408,7 @@ static struct rtdx_command_buffer* rtdx_command_buffer_node_create(struct rtdx_c
 		return NULL;
 	}
 	node->d3d_command_list->Close();
+	node->bundle = bundle;
 
 	rtdx_init_resource_base(ctx, RTDX_RESOURCE_BASE(node), rtdx_resource_type::command_buffer);
 	rtdx_atomic_bool_store(&node->base.zombie, true);
@@ -369,7 +445,7 @@ static bool rtdx_command_buffer_prepare(struct rtdx_context* ctx, struct rtdx_co
 
 	struct rtdx_command_buffer* node = rtdx_command_buffer_take_reusable_node(command_buffer);
 	if (!node) {
-		node = rtdx_command_buffer_node_create(ctx);
+		node = rtdx_command_buffer_node_create(ctx, command_buffer->bundle);
 	}
 	if (!node) {
 		return false;
@@ -406,6 +482,15 @@ void rtdx_command_buffer_begin(struct rtdx_context* ctx, struct rtdx_command_buf
 	command_buffer->color_texture_view = NULL;
 	command_buffer->depth_texture_view = NULL;
 	node->descriptor_cursor = 0;
+}
+void rtdx_command_buffer_reset(struct rtdx_context*, struct rtdx_command_buffer* command_buffer) {
+	if (!command_buffer) return;
+	command_buffer->recording = false;
+	command_buffer->framebuffer = NULL;
+	command_buffer->graphics_program = NULL;
+	command_buffer->vertex_buffer = NULL;
+	command_buffer->executable = false;
+	command_buffer->executed = false;
 }
 
 static void rtdx_command_buffer_transition_texture(struct rtdx_command_buffer* command_buffer, struct rtdx_texture_view* view, D3D12_RESOURCE_STATES next_state) {

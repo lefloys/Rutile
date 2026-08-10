@@ -12,6 +12,10 @@
 #include <string.h>
 
 static rtgl_recorded_command* rtgl_command_buffer_append(struct rtgl_command_buffer* command_buffer) {
+	if (command_buffer->command_context && !command_buffer->recording) {
+		rtgl_throwf(RT_IMPROPER_USAGE, "draw commands require a recording command buffer");
+		return NULL;
+	}
 	if (command_buffer->command_count == command_buffer->command_capacity) {
 		u32 next_capacity = command_buffer->command_capacity ? command_buffer->command_capacity * 2 : 16;
 		rtgl_recorded_command* next = (rtgl_recorded_command*)realloc(
@@ -75,77 +79,129 @@ static void rtgl_record_location_program(rtgl_uniform_location* location, struct
 		rtgl_retain_resource(*program);
 	}
 }
-rt_command_buffer rtCommandBufferCreate(void) {
-	return rtgl_command_buffer_to_handle(rtgl_command_buffer_create(rtgl_get_current_context()));
+rt_command_context rtCommandContextCreate(void) {
+	struct rtgl_command_context* context = (struct rtgl_command_context*)calloc(1, sizeof(*context));
+	if (!context) { rtgl_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate command context"); return NULL; }
+	context->primary = rtgl_command_buffer_create(rtgl_get_current_context());
+	if (!context->primary) { free(context); return NULL; }
+	return rtgl_command_context_to_handle(context);
 }
-
-void rtCommandBufferDestroy(rt_command_buffer command_buffer) {
-	rtgl_command_buffer_destroy(rtgl_get_current_context(), rtgl_command_buffer_from_handle(command_buffer));
+void rtCommandContextDestroy(rt_command_context command_context) {
+	struct rtgl_command_context* context = rtgl_command_context_from_handle(command_context); if (!context) return;
+	while (context->children) { struct rtgl_command_buffer* child = context->children; context->children = child->next_child; child->command_context = NULL; rtgl_command_buffer_destroy(rtgl_get_current_context(), child); }
+	rtgl_command_buffer_destroy(rtgl_get_current_context(), context->primary); free(context);
 }
-
-void rtCmdBegin(rt_command_buffer command_buffer, rt_queue queue) {
-	struct rtgl_command_buffer* internal = rtgl_command_buffer_from_handle(command_buffer);
-	if (!internal) {
-		return;
+void rtCommandContextBind(rt_command_context command_context, rt_queue queue) {
+	struct rtgl_command_context* context = rtgl_command_context_from_handle(command_context); if (!context || !queue) { rtgl_throwf(RT_IMPROPER_USAGE, "command context bind requires valid context and queue"); return; }
+	context->queue = rtgl_queue_from_handle(queue); context->framebuffer = NULL; context->rendering = false; context->submitted = false;
+	rtgl_command_buffer_clear_commands(context->primary); context->primary->queue = context->queue;
+	for (struct rtgl_command_buffer* child = context->children; child; child = child->next_child) {
+		rtgl_command_buffer_clear_commands(child);
+		child->recording = false;
+		child->executable = false;
+		child->executed = false;
 	}
-	rtgl_command_buffer_clear_commands(internal);
-	internal->queue = rtgl_queue_from_handle(queue);
 }
-
-void rtCmdEnd(rt_command_buffer) {
-	/* The validation layer owns recording-state validation. */
+rt_command_buffer rtCommandContextAllocate(rt_command_context command_context) {
+	struct rtgl_command_context* context = rtgl_command_context_from_handle(command_context); if (!context) { rtgl_throwf(RT_IMPROPER_USAGE, "command buffer allocation requires a context"); return NULL; }
+	struct rtgl_command_buffer* child = rtgl_command_buffer_create(rtgl_get_current_context()); if (!child) return NULL;
+	child->command_context = context; child->next_child = context->children; context->children = child; return rtgl_command_buffer_to_handle(child);
 }
-
-void rtCmdBeginRendering(rt_command_buffer command_buffer, rt_framebuffer framebuffer) {
+void rtCommandBufferDestroy(rt_command_buffer command_buffer) {
+	struct rtgl_command_buffer* child = rtgl_command_buffer_from_handle(command_buffer); if (!child) return;
+	if (child->command_context && child->executed && !child->command_context->submitted) { rtgl_throwf(RT_IMPROPER_USAGE, "cannot destroy an executed command buffer before its context is submitted"); return; }
+	if (child->command_context) { struct rtgl_command_buffer** link = &child->command_context->children; while (*link && *link != child) link = &(*link)->next_child; if (*link) *link = child->next_child; }
+	rtgl_command_buffer_destroy(rtgl_get_current_context(), child);
+}
+void rtCmdReset(rt_command_buffer command_buffer) {
+	struct rtgl_command_buffer* child = rtgl_command_buffer_from_handle(command_buffer);
+	if (!child || !child->command_context) { rtgl_throwf(RT_IMPROPER_USAGE, "command buffer reset requires a live context-owned buffer"); return; }
+	if (child->recording || (child->executed && !child->command_context->submitted)) { rtgl_throwf(RT_IMPROPER_USAGE, "cannot reset a recording or executed-unsubmitted command buffer"); return; }
+	rtgl_command_buffer_clear_commands(child);
+	child->executable = false;
+	child->executed = false;
+}
+void rtCmdBegin(rt_command_buffer command_buffer) {
 	struct rtgl_command_buffer* internal = rtgl_command_buffer_from_handle(command_buffer);
+	if (!internal || !internal->command_context || !internal->command_context->queue || !internal->command_context->framebuffer || internal->recording || internal->executable) { rtgl_throwf(RT_IMPROPER_USAGE, "command buffer begin requires a reset child and bound context framebuffer"); return; }
+	internal->queue = internal->command_context->queue;
+	internal->recording = true;
+}
+void rtCmdEnd(rt_command_buffer command_buffer) {
+	struct rtgl_command_buffer* internal = rtgl_command_buffer_from_handle(command_buffer);
+	if (!internal || !internal->command_context || !internal->recording) { rtgl_throwf(RT_IMPROPER_USAGE, "command buffer end requires recording"); return; }
+	internal->recording = false;
+	internal->executable = true;
+}
+void rtCommandContextBindFramebuffer(rt_command_context command_context, rt_framebuffer framebuffer) {
+	struct rtgl_command_context* context = rtgl_command_context_from_handle(command_context); if (!context || !context->queue || context->submitted || context->rendering) { rtgl_throwf(RT_IMPROPER_USAGE, "command context framebuffer bind requires a bound, unsubmitted context"); return; }
+	context->framebuffer = rtgl_framebuffer_from_handle(framebuffer); context->rendering = true;
+	struct rtgl_command_buffer* internal = context->primary;
 	rtgl_recorded_command* command = internal ? rtgl_command_buffer_append(internal) : NULL;
 	if (!command) {
 		return;
 	}
 	command->kind = RTGL_RECORDED_COMMAND_BEGIN_RENDERING;
-	command->data.begin_rendering.framebuffer = rtgl_framebuffer_from_handle(framebuffer);
-	if (command->data.begin_rendering.framebuffer) {
-		rtgl_retain_resource(command->data.begin_rendering.framebuffer);
-		command->data.begin_rendering.color_view = command->data.begin_rendering.framebuffer->color_views[0];
-		command->data.begin_rendering.depth_view = command->data.begin_rendering.framebuffer->depth_view;
-		rtgl_retain_resource(command->data.begin_rendering.color_view);
-		rtgl_retain_resource(command->data.begin_rendering.depth_view);
-	}
+	command->data.begin_rendering.framebuffer = context->framebuffer;
+	if (context->framebuffer) { rtgl_retain_resource(context->framebuffer); command->data.begin_rendering.color_view = context->framebuffer->color_views[0]; command->data.begin_rendering.depth_view = context->framebuffer->depth_view; rtgl_retain_resource(command->data.begin_rendering.color_view); rtgl_retain_resource(command->data.begin_rendering.depth_view); }
 }
-
-void rtCmdEndRendering(rt_command_buffer command_buffer) {
-	struct rtgl_command_buffer* internal = rtgl_command_buffer_from_handle(command_buffer);
-	rtgl_recorded_command* command = internal ? rtgl_command_buffer_append(internal) : NULL;
-	if (command) {
-		command->kind = RTGL_RECORDED_COMMAND_END_RENDERING;
-	}
-}
-
-void rtCmdClearColor(rt_command_buffer command_buffer, u32 color_index, f32 r, f32 g, f32 b, f32 a) {
-	struct rtgl_command_buffer* internal = rtgl_command_buffer_from_handle(command_buffer);
-	rtgl_recorded_command* command = internal ? rtgl_command_buffer_append(internal) : NULL;
-	if (!command) {
-		return;
-	}
-	command->kind = RTGL_RECORDED_COMMAND_CLEAR_COLOR;
+void rtCommandContextClearColor(rt_command_context c, u32 color_index, f32 r, f32 g, f32 b, f32 a) {
+	struct rtgl_command_context* context = rtgl_command_context_from_handle(c); struct rtgl_command_buffer* internal = context ? context->primary : NULL;
+	rtgl_recorded_command* command = internal ? rtgl_command_buffer_append(internal) : NULL; if (!command) return; command->kind = RTGL_RECORDED_COMMAND_CLEAR_COLOR;
 	command->data.clear_color.color_index = color_index;
 	command->data.clear_color.values[0] = r;
 	command->data.clear_color.values[1] = g;
 	command->data.clear_color.values[2] = b;
 	command->data.clear_color.values[3] = a;
 }
-
-void rtCmdClearDepth(rt_command_buffer command_buffer, f32 depth) {
-	struct rtgl_command_buffer* internal = rtgl_command_buffer_from_handle(command_buffer);
+void rtCommandContextClearDepth(rt_command_context c, f32 depth) {
+	struct rtgl_command_context* context = rtgl_command_context_from_handle(c); struct rtgl_command_buffer* internal = context ? context->primary : NULL;
 	rtgl_recorded_command* command = internal ? rtgl_command_buffer_append(internal) : NULL;
 	if (command) {
 		command->kind = RTGL_RECORDED_COMMAND_CLEAR_DEPTH;
 		command->data.clear_depth = depth;
 	}
 }
-
-void rtCmdClearStencil(rt_command_buffer, u32) {
+void rtCommandContextClearStencil(rt_command_context, u32) {
 	rtgl_throwf(RT_UNSUPPORTED_FEATURE, "OpenGL stencil clear is not implemented");
+}
+
+void rtCommandContextEndRendering(rt_command_context command_context) {
+	struct rtgl_command_context* context = rtgl_command_context_from_handle(command_context);
+	if (!context || !context->rendering) { rtgl_throwf(RT_IMPROPER_USAGE, "command context is not rendering"); return; }
+	rtgl_recorded_command* command = rtgl_command_buffer_append(context->primary);
+	if (command) command->kind = RTGL_RECORDED_COMMAND_END_RENDERING;
+	context->rendering = false;
+}
+
+void rtCommandContextExecute(rt_command_context command_context, rt_command_buffer command_buffer) {
+	struct rtgl_command_context* context = rtgl_command_context_from_handle(command_context);
+	struct rtgl_command_buffer* child = rtgl_command_buffer_from_handle(command_buffer);
+	if (!context || !child || child->command_context != context || !context->rendering || child->recording || !child->executable) { rtgl_throwf(RT_IMPROPER_USAGE, "command context execute requires an ended owned buffer in active rendering"); return; }
+	/* OpenGL has no native secondary command list. The context records the child
+	 * packet by value when it is executed, retaining its resources for this
+	 * one-shot submission. */
+	for (u32 i = 0; i < child->command_count; ++i) {
+		rtgl_recorded_command* dst = rtgl_command_buffer_append(context->primary);
+		if (!dst) return;
+		*dst = child->commands[i];
+		switch (dst->kind) {
+		case RTGL_RECORDED_COMMAND_USE_GRAPHICS_PROGRAM: rtgl_retain_resource(dst->data.use_graphics_program.program); break;
+		case RTGL_RECORDED_COMMAND_UNIFORM_BUFFER: rtgl_retain_resource(dst->data.uniform_buffer.location_program); rtgl_retain_resource(dst->data.uniform_buffer.buffer); break;
+		case RTGL_RECORDED_COMMAND_UNIFORM_TEXTURE: rtgl_retain_resource(dst->data.uniform_texture.location_program); rtgl_retain_resource(dst->data.uniform_texture.texture_view); break;
+		case RTGL_RECORDED_COMMAND_STORAGE_BUFFER: rtgl_retain_resource(dst->data.storage_buffer.location_program); rtgl_retain_resource(dst->data.storage_buffer.buffer); break;
+		case RTGL_RECORDED_COMMAND_BIND_VERTEX_BUFFER: rtgl_retain_resource(dst->data.bind_vertex_buffer.buffer); break;
+		default: break;
+		}
+	}
+	child->executed = true;
+}
+
+rt_timepoint rtCommandContextSubmit(rt_command_context command_context) {
+	struct rtgl_command_context* context = rtgl_command_context_from_handle(command_context);
+	if (!context || !context->queue || context->submitted || context->rendering) { rtgl_throwf(RT_IMPROPER_USAGE, "command context submit requires ended one-shot context"); return (rt_timepoint){ 0 }; }
+	context->submitted = true;
+	return rtgl_timepoint_to_public(rtgl_command_buffer_submit(rtgl_get_current_context(), context->queue, context->primary));
 }
 
 void rtCmdUseGraphicsProgram(rt_command_buffer command_buffer, rt_graphics_program program) {

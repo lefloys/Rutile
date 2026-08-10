@@ -145,7 +145,9 @@ int main(int argc, char** argv) {
 	rtGraphicsProgramLayout(program, &Layout);
 	rtGraphicsProgramFinalize(program);
 	rt_uniform_location plasma_location = rtGraphicsProgramUniformLocation(program, "plasma");
-	rt_command_buffer command_buffer = rtCommandBufferCreate();
+	rt_command_context command_context = rtCommandContextCreate();
+	rtCommandContextBind(command_context, queue);
+	rt_command_buffer command_buffer = rtCommandContextAllocate(command_context);
 	const auto start = std::chrono::steady_clock::now();
 	u32 rendered_frames = 0;
 
@@ -159,20 +161,24 @@ int main(int argc, char** argv) {
 			continue;
 		}
 		rtQueueWait(queue, acquired.timepoint);
-		rtCmdBegin(command_buffer, queue);
-		rtCmdBeginRendering(command_buffer, acquired.framebuffer);
-		rtCmdClearColor(command_buffer, 0, 0.0f, 0.0f, 0.0f, 1.0f);
+		rtCommandContextBind(command_context, queue);
+		rtCommandContextBindFramebuffer(command_context, acquired.framebuffer);
+		rtCommandContextClearColor(command_context, 0, 0.0f, 0.0f, 0.0f, 1.0f);
+		rtCmdBegin(command_buffer);
 		rtCmdUseGraphicsProgram(command_buffer, program);
 		rtCmdUniformTexture(command_buffer, plasma_location, texture_view);
 		rtCmdBindVertexBuffer(command_buffer, vertex_buffer, 0);
 		rtCmdDraw(command_buffer, 6, 0);
-		rtCmdEndRendering(command_buffer);
 		rtCmdEnd(command_buffer);
-		rtSwapchainPresent(swapchain, rtQueueSubmit(queue, command_buffer));
+		rtCommandContextExecute(command_context, command_buffer);
+		rtCommandContextEndRendering(command_context);
+		rtSwapchainPresent(swapchain, rtCommandContextSubmit(command_context));
 		rendered_frames++;
 	}
 
+	rtTimepointWait(rtQueueFlush(queue));
 	rtCommandBufferDestroy(command_buffer);
+	rtCommandContextDestroy(command_context);
 	rtGraphicsProgramDestroy(program);
 	rtTextureViewDestroy(texture_view);
 	rtTextureDestroy(texture);

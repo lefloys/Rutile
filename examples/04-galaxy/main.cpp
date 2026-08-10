@@ -321,7 +321,9 @@ int main(int argc, char** argv) {
 	rtGraphicsProgramFinalize(graphics_program);
 	rt_uniform_location scene_location = rtGraphicsProgramUniformLocation(graphics_program, "scene");
 
-	rt_command_buffer cmd = rtCommandBufferCreate();
+	rt_command_context command_context = rtCommandContextCreate();
+	rtCommandContextBind(command_context, queue);
+	rt_command_buffer cmd = rtCommandContextAllocate(command_context);
 	rt_texture depth_texture = RT_NULL_HANDLE;
 	rt_texture_view depth_view = RT_NULL_HANDLE;
 	u32 depth_width = FramebufferWidth;
@@ -373,20 +375,22 @@ int main(int argc, char** argv) {
 		if (depth_view) {
 			rtFramebufferDepthView(acquired.framebuffer, depth_view);
 		}
-		rtCmdBegin(cmd, queue);
-		rtCmdBeginRendering(cmd, acquired.framebuffer);
-		rtCmdClearColor(cmd, 0, 0.004f, 0.006f, 0.014f, 1.0f);
+		rtCommandContextBind(command_context, queue);
+		rtCommandContextBindFramebuffer(command_context, acquired.framebuffer);
+		rtCommandContextClearColor(command_context, 0, 0.004f, 0.006f, 0.014f, 1.0f);
 		if (depth_view) {
-			rtCmdClearDepth(cmd, 1.0f);
+			rtCommandContextClearDepth(command_context, 1.0f);
 		}
+		rtCmdBegin(cmd);
 		rtCmdUseGraphicsProgram(cmd, graphics_program);
 		rtCmdBindVertexBuffer(cmd, vertex_buffer, 0);
 		rtCmdUniformBuffer(cmd, scene_location, scene_buffer, 0, sizeof(scene));
 		rtCmdDraw(cmd, (u32)vertices.size(), 0);
-		rtCmdEndRendering(cmd);
 		rtCmdEnd(cmd);
+		rtCommandContextExecute(command_context, cmd);
+		rtCommandContextEndRendering(command_context);
 
-		rt_timepoint rendered = rtQueueSubmit(queue, cmd);
+		rt_timepoint rendered = rtCommandContextSubmit(command_context);
 		if (depth_view) {
 			rtFramebufferDepthView(acquired.framebuffer, RT_NULL_HANDLE);
 		}
@@ -405,7 +409,9 @@ int main(int argc, char** argv) {
 		}
 	}
 
+	rtTimepointWait(rtQueueFlush(queue));
 	rtCommandBufferDestroy(cmd);
+	rtCommandContextDestroy(command_context);
 	rtGraphicsProgramDestroy(graphics_program);
 	rtTextureViewDestroy(depth_view);
 	rtTextureDestroy(depth_texture);

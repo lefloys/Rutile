@@ -4,27 +4,25 @@
 /*                                                                                               */
 /*===============================================================================================*/
 
-RT_EXPORT rt_command_buffer rtCommandBufferCreate(void) {
-	return rtlog_rtCommandBufferCreate();
+RT_EXPORT rt_command_context rtCommandContextCreate(void) {
+	return rtlog_rtCommandContextCreate();
 }
+RT_EXPORT void rtCommandContextDestroy(rt_command_context context) { rtlog_rtCommandContextDestroy(context); }
+RT_EXPORT void rtCommandContextBind(rt_command_context context, rt_queue queue) { rtlog_rtCommandContextBind(context, queue); }
+RT_EXPORT rt_command_buffer rtCommandContextAllocate(rt_command_context context) { return rtlog_rtCommandContextAllocate(context); }
 RT_EXPORT void rtCommandBufferDestroy(rt_command_buffer command_buffer) {
 	rtlog_rtCommandBufferDestroy(command_buffer);
 }
-RT_EXPORT void rtCmdBegin(rt_command_buffer command_buffer, rt_queue queue) {
-	rtlog_rtCmdBegin(command_buffer, queue);
+RT_EXPORT void rtCmdReset(rt_command_buffer command_buffer) { rtlog_rtCmdReset(command_buffer); }
+RT_EXPORT void rtCmdBegin(rt_command_buffer command_buffer) {
+	rtlog_rtCmdBegin(command_buffer);
 }
-RT_EXPORT void rtCmdBeginRendering(rt_command_buffer command_buffer, rt_framebuffer framebuffer) {
-	rtlog_rtCmdBeginRendering(command_buffer, framebuffer);
+RT_EXPORT void rtCommandContextBindFramebuffer(rt_command_context context, rt_framebuffer framebuffer) {
+	rtlog_rtCommandContextBindFramebuffer(context, framebuffer);
 }
-RT_EXPORT void rtCmdClearColor(rt_command_buffer command_buffer, u32 color_index, f32 r, f32 g, f32 b, f32 a) {
-	rtlog_rtCmdClearColor(command_buffer, color_index, r, g, b, a);
-}
-RT_EXPORT void rtCmdClearDepth(rt_command_buffer command_buffer, f32 depth) {
-	rtlog_rtCmdClearDepth(command_buffer, depth);
-}
-RT_EXPORT void rtCmdClearStencil(rt_command_buffer command_buffer, u32 stencil) {
-	rtlog_rtCmdClearStencil(command_buffer, stencil);
-}
+RT_EXPORT void rtCommandContextClearColor(rt_command_context c, u32 i, f32 r, f32 g, f32 b, f32 a) { rtlog_rtCommandContextClearColor(c, i, r, g, b, a); }
+RT_EXPORT void rtCommandContextClearDepth(rt_command_context c, f32 d) { rtlog_rtCommandContextClearDepth(c, d); }
+RT_EXPORT void rtCommandContextClearStencil(rt_command_context c, u32 s) { rtlog_rtCommandContextClearStencil(c, s); }
 RT_EXPORT void rtCmdUseGraphicsProgram(rt_command_buffer command_buffer, rt_graphics_program program) {
 	rtlog_rtCmdUseGraphicsProgram(command_buffer, program);
 }
@@ -58,9 +56,9 @@ RT_EXPORT void rtCmdDraw(rt_command_buffer command_buffer, u32 vertex_count, u32
 RT_EXPORT void rtCmdDispatch(rt_command_buffer command_buffer, u32 group_count_x, u32 group_count_y, u32 group_count_z) {
 	rtlog_rtCmdDispatch(command_buffer, group_count_x, group_count_y, group_count_z);
 }
-RT_EXPORT void rtCmdEndRendering(rt_command_buffer command_buffer) {
-	rtlog_rtCmdEndRendering(command_buffer);
-}
+RT_EXPORT void rtCommandContextEndRendering(rt_command_context c) { rtlog_rtCommandContextEndRendering(c); }
+RT_EXPORT void rtCommandContextExecute(rt_command_context c, rt_command_buffer b) { rtlog_rtCommandContextExecute(c, b); }
+RT_EXPORT rt_timepoint rtCommandContextSubmit(rt_command_context c) { return rtlog_rtCommandContextSubmit(c); }
 RT_EXPORT void rtCmdEnd(rt_command_buffer command_buffer) {
 	rtlog_rtCmdEnd(command_buffer);
 }
@@ -69,15 +67,20 @@ RT_EXPORT void rtCmdEnd(rt_command_buffer command_buffer) {
 /*                                                                                               */
 /*===============================================================================================*/
 
-rt_command_buffer rtlog_rtCommandBufferCreate(void) {
+rt_command_context rtlog_rtCommandContextCreate(void) {
 	u64 start_ns = rtlog_now_ns();
-	rtlog_printf("rtCommandBufferCreate()\n");
+	rtlog_printf("rtCommandContextCreate()\n");
 
-	rt_command_buffer result = next_rtCommandBufferCreate();
-	rtlog_printf("rtCommandBufferCreate -> %s [%s]\n", rtlog_pointer(result), rtlog_elapsed(start_ns));
-	rtlog_error("rtCommandBufferCreate");
+	rt_command_context result = next_rtCommandContextCreate();
+	rtlog_printf("rtCommandContextCreate -> %s [%s]\n", rtlog_pointer(result), rtlog_elapsed(start_ns));
+	rtlog_error("rtCommandContextCreate");
 	return result;
 }
+
+void rtlog_rtCommandContextDestroy(rt_command_context c) { next_rtCommandContextDestroy(c); rtlog_error("rtCommandContextDestroy"); }
+void rtlog_rtCommandContextBind(rt_command_context c, rt_queue q) { next_rtCommandContextBind(c, q); rtlog_error("rtCommandContextBind"); }
+rt_command_buffer rtlog_rtCommandContextAllocate(rt_command_context c) { rt_command_buffer b = next_rtCommandContextAllocate(c); rtlog_error("rtCommandContextAllocate"); return b; }
+void rtlog_rtCmdReset(rt_command_buffer b) { next_rtCmdReset(b); rtlog_error("rtCmdReset"); }
 
 void rtlog_rtCommandBufferDestroy(rt_command_buffer command_buffer) {
 	u64 start_ns = rtlog_now_ns();
@@ -87,45 +90,22 @@ void rtlog_rtCommandBufferDestroy(rt_command_buffer command_buffer) {
 	rtlog_error("rtCommandBufferDestroy");
 }
 
-void rtlog_rtCmdBegin(rt_command_buffer command_buffer, rt_queue queue) {
+void rtlog_rtCmdBegin(rt_command_buffer command_buffer) {
 	u64 start_ns = rtlog_now_ns();
-	rtlog_printf("rtCmdBegin(command_buffer=%s, queue=%s)\n", rtlog_pointer(command_buffer), rtlog_pointer(queue));
-	next_rtCmdBegin(command_buffer, queue);
+	rtlog_printf("rtCmdBegin(command_buffer=%s)\n", rtlog_pointer(command_buffer));
+	next_rtCmdBegin(command_buffer);
 	rtlog_printf("rtCmdBegin completed in %s\n", rtlog_elapsed(start_ns));
 	rtlog_error("rtCmdBegin");
 }
 
-void rtlog_rtCmdBeginRendering(rt_command_buffer command_buffer, rt_framebuffer framebuffer) {
+void rtlog_rtCommandContextBindFramebuffer(rt_command_context command_context, rt_framebuffer framebuffer) {
 	u64 start_ns = rtlog_now_ns();
-	rtlog_printf("rtCmdBeginRendering(command_buffer=%s, framebuffer=%s)\n", rtlog_pointer(command_buffer), rtlog_pointer(framebuffer));
-	next_rtCmdBeginRendering(command_buffer, framebuffer);
-	rtlog_printf("rtCmdBeginRendering completed in %s\n", rtlog_elapsed(start_ns));
-	rtlog_error("rtCmdBeginRendering");
+	next_rtCommandContextBindFramebuffer(command_context, framebuffer);
+	rtlog_error("rtCommandContextBindFramebuffer");
 }
-
-void rtlog_rtCmdClearColor(rt_command_buffer command_buffer, u32 color_index, f32 r, f32 g, f32 b, f32 a) {
-	u64 start_ns = rtlog_now_ns();
-	rtlog_printf("rtCmdClearColor(command_buffer=%s, color_index=%u, rgba=(%f,%f,%f,%f))\n", rtlog_pointer(command_buffer), color_index, r, g, b, a);
-	next_rtCmdClearColor(command_buffer, color_index, r, g, b, a);
-	rtlog_printf("rtCmdClearColor completed in %s\n", rtlog_elapsed(start_ns));
-	rtlog_error("rtCmdClearColor");
-}
-
-void rtlog_rtCmdClearDepth(rt_command_buffer command_buffer, f32 depth) {
-	u64 start_ns = rtlog_now_ns();
-	rtlog_printf("rtCmdClearDepth(command_buffer=%s, depth=%f)\n", rtlog_pointer(command_buffer), depth);
-	next_rtCmdClearDepth(command_buffer, depth);
-	rtlog_printf("rtCmdClearDepth completed in %s\n", rtlog_elapsed(start_ns));
-	rtlog_error("rtCmdClearDepth");
-}
-
-void rtlog_rtCmdClearStencil(rt_command_buffer command_buffer, u32 stencil) {
-	u64 start_ns = rtlog_now_ns();
-	rtlog_printf("rtCmdClearStencil(command_buffer=%s, stencil=%u)\n", rtlog_pointer(command_buffer), stencil);
-	next_rtCmdClearStencil(command_buffer, stencil);
-	rtlog_printf("rtCmdClearStencil completed in %s\n", rtlog_elapsed(start_ns));
-	rtlog_error("rtCmdClearStencil");
-}
+void rtlog_rtCommandContextClearColor(rt_command_context c, u32 i, f32 r, f32 g, f32 b, f32 a) { next_rtCommandContextClearColor(c, i, r, g, b, a); rtlog_error("rtCommandContextClearColor"); }
+void rtlog_rtCommandContextClearDepth(rt_command_context c, f32 d) { next_rtCommandContextClearDepth(c, d); rtlog_error("rtCommandContextClearDepth"); }
+void rtlog_rtCommandContextClearStencil(rt_command_context c, u32 s) { next_rtCommandContextClearStencil(c, s); rtlog_error("rtCommandContextClearStencil"); }
 
 void rtlog_rtCmdUseGraphicsProgram(rt_command_buffer command_buffer, rt_graphics_program program) {
 	u64 start_ns = rtlog_now_ns();
@@ -227,13 +207,9 @@ void rtlog_rtCmdDispatch(rt_command_buffer command_buffer, u32 group_count_x, u3
 	rtlog_error("rtCmdDispatch");
 }
 
-void rtlog_rtCmdEndRendering(rt_command_buffer command_buffer) {
-	u64 start_ns = rtlog_now_ns();
-	rtlog_printf("rtCmdEndRendering(command_buffer=%s)\n", rtlog_pointer(command_buffer));
-	next_rtCmdEndRendering(command_buffer);
-	rtlog_printf("rtCmdEndRendering completed in %s\n", rtlog_elapsed(start_ns));
-	rtlog_error("rtCmdEndRendering");
-}
+void rtlog_rtCommandContextEndRendering(rt_command_context c) { next_rtCommandContextEndRendering(c); rtlog_error("rtCommandContextEndRendering"); }
+void rtlog_rtCommandContextExecute(rt_command_context c, rt_command_buffer b) { next_rtCommandContextExecute(c, b); rtlog_error("rtCommandContextExecute"); }
+rt_timepoint rtlog_rtCommandContextSubmit(rt_command_context c) { rt_timepoint t = next_rtCommandContextSubmit(c); rtlog_error("rtCommandContextSubmit"); return t; }
 
 void rtlog_rtCmdEnd(rt_command_buffer command_buffer) {
 	u64 start_ns = rtlog_now_ns();

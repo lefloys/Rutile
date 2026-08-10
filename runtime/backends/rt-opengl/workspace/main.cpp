@@ -45,7 +45,8 @@ int main() {
 		return 1;
 	}
 
-	rt_command_buffer command_buffer = rtCommandBufferCreate();
+	rt_command_context command_context = rtCommandContextCreate();
+	rt_command_buffer command_buffer = rtCommandContextAllocate(command_context);
 	while (!glfwWindowShouldClose(window)) {
 		glfwPollEvents();
 		if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
@@ -56,13 +57,15 @@ int main() {
 		}
 
 		rt_swapchain_acquire_result acquired = rtSwapchainAcquire(swapchain);
-		rtCmdBegin(command_buffer, queue);
-		rtCmdBeginRendering(command_buffer, acquired.framebuffer);
-		rtCmdClearColor(command_buffer, 0, 0.02f, 0.11f, 0.18f, 1.0f);
-		rtCmdEndRendering(command_buffer);
+		rtCommandContextBind(command_context, queue);
+		rtCommandContextBindFramebuffer(command_context, acquired.framebuffer);
+		rtCommandContextClearColor(command_context, 0, 0.02f, 0.11f, 0.18f, 1.0f);
+		rtCmdBegin(command_buffer);
 		rtCmdEnd(command_buffer);
+		rtCommandContextExecute(command_context, command_buffer);
+		rtCommandContextEndRendering(command_context);
 
-		rt_timepoint cleared = rtQueueSubmit(queue, command_buffer);
+		rt_timepoint cleared = rtCommandContextSubmit(command_context);
 		rtSwapchainPresent(swapchain, cleared);
 		rtQueueFlush(queue);
 	}
@@ -71,6 +74,7 @@ int main() {
 	std::printf("rt-opengl-workspace: initialized %s, verified buffer upload/readback, and cleared the swapchain\n", rtGetName());
 
 	rtCommandBufferDestroy(command_buffer);
+	rtCommandContextDestroy(command_context);
 	rtBufferDestroy(buffer);
 	rtSwapchainDestroy(swapchain);
 	rtExit();

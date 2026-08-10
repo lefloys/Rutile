@@ -9,6 +9,7 @@ endif()
 
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
+enable_testing()
 
 set(RUTILE_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 set(RUTILE_INSTALL_CMAKEDIR "${CMAKE_INSTALL_LIBDIR}/cmake/Rutile")

@@ -9,13 +9,17 @@
 
 #include <d3d12.h>
 
-RTDX_API rt_command_buffer rtCommandBufferCreate();
+RTDX_API rt_command_context rtCommandContextCreate();
+RTDX_API void rtCommandContextDestroy(rt_command_context command_context);
+RTDX_API void rtCommandContextBind(rt_command_context command_context, rt_queue queue);
+RTDX_API rt_command_buffer rtCommandContextAllocate(rt_command_context command_context);
 RTDX_API void rtCommandBufferDestroy(rt_command_buffer command_buffer);
-RTDX_API void rtCmdBegin(rt_command_buffer command_buffer, rt_queue queue);
-RTDX_API void rtCmdBeginRendering(rt_command_buffer command_buffer, rt_framebuffer framebuffer);
-RTDX_API void rtCmdClearColor(rt_command_buffer command_buffer, u32 color_index, f32 r, f32 g, f32 b, f32 a);
-RTDX_API void rtCmdClearDepth(rt_command_buffer command_buffer, f32 depth);
-RTDX_API void rtCmdClearStencil(rt_command_buffer command_buffer, u32 stencil);
+RTDX_API void rtCmdReset(rt_command_buffer command_buffer);
+RTDX_API void rtCmdBegin(rt_command_buffer command_buffer);
+RTDX_API void rtCommandContextBindFramebuffer(rt_command_context command_context, rt_framebuffer framebuffer);
+RTDX_API void rtCommandContextClearColor(rt_command_context command_context, u32 color_index, f32 r, f32 g, f32 b, f32 a);
+RTDX_API void rtCommandContextClearDepth(rt_command_context command_context, f32 depth);
+RTDX_API void rtCommandContextClearStencil(rt_command_context command_context, u32 stencil);
 RTDX_API void rtCmdUseGraphicsProgram(rt_command_buffer command_buffer, rt_graphics_program program);
 RTDX_API void rtCmdSetScissor(rt_command_buffer command_buffer, u32 x, u32 y, u32 width, u32 height);
 RTDX_API void rtCmdUniformBuffer(rt_command_buffer command_buffer, rt_uniform_location location, rt_buffer buffer, u64 offset, u64 size);
@@ -23,8 +27,10 @@ RTDX_API void rtCmdUniformTexture(rt_command_buffer command_buffer, rt_uniform_l
 RTDX_API void rtCmdStorageBuffer(rt_command_buffer command_buffer, rt_uniform_location location, rt_buffer buffer, u64 offset, u64 size);
 RTDX_API void rtCmdBindVertexBuffer(rt_command_buffer command_buffer, rt_buffer buffer, u64 offset);
 RTDX_API void rtCmdDraw(rt_command_buffer command_buffer, u32 vertex_count, u32 first_vertex);
-RTDX_API void rtCmdEndRendering(rt_command_buffer command_buffer);
+RTDX_API void rtCommandContextEndRendering(rt_command_context command_context);
+RTDX_API void rtCommandContextExecute(rt_command_context command_context, rt_command_buffer command_buffer);
 RTDX_API void rtCmdEnd(rt_command_buffer command_buffer);
+RTDX_API rt_timepoint rtCommandContextSubmit(rt_command_context command_context);
 
 enum class rtdx_uniform_slot_kind {
 	empty,
@@ -58,6 +64,8 @@ struct rtdx_command_buffer {
 	ID3D12GraphicsCommandList* d3d_command_list;
 
 	rtdx_queue* queue;
+	struct rtdx_command_context* command_context;
+	rtdx_command_buffer* next_child;
 	rtdx_framebuffer* framebuffer;
 	rtdx_graphics_program* graphics_program;
 	rtdx_texture_view* color_texture_view;
@@ -72,10 +80,25 @@ struct rtdx_command_buffer {
 	u32 recorded_texture_view_capacity;
 	u32 descriptor_cursor;
 	bool recording;
+	bool executable;
+	bool executed;
+	bool bundle;
 };
 RTDX_DECLARE_NEW_RESOURCE(command_buffer)
 
+struct rtdx_command_context {
+	rtdx_command_buffer* primary;
+	rtdx_command_buffer* children;
+	rtdx_queue* queue;
+	rtdx_framebuffer* framebuffer;
+	bool rendering;
+	bool submitted;
+	struct rtdx_context_submission* submissions;
+};
+RTDX_DECLARE_NEW_RESOURCE(command_context)
+
 void rtdx_command_buffer_begin(rtdx_context* ctx, rtdx_command_buffer* command_buffer, rtdx_queue* queue);
+void rtdx_command_buffer_reset(rtdx_context* ctx, rtdx_command_buffer* command_buffer);
 void rtdx_command_buffer_begin_rendering(rtdx_context* ctx, rtdx_command_buffer* command_buffer, rtdx_framebuffer* framebuffer);
 void rtdx_command_buffer_clear_color(rtdx_context* ctx, rtdx_command_buffer* command_buffer, u32 color_index, f32 r, f32 g, f32 b, f32 a);
 void rtdx_command_buffer_clear_depth(rtdx_context* ctx, rtdx_command_buffer* command_buffer, f32 depth);

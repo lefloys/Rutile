@@ -106,6 +106,9 @@ void rt_event_wait(struct rt_event* event) {
 
 u32 rt_event_wait_any(struct rt_event** events, u32 count) {
 	const struct timespec sleep_time = { 0, 1000000 };
+	if (count == 0) {
+		return 0;
+	}
 
 	for (;;) {
 		for (u32 i = 0; i < count; ++i) {

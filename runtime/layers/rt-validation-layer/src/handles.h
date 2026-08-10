@@ -14,6 +14,7 @@ struct rtval_framebuffer;
 struct rtval_graphics_program;
 struct rtval_compute_program;
 struct rtval_command_buffer;
+struct rtval_command_context;
 struct rtval_queue;
 struct rtval_swapchain;
 
@@ -32,6 +33,7 @@ RTVAL_DECLARE_NEW_RESOURCE(framebuffer, rt_framebuffer)
 RTVAL_DECLARE_NEW_RESOURCE(graphics_program, rt_graphics_program)
 RTVAL_DECLARE_NEW_RESOURCE(compute_program, rt_compute_program)
 RTVAL_DECLARE_NEW_RESOURCE(command_buffer, rt_command_buffer)
+RTVAL_DECLARE_NEW_RESOURCE(command_context, rt_command_context)
 RTVAL_DECLARE_NEW_RESOURCE(queue, rt_queue)
 RTVAL_DECLARE_NEW_RESOURCE(swapchain, rt_swapchain)
 
@@ -57,6 +59,7 @@ typedef enum rtval_handle_type {
 	RTVAL_HANDLE_TYPE_GRAPHICS_PROGRAM,
 	RTVAL_HANDLE_TYPE_COMPUTE_PROGRAM,
 	RTVAL_HANDLE_TYPE_COMMAND_BUFFER,
+	RTVAL_HANDLE_TYPE_COMMAND_CONTEXT,
 	RTVAL_HANDLE_TYPE_QUEUE,
 	RTVAL_HANDLE_TYPE_SWAPCHAIN,
 	RTVAL_HANDLE_TYPE_COUNT,

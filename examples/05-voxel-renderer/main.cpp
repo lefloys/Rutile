@@ -183,7 +183,9 @@ int main(int argc, char** argv) {
 	rtGraphicsProgramFinalize(water_program);
 	rt_uniform_location water_transform_location = rtGraphicsProgramUniformLocation(water_program, "scene");
 
-	rt_command_buffer cmd = rtCommandBufferCreate();
+	rt_command_context command_context = rtCommandContextCreate();
+	rtCommandContextBind(command_context, queue);
+	rt_command_buffer cmd = rtCommandContextAllocate(command_context);
 	rt_texture depth_texture = rtTextureCreate();
 	rt_texture_view depth_view = rtTextureViewCreate();
 	u32 depth_width = FramebufferWidth;
@@ -240,10 +242,11 @@ int main(int argc, char** argv) {
 		rtBufferSubdata(water_transform_buffer, 0, sizeof(water_transform), &water_transform);
 
 		rtFramebufferDepthView(acquired.framebuffer, depth_view);
-		rtCmdBegin(cmd, queue);
-		rtCmdBeginRendering(cmd, acquired.framebuffer);
-		rtCmdClearColor(cmd, 0, 0.54f, 0.72f, 0.94f, 1.0f);
-		rtCmdClearDepth(cmd, 1.0f);
+		rtCommandContextBind(command_context, queue);
+		rtCommandContextBindFramebuffer(command_context, acquired.framebuffer);
+		rtCommandContextClearColor(command_context, 0, 0.54f, 0.72f, 0.94f, 1.0f);
+		rtCommandContextClearDepth(command_context, 1.0f);
+		rtCmdBegin(cmd);
 		rtCmdUseGraphicsProgram(cmd, graphics_program);
 		rtCmdBindVertexBuffer(cmd, vertex_buffer, 0);
 		rtCmdUniformBuffer(cmd, transform_location, transform_buffer, 0, sizeof(transform));
@@ -252,10 +255,11 @@ int main(int argc, char** argv) {
 		rtCmdBindVertexBuffer(cmd, water_vertex_buffer, 0);
 		rtCmdUniformBuffer(cmd, water_transform_location, water_transform_buffer, 0, sizeof(water_transform));
 		rtCmdDraw(cmd, (u32)water_vertices.size(), 0);
-		rtCmdEndRendering(cmd);
 		rtCmdEnd(cmd);
+		rtCommandContextExecute(command_context, cmd);
+		rtCommandContextEndRendering(command_context);
 
-		rt_timepoint rendered = rtQueueSubmit(queue, cmd);
+		rt_timepoint rendered = rtCommandContextSubmit(command_context);
 		rtFramebufferDepthView(acquired.framebuffer, RT_NULL_HANDLE);
 		rtSwapchainPresent(swapchain, rendered);
 		rendered_frames++;
@@ -273,7 +277,9 @@ int main(int argc, char** argv) {
 		}
 	}
 
+	rtTimepointWait(rtQueueFlush(queue));
 	rtCommandBufferDestroy(cmd);
+	rtCommandContextDestroy(command_context);
 	rtGraphicsProgramDestroy(water_program);
 	rtGraphicsProgramDestroy(graphics_program);
 	rtBufferDestroy(water_transform_buffer);

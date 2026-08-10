@@ -4,20 +4,18 @@ Rutile is a small user-space graphics API with explicit runtime backend loading.
 Applications load a backend such as Vulkan or DirectX 12 at startup, and can
 insert layers for validation, logging, profiling, or other interception work.
 
-## Start here
+## Configure and build
 
-New to the repository? Read [BUILD.md](BUILD.md). From the Rutile repository root:
+Rutile provides the `debug`, `release`, `ci-debug`, and `ci-release` CMake
+presets. From the Rutile repository root, for example:
 
 ```powershell
 cmake --preset debug
-cmake --build --preset debug --target rutile-01-triangle
+cmake --build --preset debug --target rtsl-sdk
 ```
 
-The build guide also explains the Vulkan, DirectX 12, examples, tests, and
-helper-script paths. The rest of this file describes the project and API.
-
-The public API is currently a C binding. Other language bindings are possible,
-but are not implemented yet.
+The source tree provides C and C++ binding headers. CMake exports them as the
+`Rutile::rutile` and `Rutile::cpp` interface targets, respectively.
 
 ## Platform Status
 
@@ -64,70 +62,21 @@ triplet.
 
 ## Build And Test
 
-For the full explanation of prerequisites, build directories, presets, examples,
-platform differences, and troubleshooting, see [BUILD.md](BUILD.md).
-
-The CI-equivalent Windows MSVC build is:
-
-```bat
-cmake --preset ci-debug
-cmake --build --preset ci-debug --parallel
-ctest --preset ci-debug
-```
-
-That builds `rt-vulkan`, `rt-directx12`, `rt-validation-layer`, `rt-logging-layer`,
-`rtsl-tests`, `rtsl-sdk-tests`, and `rtslc`.
-
-The normal Windows debug build is:
+The top-level build adds the runtime backends, layers, and RTSL project, but
+the runtime targets and RTSL test executables are excluded from the default
+build. After configuring a preset, build the specific target you need:
 
 ```bat
 cmake --preset debug
-cmake --build --preset debug --parallel
-ctest --preset debug
+cmake --build --preset debug --target rtsl-sdk
 ```
 
-The repository script also enters the MSVC x64 developer environment and uses
-the static `x64-windows-static` triplet:
-
-```bat
-scripts\build.bat Debug
-```
-
-Windows compiler coverage:
-
-```bat
-cmake --preset ci-debug
-cmake --build --preset ci-debug --parallel
-ctest --preset ci-debug
-
-cmake --preset ci-debug
-cmake --build --preset ci-debug --parallel
-ctest --preset ci-debug
-```
-
-Linux compiler coverage:
-
-```sh
-cmake --preset ci-debug
-cmake --build --preset ci-debug --parallel
-ctest --preset ci-debug
-```
-
-For Linux Clang, use libc++ so `<expected>` is available with C++23:
-
-```sh
-CC=clang CXX=clang++ CXXFLAGS=-stdlib=libc++ LDFLAGS=-stdlib=libc++ cmake --preset ci-debug
-cmake --build --preset ci-debug --parallel
-ctest --preset ci-debug
-```
-
-macOS setup build:
-
-```sh
-cmake --preset ci-debug
-cmake --build --preset ci-debug --parallel
-ctest --preset ci-debug
-```
+`rtslc` is added only when CMake can find CLI11. RTSL's test targets are always
+configured, require Catch2, and are excluded from the default build. Build them
+explicitly with `cmake --build --preset debug --target rtsl-sdk-tests rtsl-tests`.
+`ctest --preset debug`
+The source tree does not currently provide a single top-level command that builds
+all runtimes, examples, and tests.
 
 ## vcpkg Features
 
@@ -140,35 +89,9 @@ the targets that use them:
 - `examples`: GLFW, GLM, CLI11, and stb for examples
 - `tests`: Catch2 and test CLI support
 
-All examples and supported backends are configured automatically. Build only
-the target you need with `cmake --build --preset debug --target <target>`.
-
-## Run Examples
-
-Build the examples and run them against the Vulkan backend:
-
-```bat
-scripts\test-examples.bat Debug out\build\examples rt-vulkan
-```
-
-Run the built examples manually from the build output directory:
-
-```bat
-out\build\examples\bin\rutile-01-triangle.exe --backend rt-vulkan
-out\build\examples\bin\rutile-05-voxel-renderer.exe --backend rt-vulkan --frames 300
-```
-
-If you use a multi-config generator, the executables are under
-`out\build\examples\bin\Debug` instead.
-
-`scripts\test.bat Debug` configures, builds, and runs the test tree with CTest.
-It returns an error if configuration fails, compilation fails, a test fails, or
-no tests are registered.
-
-Here is a screenshot from the voxel renderer.
-<p align="center">
-  <img src="examples/05-voxel-renderer/image.png" alt="Rutile Minecraft example" width="720">
-</p>
+The top-level project defines the available runtime targets. Build a specific
+target with `cmake --build --preset debug --target <target>`; runtime targets
+are excluded from the default build.
 
 ## Project Shape
 
@@ -178,7 +101,7 @@ Here is a screenshot from the voxel renderer.
 - `rt-directx12` is the DirectX 12 backend (Windows only).
 - `rt-validation-layer` is a validation layer.
 - `rt-logging-layer` is a logging layer.
-- `examples` is a collection of small projects that show how to use Rutile. All examples use RTSL shaders and can be built and run with `scripts\test-examples.bat`.
+- `examples` contains standalone CMake projects that show how to use Rutile. They are not added by Rutile's top-level `CMakeLists.txt`.
 
 ## Loading
 
@@ -244,7 +167,7 @@ if (rtLoad_RT_EXT_MY_FEATURE() == RT_SUCCESS) {
 }
 ```
 
-This is one of Rutile's core philosophies: features should be able to be screwed onto forked backends 
+This is one of Rutile's core philosophies: features should be able to be screwed onto forked backends
 with ease.
 
 ## Layers

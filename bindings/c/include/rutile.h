@@ -294,6 +294,7 @@ typedef struct rt_texture_view_t* rt_texture_view;
 typedef struct rt_buffer_t* rt_buffer;
 typedef struct rt_graphics_program_t* rt_graphics_program;
 typedef struct rt_uniform_location_t* rt_uniform_location;
+typedef struct rt_command_context_t* rt_command_context;
 typedef struct rt_command_buffer_t* rt_command_buffer;
 typedef struct rt_framebuffer_t* rt_framebuffer;
 typedef struct rt_queue_t* rt_queue;
@@ -477,26 +478,32 @@ typedef void (*PFN_rtGraphicsProgramFinalize)(rt_graphics_program program);
 typedef void (*PFN_rtGraphicsProgramReset)(rt_graphics_program program);
 typedef rt_uniform_location (*PFN_rtGraphicsProgramUniformLocation)(rt_graphics_program program, const char* name);
 
-typedef rt_command_buffer (*PFN_rtCommandBufferCreate)(void);
+typedef rt_command_context (*PFN_rtCommandContextCreate)(void);
+typedef void (*PFN_rtCommandContextDestroy)(rt_command_context command_context);
+typedef void (*PFN_rtCommandContextBind)(rt_command_context command_context, rt_queue queue);
+typedef rt_command_buffer (*PFN_rtCommandContextAllocate)(rt_command_context command_context);
 typedef void (*PFN_rtCommandBufferDestroy)(rt_command_buffer command_buffer);
-typedef void (*PFN_rtCmdBegin)(rt_command_buffer command_buffer, rt_queue queue);
-typedef void (*PFN_rtCmdBeginRendering)(rt_command_buffer command_buffer, rt_framebuffer framebuffer);
-typedef void (*PFN_rtCmdClearColor)(rt_command_buffer command_buffer, u32 color_index, f32 r, f32 g, f32 b, f32 a);
-typedef void (*PFN_rtCmdClearDepth)(rt_command_buffer command_buffer, f32 depth);
-typedef void (*PFN_rtCmdClearStencil)(rt_command_buffer command_buffer, u32 stencil);
+typedef void (*PFN_rtCmdReset)(rt_command_buffer command_buffer);
+typedef void (*PFN_rtCmdBegin)(rt_command_buffer command_buffer);
 typedef void (*PFN_rtCmdUseGraphicsProgram)(rt_command_buffer command_buffer, rt_graphics_program program);
-typedef void (*PFN_rtCmdSetScissor)(rt_command_buffer command_buffer, u32 x, u32 y, u32 width, u32 height);
 typedef void (*PFN_rtCmdUniformBuffer)(rt_command_buffer command_buffer, rt_uniform_location location, rt_buffer buffer, u64 offset, u64 size);
 typedef void (*PFN_rtCmdUniformTexture)(rt_command_buffer command_buffer, rt_uniform_location location, rt_texture_view texture_view);
 typedef void (*PFN_rtCmdStorageBuffer)(rt_command_buffer command_buffer, rt_uniform_location location, rt_buffer buffer, u64 offset, u64 size);
 typedef void (*PFN_rtCmdBindVertexBuffer)(rt_command_buffer command_buffer, rt_buffer buffer, u64 offset);
 typedef void (*PFN_rtCmdDraw)(rt_command_buffer command_buffer, u32 vertex_count, u32 first_vertex);
-typedef void (*PFN_rtCmdEndRendering)(rt_command_buffer command_buffer);
 typedef void (*PFN_rtCmdEnd)(rt_command_buffer command_buffer);
+typedef void (*PFN_rtCommandContextBindFramebuffer)(rt_command_context command_context, rt_framebuffer framebuffer);
+typedef void (*PFN_rtCommandContextClearColor)(rt_command_context command_context, u32 color_index, f32 r, f32 g, f32 b, f32 a);
+typedef void (*PFN_rtCommandContextClearDepth)(rt_command_context command_context, f32 depth);
+typedef void (*PFN_rtCommandContextClearStencil)(rt_command_context command_context, u32 stencil);
+typedef void (*PFN_rtCommandContextSetViewport)(rt_command_context command_context, u32 x, u32 y, u32 width, u32 height, f32 min_depth, f32 max_depth);
+typedef void (*PFN_rtCommandContextSetScissor)(rt_command_context command_context, u32 x, u32 y, u32 width, u32 height);
+typedef void (*PFN_rtCommandContextExecute)(rt_command_context command_context, rt_command_buffer command_buffer);
+typedef void (*PFN_rtCommandContextEndRendering)(rt_command_context command_context);
 
 typedef rt_queue (*PFN_rtQueueQuery)(enum rt_queue_capability capability);
 typedef void (*PFN_rtQueueWait)(rt_queue queue, rt_timepoint timepoint);
-typedef rt_timepoint (*PFN_rtQueueSubmit)(rt_queue queue, rt_command_buffer command_buffer);
+typedef rt_timepoint (*PFN_rtCommandContextSubmit)(rt_command_context command_context);
 typedef rt_timepoint (*PFN_rtQueueFlush)(rt_queue queue);
 typedef void (*PFN_rtTimepointWait)(rt_timepoint timepoint);
 typedef bool (*PFN_rtTimepointReached)(rt_timepoint timepoint);
@@ -548,26 +555,32 @@ extern PFN_rtGraphicsProgramFinalize rt_rtGraphicsProgramFinalize;
 extern PFN_rtGraphicsProgramReset rt_rtGraphicsProgramReset;
 extern PFN_rtGraphicsProgramUniformLocation rt_rtGraphicsProgramUniformLocation;
 
-extern PFN_rtCommandBufferCreate rt_rtCommandBufferCreate;
+extern PFN_rtCommandContextCreate rt_rtCommandContextCreate;
+extern PFN_rtCommandContextDestroy rt_rtCommandContextDestroy;
+extern PFN_rtCommandContextBind rt_rtCommandContextBind;
+extern PFN_rtCommandContextAllocate rt_rtCommandContextAllocate;
 extern PFN_rtCommandBufferDestroy rt_rtCommandBufferDestroy;
+extern PFN_rtCmdReset rt_rtCmdReset;
 extern PFN_rtCmdBegin rt_rtCmdBegin;
-extern PFN_rtCmdBeginRendering rt_rtCmdBeginRendering;
-extern PFN_rtCmdClearColor rt_rtCmdClearColor;
-extern PFN_rtCmdClearDepth rt_rtCmdClearDepth;
-extern PFN_rtCmdClearStencil rt_rtCmdClearStencil;
 extern PFN_rtCmdUseGraphicsProgram rt_rtCmdUseGraphicsProgram;
-extern PFN_rtCmdSetScissor rt_rtCmdSetScissor;
 extern PFN_rtCmdUniformBuffer rt_rtCmdUniformBuffer;
 extern PFN_rtCmdUniformTexture rt_rtCmdUniformTexture;
 extern PFN_rtCmdStorageBuffer rt_rtCmdStorageBuffer;
 extern PFN_rtCmdBindVertexBuffer rt_rtCmdBindVertexBuffer;
 extern PFN_rtCmdDraw rt_rtCmdDraw;
-extern PFN_rtCmdEndRendering rt_rtCmdEndRendering;
 extern PFN_rtCmdEnd rt_rtCmdEnd;
+extern PFN_rtCommandContextBindFramebuffer rt_rtCommandContextBindFramebuffer;
+extern PFN_rtCommandContextClearColor rt_rtCommandContextClearColor;
+extern PFN_rtCommandContextClearDepth rt_rtCommandContextClearDepth;
+extern PFN_rtCommandContextClearStencil rt_rtCommandContextClearStencil;
+extern PFN_rtCommandContextSetViewport rt_rtCommandContextSetViewport;
+extern PFN_rtCommandContextSetScissor rt_rtCommandContextSetScissor;
+extern PFN_rtCommandContextExecute rt_rtCommandContextExecute;
+extern PFN_rtCommandContextEndRendering rt_rtCommandContextEndRendering;
 
 extern PFN_rtQueueQuery rt_rtQueueQuery;
 extern PFN_rtQueueWait rt_rtQueueWait;
-extern PFN_rtQueueSubmit rt_rtQueueSubmit;
+extern PFN_rtCommandContextSubmit rt_rtCommandContextSubmit;
 extern PFN_rtQueueFlush rt_rtQueueFlush;
 extern PFN_rtTimepointWait rt_rtTimepointWait;
 extern PFN_rtTimepointReached rt_rtTimepointReached;
@@ -1275,106 +1288,107 @@ static inline rt_uniform_location rtGraphicsProgramUniformLocation(rt_graphics_p
 }
 
 /*!
-** @brief Create an unrecorded command buffer.
+** @brief Create a single-fire command context.
 **
-** Allocates only the handle. The buffer is bound to a specific queue at
-** @ref rtCmdBegin time; until then it has no queue affinity.
+** Allocates an unbound, single-fire context. Bind a queue with
+** @ref rtCommandContextBind before declaring its rendering scope or
+** allocating child buffers. Command-context functions are mandatory core
+** entry points; until the sequential backend and layer work implements them,
+** strict @ref rtLoad rejects implementations that do not export them.
 **
-** @return New command buffer handle, or NULL on failure.
+** @return New command context handle, or NULL on failure.
 **
 ** @error RT_OUT_OF_HOST_MEMORY  Host allocation for the handle failed.
 */
-static inline rt_command_buffer rtCommandBufferCreate(void) {
-	return rt_rtCommandBufferCreate();
+static inline rt_command_context rtCommandContextCreate(void) {
+	return rt_rtCommandContextCreate();
 }
 
 /*!
-** @brief Destroy a command buffer.
+** @brief Destroy a command context and invalidate all of its child buffers.
 **
-** Work that has already been submitted continues to execute against the
-** now-zombie command buffer; backing storage is reclaimed once that work
-** completes. Safe to call on NULL.
+** Every remaining child handle becomes invalid immediately. Submitted work
+** remains valid; the backend defers native reclamation until it is safe.
+** Safe to call on NULL.
 **
-** @param command_buffer  Command buffer to destroy.
+** @param command_context  Context to destroy.
+*/
+static inline void rtCommandContextDestroy(rt_command_context command_context) {
+	rt_rtCommandContextDestroy(command_context);
+}
+
+/*!
+** @brief Bind a queue to a command context.
+**
+** Rebinding always discards all context work and every child buffer's
+** contents, including when @p queue is unchanged. Child handles remain owned
+** by the context but return to their Initial state and must be recorded again.
+**
+** @param command_context  Context to bind.
+** @param queue            Queue for this context lifetime.
+*/
+static inline void rtCommandContextBind(rt_command_context command_context, rt_queue queue) {
+	rt_rtCommandContextBind(command_context, queue);
+}
+
+/*!
+** @brief Allocate a resettable child command buffer.
+**
+** Allocation requires the context's current queue binding and is allowed
+** before or after its framebuffer scope is declared, but never after
+** submission. The context owns the returned handle; destroying the context
+** invalidates it.
+**
+** @param command_context  Queue-bound context that owns the child.
+** @return A new child command buffer, or NULL on failure.
+*/
+static inline rt_command_buffer rtCommandContextAllocate(rt_command_context command_context) {
+	return rt_rtCommandContextAllocate(command_context);
+}
+
+/*!
+** @brief Destroy one child command buffer.
+**
+** It must not have been executed by its owning context before that context
+** submits. Submitted native work is reclaimed safely.
+** Safe to call on NULL.
+**
+** @param command_buffer  Child command buffer to destroy.
 */
 static inline void rtCommandBufferDestroy(rt_command_buffer command_buffer) {
 	rt_rtCommandBufferDestroy(command_buffer);
 }
 
 /*!
-** @brief Begin recording a command buffer, binding it to a queue.
+** @brief Discard one child buffer's recorded contents.
 **
-** Resets any previously recorded contents and starts a fresh recording. The
-** queue passed here is the only queue the resulting command buffer may be
-** submitted to. The buffer must not already be in the recording state.
+** Preserves its owning context. It must not have been executed by an
+** unsubmitted owning context.
+** Call @ref rtCmdReset before recording an executable child again.
+**
+** @param command_buffer  Child command buffer to reset.
+*/
+static inline void rtCmdReset(rt_command_buffer command_buffer) {
+	rt_rtCmdReset(command_buffer);
+}
+
+/*!
+** @brief Begin recording a child command buffer.
+**
+** Starts recording an Initial child buffer. Call @ref rtCmdReset before
+** recording an Executable buffer again. The owning context must be live and
+** queue-bound with an active framebuffer scope. The current public graphics
+** command set records draw work for that scope's fixed framebuffer
+** compatibility. A future generic-work command set may use the reserved
+** pre-framebuffer context position without adding a user-selected buffer mode.
 **
 ** Every `rtCmd*` call below requires the target command buffer to be in the
 ** recording state.
 **
 ** @param command_buffer  Command buffer to record into.
-** @param queue           Queue the recording targets.
 */
-static inline void rtCmdBegin(rt_command_buffer command_buffer, rt_queue queue) {
-	rt_rtCmdBegin(command_buffer, queue);
-}
-
-/*!
-** @brief Begin a rendering pass into a framebuffer.
-**
-** Follows Vulkan dynamic-rendering semantics: a rendering pass is opened on
-** @p framebuffer; subsequent draw and clear commands target its
-** attachments until the matching @ref rtCmdEndRendering. Rendering passes
-** must not be nested.
-**
-** @param command_buffer  Command buffer being recorded.
-** @param framebuffer     Framebuffer whose attachments will be rendered to.
-*/
-static inline void rtCmdBeginRendering(rt_command_buffer command_buffer, rt_framebuffer framebuffer) {
-	rt_rtCmdBeginRendering(command_buffer, framebuffer);
-}
-
-/*!
-** @brief Clear a color attachment of the active framebuffer.
-**
-** Must be called between @ref rtCmdBeginRendering and
-** @ref rtCmdEndRendering. The four components are RGBA in floating-point
-** form; the backend converts them to the attachment's format.
-**
-** @param command_buffer  Command buffer being recorded.
-** @param color_index     Color attachment slot to clear.
-** @param r  Red.
-** @param g  Green.
-** @param b  Blue.
-** @param a  Alpha.
-*/
-static inline void rtCmdClearColor(rt_command_buffer command_buffer, u32 color_index, f32 r, f32 g, f32 b, f32 a) {
-	rt_rtCmdClearColor(command_buffer, color_index, r, g, b, a);
-}
-
-/*!
-** @brief Clear the depth aspect of the active framebuffer's depth attachment.
-**
-** Must be called between @ref rtCmdBeginRendering and
-** @ref rtCmdEndRendering.
-**
-** @param command_buffer  Command buffer being recorded.
-** @param depth           Depth clear value (typically in [0, 1]).
-*/
-static inline void rtCmdClearDepth(rt_command_buffer command_buffer, f32 depth) {
-	rt_rtCmdClearDepth(command_buffer, depth);
-}
-
-/*!
-** @brief Clear the stencil aspect of the active framebuffer's depth attachment.
-**
-** Must be called between @ref rtCmdBeginRendering and
-** @ref rtCmdEndRendering.
-**
-** @param command_buffer  Command buffer being recorded.
-** @param stencil         Stencil clear value.
-*/
-static inline void rtCmdClearStencil(rt_command_buffer command_buffer, u32 stencil) {
-	rt_rtCmdClearStencil(command_buffer, stencil);
+static inline void rtCmdBegin(rt_command_buffer command_buffer) {
+	rt_rtCmdBegin(command_buffer);
 }
 
 /*!
@@ -1383,6 +1397,8 @@ static inline void rtCmdClearStencil(rt_command_buffer command_buffer, u32 stenc
 ** The program must be finalized (@ref rtGraphicsProgramFinalize). The
 ** binding stays in effect until the next @ref rtCmdUseGraphicsProgram or
 ** until the command buffer ends.
+** The command buffer must be recording as a draw packet while its owning
+** context has an active framebuffer scope.
 **
 ** @param command_buffer  Command buffer being recorded.
 ** @param program         Finalized graphics program to bind.
@@ -1392,29 +1408,14 @@ static inline void rtCmdUseGraphicsProgram(rt_command_buffer command_buffer, rt_
 }
 
 /*!
-** @brief Set the scissor rectangle used by subsequent draw commands.
-**
-** Coordinates use the framebuffer's top-left origin and are measured in
-** pixels. Binding a graphics program resets the scissor to cover the full
-** framebuffer.
-**
-** @param command_buffer  Command buffer being recorded.
-** @param x       Left edge in framebuffer pixels.
-** @param y       Top edge in framebuffer pixels.
-** @param width   Rectangle width in pixels.
-** @param height  Rectangle height in pixels.
-*/
-static inline void rtCmdSetScissor(rt_command_buffer command_buffer, u32 x, u32 y, u32 width, u32 height) {
-	rt_rtCmdSetScissor(command_buffer, x, y, width, height);
-}
-
-/*!
 ** @brief Bind a buffer range to a uniform location for subsequent draws.
 **
 ** Records into the command buffer that the shader uniform at @p location
 ** reads from `[offset, offset + size)` of @p buffer. @p buffer must have
 ** been defined with RT_BUFFER_USAGE_UNIFORM in its usage flags, and
 ** @p location must belong to the currently bound graphics program.
+** The command buffer must be recording as a draw packet while its owning
+** context has an active framebuffer scope.
 **
 ** @param command_buffer  Command buffer being recorded.
 ** @param location        Uniform location obtained from the bound program.
@@ -1432,6 +1433,8 @@ static inline void rtCmdUniformBuffer(rt_command_buffer command_buffer, rt_unifo
 ** Records into the command buffer that the shader sampler at @p location
 ** samples through @p texture_view. @p location must belong to the
 ** currently bound graphics program.
+** The command buffer must be recording as a draw packet while its owning
+** context has an active framebuffer scope.
 **
 ** @param command_buffer  Command buffer being recorded.
 ** @param location        Uniform location obtained from the bound program.
@@ -1440,6 +1443,21 @@ static inline void rtCmdUniformBuffer(rt_command_buffer command_buffer, rt_unifo
 static inline void rtCmdUniformTexture(rt_command_buffer command_buffer, rt_uniform_location location, rt_texture_view texture_view) {
 	rt_rtCmdUniformTexture(command_buffer, location, texture_view);
 }
+
+/*!
+** @brief Bind a storage-buffer range to a uniform location for following draws.
+**
+** The shader uniform at @p location reads and writes
+** [offset, offset + size) of @p buffer. @p location must belong to the
+** currently bound graphics program. The command buffer must be recording as
+** a draw packet while its owning context has an active framebuffer scope.
+**
+** @param command_buffer  Command buffer being recorded.
+** @param location        Uniform location obtained from the bound program.
+** @param buffer          Buffer to bind.
+** @param offset          Byte offset into @p buffer.
+** @param size            Number of bytes visible through the binding.
+*/
 static inline void rtCmdStorageBuffer(rt_command_buffer command_buffer, rt_uniform_location location, rt_buffer buffer, u64 offset, u64 size) {
 	rt_rtCmdStorageBuffer(command_buffer, location, buffer, offset, size);
 }
@@ -1449,6 +1467,8 @@ static inline void rtCmdStorageBuffer(rt_command_buffer command_buffer, rt_unifo
 **
 ** The buffer's layout is interpreted using the vertex layout set on the
 ** currently bound graphics program.
+** The command buffer must be recording as a draw packet while its owning
+** context has an active framebuffer scope.
 **
 ** @param command_buffer  Command buffer being recorded.
 ** @param buffer          Buffer to read vertex data from.
@@ -1463,8 +1483,9 @@ static inline void rtCmdBindVertexBuffer(rt_command_buffer command_buffer, rt_bu
 **
 ** Draws @p vertex_count vertices starting at vertex @p first_vertex using
 ** the currently bound graphics program, vertex buffer, and uniform
-** bindings. Must be issued between @ref rtCmdBeginRendering and
-** @ref rtCmdEndRendering.
+** bindings. Child buffers inherit the context rendering compatibility.
+** The command buffer must be recording as a draw packet while its owning
+** context has an active framebuffer scope.
 **
 ** @param command_buffer  Command buffer being recorded.
 ** @param vertex_count    Number of vertices to draw.
@@ -1475,29 +1496,138 @@ static inline void rtCmdDraw(rt_command_buffer command_buffer, u32 vertex_count,
 }
 
 /*!
-** @brief End the current rendering pass.
+** @brief Finish recording a child command buffer.
 **
-** Closes the rendering pass opened by the most recent
-** @ref rtCmdBeginRendering. After this call the command buffer is back in
-** the "between passes" state; another @ref rtCmdBeginRendering may follow.
-**
-** @param command_buffer  Command buffer being recorded.
-*/
-static inline void rtCmdEndRendering(rt_command_buffer command_buffer) {
-	rt_rtCmdEndRendering(command_buffer);
-}
-
-/*!
-** @brief Finish recording.
-**
-** Transitions the command buffer out of the recording state. After this
-** call it may be submitted to its bound queue via @ref rtQueueSubmit. The
-** matching @ref rtCmdBegin must have been issued previously.
+** Transitions the command buffer from recording to executable. The owning
+** context may execute it only in the context position in which it began.
 **
 ** @param command_buffer  Command buffer being recorded.
 */
 static inline void rtCmdEnd(rt_command_buffer command_buffer) {
 	rt_rtCmdEnd(command_buffer);
+}
+
+/*!
+** @brief Declare the context's one framebuffer scope.
+**
+** The logical scope opens on @p framebuffer. It fixes compatibility for all
+** child draw packets begun while the scope is active. The pre-framebuffer
+** position is reserved for a future generic-work command set; a context has
+** at most one framebuffer scope.
+**
+** @param command_context  Context declaring the framebuffer scope.
+** @param framebuffer      Framebuffer whose attachments will be rendered to.
+*/
+static inline void rtCommandContextBindFramebuffer(rt_command_context command_context, rt_framebuffer framebuffer) {
+	rt_rtCommandContextBindFramebuffer(command_context, framebuffer);
+}
+
+/*!
+** @brief Declare a color attachment clear for the context framebuffer scope.
+**
+** This is a load declaration, not a command recorded within a child packet.
+** Call it after @ref rtCommandContextBindFramebuffer and before any child
+** begins.
+**
+** @param command_context  Context with the active framebuffer scope.
+** @param color_index      Color attachment slot to clear.
+** @param r                Red.
+** @param g                Green.
+** @param b                Blue.
+** @param a                Alpha.
+*/
+static inline void rtCommandContextClearColor(rt_command_context command_context, u32 color_index, f32 r, f32 g, f32 b, f32 a) {
+	rt_rtCommandContextClearColor(command_context, color_index, r, g, b, a);
+}
+
+/*!
+** @brief Declare a depth clear for the context framebuffer scope.
+**
+** This is a load declaration. Call it after
+** @ref rtCommandContextBindFramebuffer and before any child begins.
+**
+** @param command_context  Context with the active framebuffer scope.
+** @param depth            Depth clear value (typically in [0, 1]).
+*/
+static inline void rtCommandContextClearDepth(rt_command_context command_context, f32 depth) {
+	rt_rtCommandContextClearDepth(command_context, depth);
+}
+
+/*!
+** @brief Declare a stencil clear for the context framebuffer scope.
+**
+** This is a load declaration. Call it after
+** @ref rtCommandContextBindFramebuffer and before any child begins.
+**
+** @param command_context  Context with the active framebuffer scope.
+** @param stencil          Stencil clear value.
+*/
+static inline void rtCommandContextClearStencil(rt_command_context command_context, u32 stencil) {
+	rt_rtCommandContextClearStencil(command_context, stencil);
+}
+
+/*!
+** @brief Declare the viewport used by every draw packet in the active scope.
+**
+** Call after @ref rtCommandContextBindFramebuffer and before any child begins.
+** The viewport is context state because child packets must
+** remain portable across backend secondary-list state rules.
+**
+** @param command_context  Context declaring the viewport.
+** @param x                Viewport left edge in framebuffer pixels.
+** @param y                Viewport top edge in framebuffer pixels.
+** @param width            Viewport width in framebuffer pixels.
+** @param height           Viewport height in framebuffer pixels.
+** @param min_depth        Minimum depth value.
+** @param max_depth        Maximum depth value.
+*/
+static inline void rtCommandContextSetViewport(rt_command_context command_context, u32 x, u32 y, u32 width, u32 height, f32 min_depth, f32 max_depth) {
+	rt_rtCommandContextSetViewport(command_context, x, y, width, height, min_depth, max_depth);
+}
+
+/*!
+** @brief Declare the scissor used by every draw packet in the active scope.
+**
+** Call after @ref rtCommandContextBindFramebuffer and before any child begins.
+** A child command buffer cannot set a scissor.
+**
+** @param command_context  Context declaring the scissor.
+** @param x                Scissor left edge in framebuffer pixels.
+** @param y                Scissor top edge in framebuffer pixels.
+** @param width            Scissor width in framebuffer pixels.
+** @param height           Scissor height in framebuffer pixels.
+*/
+static inline void rtCommandContextSetScissor(rt_command_context command_context, u32 x, u32 y, u32 width, u32 height) {
+	rt_rtCommandContextSetScissor(command_context, x, y, width, height);
+}
+
+/*!
+** @brief Append an ended child packet to the context's ordered submission.
+**
+** The current public graphics command set executes a draw packet in the active
+** framebuffer scope with that scope's fixed compatibility. The pre-framebuffer
+** position is reserved for a future generic-work command set. The context
+** must be queue-bound and unsubmitted.
+**
+** @param command_context  Context receiving the child packet.
+** @param command_buffer   Ended child buffer owned by the context.
+*/
+static inline void rtCommandContextExecute(rt_command_context command_context, rt_command_buffer command_buffer) {
+	rt_rtCommandContextExecute(command_context, command_buffer);
+}
+
+/*!
+** @brief End the context's current rendering scope.
+**
+** Closes the framebuffer scope declared by the most recent
+** @ref rtCommandContextBindFramebuffer. A context has one rendering scope.
+** Only child buffers still recording prevent this call; executable children
+** may remain available for execution until the scope closes.
+**
+** @param command_context  Context whose rendering scope will close.
+*/
+static inline void rtCommandContextEndRendering(rt_command_context command_context) {
+	rt_rtCommandContextEndRendering(command_context);
 }
 
 /*!
@@ -1538,19 +1668,18 @@ static inline void rtQueueWait(rt_queue queue, rt_timepoint timepoint) {
 }
 
 /*!
-** @brief Submit a recorded command buffer to a queue.
+** @brief Submit a completed command context.
 **
-** Hands @p command_buffer over to @p queue for execution. The submission
-** may be deferred internally by the backend; use @ref rtQueueFlush to
-** force it to be sent to the GPU. The command buffer must have been
-** recorded against @p queue (the queue passed to @ref rtCmdBegin) and
-** must have been ended with @ref rtCmdEnd.
+** Hands the context's ordered submission to its bound queue. The context must
+** have no active rendering scope and may be submitted only once per binding.
+** A context may be empty or contain its one completed framebuffer scope.
+** Ended child buffers retain their ownership;
+** after this context is rebound, record each child again before executing it.
 **
-** The returned timepoint is associated with @p queue and signals once
-** this specific submission has completed on the GPU.
+** The returned timepoint is associated with the context's queue and signals
+** once this submission has completed on the GPU.
 **
-** @param queue           Queue receiving the work.
-** @param command_buffer  Recorded, ended command buffer.
+** @param command_context  Bound context with a completed ordered submission.
 **
 ** @return Signal that fires when this submission has completed on the GPU.
 **
@@ -1559,14 +1688,14 @@ static inline void rtQueueWait(rt_queue queue, rt_timepoint timepoint) {
 ** @error RT_OUT_OF_DEVICE_MEMORY  Device allocation failed while queuing
 **                                 the submission.
 */
-static inline rt_timepoint rtQueueSubmit(rt_queue queue, rt_command_buffer command_buffer) {
-	return rt_rtQueueSubmit(queue, command_buffer);
+static inline rt_timepoint rtCommandContextSubmit(rt_command_context command_context) {
+	return rt_rtCommandContextSubmit(command_context);
 }
 
 /*!
 ** @brief Flush any pending submissions on a queue to the GPU.
 **
-** @ref rtQueueSubmit is allowed to defer the actual handoff to the device;
+** @ref rtCommandContextSubmit is allowed to defer the actual handoff to the device;
 ** this call forces every pending submission on @p queue to be sent. Use it
 ** at the end of a frame, or before any CPU-side wait that requires the
 ** GPU to be making progress.
@@ -2149,26 +2278,32 @@ PFN_rtGraphicsProgramFinalize rt_rtGraphicsProgramFinalize = NULL;
 PFN_rtGraphicsProgramReset rt_rtGraphicsProgramReset = NULL;
 PFN_rtGraphicsProgramUniformLocation rt_rtGraphicsProgramUniformLocation = NULL;
 
-PFN_rtCommandBufferCreate rt_rtCommandBufferCreate = NULL;
+PFN_rtCommandContextCreate rt_rtCommandContextCreate = NULL;
+PFN_rtCommandContextDestroy rt_rtCommandContextDestroy = NULL;
+PFN_rtCommandContextBind rt_rtCommandContextBind = NULL;
+PFN_rtCommandContextAllocate rt_rtCommandContextAllocate = NULL;
 PFN_rtCommandBufferDestroy rt_rtCommandBufferDestroy = NULL;
+PFN_rtCmdReset rt_rtCmdReset = NULL;
 PFN_rtCmdBegin rt_rtCmdBegin = NULL;
-PFN_rtCmdBeginRendering rt_rtCmdBeginRendering = NULL;
-PFN_rtCmdClearColor rt_rtCmdClearColor = NULL;
-PFN_rtCmdClearDepth rt_rtCmdClearDepth = NULL;
-PFN_rtCmdClearStencil rt_rtCmdClearStencil = NULL;
 PFN_rtCmdUseGraphicsProgram rt_rtCmdUseGraphicsProgram = NULL;
-PFN_rtCmdSetScissor rt_rtCmdSetScissor = NULL;
 PFN_rtCmdUniformBuffer rt_rtCmdUniformBuffer = NULL;
 PFN_rtCmdUniformTexture rt_rtCmdUniformTexture = NULL;
 PFN_rtCmdStorageBuffer rt_rtCmdStorageBuffer = NULL;
 PFN_rtCmdBindVertexBuffer rt_rtCmdBindVertexBuffer = NULL;
 PFN_rtCmdDraw rt_rtCmdDraw = NULL;
-PFN_rtCmdEndRendering rt_rtCmdEndRendering = NULL;
 PFN_rtCmdEnd rt_rtCmdEnd = NULL;
+PFN_rtCommandContextBindFramebuffer rt_rtCommandContextBindFramebuffer = NULL;
+PFN_rtCommandContextClearColor rt_rtCommandContextClearColor = NULL;
+PFN_rtCommandContextClearDepth rt_rtCommandContextClearDepth = NULL;
+PFN_rtCommandContextClearStencil rt_rtCommandContextClearStencil = NULL;
+PFN_rtCommandContextSetViewport rt_rtCommandContextSetViewport = NULL;
+PFN_rtCommandContextSetScissor rt_rtCommandContextSetScissor = NULL;
+PFN_rtCommandContextExecute rt_rtCommandContextExecute = NULL;
+PFN_rtCommandContextEndRendering rt_rtCommandContextEndRendering = NULL;
 
 PFN_rtQueueQuery rt_rtQueueQuery = NULL;
 PFN_rtQueueWait rt_rtQueueWait = NULL;
-PFN_rtQueueSubmit rt_rtQueueSubmit = NULL;
+PFN_rtCommandContextSubmit rt_rtCommandContextSubmit = NULL;
 PFN_rtQueueFlush rt_rtQueueFlush = NULL;
 PFN_rtTimepointWait rt_rtTimepointWait = NULL;
 PFN_rtTimepointReached rt_rtTimepointReached = NULL;
@@ -2309,26 +2444,32 @@ static enum rt_error rt__load_core(char* message, usize message_size) {
 	RT__CORE_RESOLVE(rtGraphicsProgramReset);
 	RT__CORE_RESOLVE(rtGraphicsProgramUniformLocation);
 
-	RT__CORE_RESOLVE(rtCommandBufferCreate);
+	RT__CORE_RESOLVE(rtCommandContextCreate);
+	RT__CORE_RESOLVE(rtCommandContextDestroy);
+	RT__CORE_RESOLVE(rtCommandContextBind);
+	RT__CORE_RESOLVE(rtCommandContextAllocate);
 	RT__CORE_RESOLVE(rtCommandBufferDestroy);
+	RT__CORE_RESOLVE(rtCmdReset);
 	RT__CORE_RESOLVE(rtCmdBegin);
-	RT__CORE_RESOLVE(rtCmdBeginRendering);
-	RT__CORE_RESOLVE(rtCmdClearColor);
-	RT__CORE_RESOLVE(rtCmdClearDepth);
-	RT__CORE_RESOLVE(rtCmdClearStencil);
 	RT__CORE_RESOLVE(rtCmdUseGraphicsProgram);
-	RT__CORE_RESOLVE(rtCmdSetScissor);
 	RT__CORE_RESOLVE(rtCmdUniformBuffer);
 	RT__CORE_RESOLVE(rtCmdUniformTexture);
 	RT__CORE_RESOLVE(rtCmdStorageBuffer);
 	RT__CORE_RESOLVE(rtCmdBindVertexBuffer);
 	RT__CORE_RESOLVE(rtCmdDraw);
-	RT__CORE_RESOLVE(rtCmdEndRendering);
 	RT__CORE_RESOLVE(rtCmdEnd);
+	RT__CORE_RESOLVE(rtCommandContextBindFramebuffer);
+	RT__CORE_RESOLVE(rtCommandContextClearColor);
+	RT__CORE_RESOLVE(rtCommandContextClearDepth);
+	RT__CORE_RESOLVE(rtCommandContextClearStencil);
+	RT__CORE_RESOLVE(rtCommandContextSetViewport);
+	RT__CORE_RESOLVE(rtCommandContextSetScissor);
+	RT__CORE_RESOLVE(rtCommandContextExecute);
+	RT__CORE_RESOLVE(rtCommandContextEndRendering);
 
 	RT__CORE_RESOLVE(rtQueueQuery);
 	RT__CORE_RESOLVE(rtQueueWait);
-	RT__CORE_RESOLVE(rtQueueSubmit);
+	RT__CORE_RESOLVE(rtCommandContextSubmit);
 	RT__CORE_RESOLVE(rtQueueFlush);
 	RT__CORE_RESOLVE(rtTimepointWait);
 	RT__CORE_RESOLVE(rtTimepointReached);
@@ -2392,26 +2533,32 @@ static void rt__load_core_development(void) {
 	RT__CORE_TRY_RESOLVE(rtGraphicsProgramReset);
 	RT__CORE_TRY_RESOLVE(rtGraphicsProgramUniformLocation);
 
-	RT__CORE_TRY_RESOLVE(rtCommandBufferCreate);
+	RT__CORE_TRY_RESOLVE(rtCommandContextCreate);
+	RT__CORE_TRY_RESOLVE(rtCommandContextDestroy);
+	RT__CORE_TRY_RESOLVE(rtCommandContextBind);
+	RT__CORE_TRY_RESOLVE(rtCommandContextAllocate);
 	RT__CORE_TRY_RESOLVE(rtCommandBufferDestroy);
+	RT__CORE_TRY_RESOLVE(rtCmdReset);
 	RT__CORE_TRY_RESOLVE(rtCmdBegin);
-	RT__CORE_TRY_RESOLVE(rtCmdBeginRendering);
-	RT__CORE_TRY_RESOLVE(rtCmdClearColor);
-	RT__CORE_TRY_RESOLVE(rtCmdClearDepth);
-	RT__CORE_TRY_RESOLVE(rtCmdClearStencil);
 	RT__CORE_TRY_RESOLVE(rtCmdUseGraphicsProgram);
-	RT__CORE_TRY_RESOLVE(rtCmdSetScissor);
 	RT__CORE_TRY_RESOLVE(rtCmdUniformBuffer);
 	RT__CORE_TRY_RESOLVE(rtCmdUniformTexture);
 	RT__CORE_TRY_RESOLVE(rtCmdStorageBuffer);
 	RT__CORE_TRY_RESOLVE(rtCmdBindVertexBuffer);
 	RT__CORE_TRY_RESOLVE(rtCmdDraw);
-	RT__CORE_TRY_RESOLVE(rtCmdEndRendering);
 	RT__CORE_TRY_RESOLVE(rtCmdEnd);
+	RT__CORE_TRY_RESOLVE(rtCommandContextBindFramebuffer);
+	RT__CORE_TRY_RESOLVE(rtCommandContextClearColor);
+	RT__CORE_TRY_RESOLVE(rtCommandContextClearDepth);
+	RT__CORE_TRY_RESOLVE(rtCommandContextClearStencil);
+	RT__CORE_TRY_RESOLVE(rtCommandContextSetViewport);
+	RT__CORE_TRY_RESOLVE(rtCommandContextSetScissor);
+	RT__CORE_TRY_RESOLVE(rtCommandContextExecute);
+	RT__CORE_TRY_RESOLVE(rtCommandContextEndRendering);
 
 	RT__CORE_TRY_RESOLVE(rtQueueQuery);
 	RT__CORE_TRY_RESOLVE(rtQueueWait);
-	RT__CORE_TRY_RESOLVE(rtQueueSubmit);
+	RT__CORE_TRY_RESOLVE(rtCommandContextSubmit);
 	RT__CORE_TRY_RESOLVE(rtQueueFlush);
 	RT__CORE_TRY_RESOLVE(rtTimepointWait);
 	RT__CORE_TRY_RESOLVE(rtTimepointReached);
@@ -2623,25 +2770,31 @@ void rtUnload(void) {
 	rt_rtGraphicsProgramFinalize = NULL;
 	rt_rtGraphicsProgramReset = NULL;
 	rt_rtGraphicsProgramUniformLocation = NULL;
-	rt_rtCommandBufferCreate = NULL;
+	rt_rtCommandContextCreate = NULL;
+	rt_rtCommandContextDestroy = NULL;
+	rt_rtCommandContextBind = NULL;
+	rt_rtCommandContextAllocate = NULL;
 	rt_rtCommandBufferDestroy = NULL;
+	rt_rtCmdReset = NULL;
 	rt_rtCmdBegin = NULL;
-	rt_rtCmdBeginRendering = NULL;
-	rt_rtCmdClearColor = NULL;
-	rt_rtCmdClearDepth = NULL;
-	rt_rtCmdClearStencil = NULL;
 	rt_rtCmdUseGraphicsProgram = NULL;
-	rt_rtCmdSetScissor = NULL;
 	rt_rtCmdUniformBuffer = NULL;
 	rt_rtCmdUniformTexture = NULL;
 	rt_rtCmdStorageBuffer = NULL;
 	rt_rtCmdBindVertexBuffer = NULL;
 	rt_rtCmdDraw = NULL;
-	rt_rtCmdEndRendering = NULL;
 	rt_rtCmdEnd = NULL;
+	rt_rtCommandContextBindFramebuffer = NULL;
+	rt_rtCommandContextClearColor = NULL;
+	rt_rtCommandContextClearDepth = NULL;
+	rt_rtCommandContextClearStencil = NULL;
+	rt_rtCommandContextSetViewport = NULL;
+	rt_rtCommandContextSetScissor = NULL;
+	rt_rtCommandContextExecute = NULL;
+	rt_rtCommandContextEndRendering = NULL;
 	rt_rtQueueQuery = NULL;
 	rt_rtQueueWait = NULL;
-	rt_rtQueueSubmit = NULL;
+	rt_rtCommandContextSubmit = NULL;
 	rt_rtQueueFlush = NULL;
 	rt_rtTimepointWait = NULL;
 	rt_rtTimepointReached = NULL;

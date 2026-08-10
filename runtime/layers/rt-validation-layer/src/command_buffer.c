@@ -10,8 +10,9 @@
 #define RTVAL_DROP(message) rtval_printf("[validation] %s, dropping call\n", message)
 
 static bool rtval_cb_recording(struct rtval_command_buffer* state, const char* call_name) {
-	if (!state->queue) {
-		rtval_printf("[validation] %s: command buffer has no queue, dropping call\n", call_name);
+	struct rtval_command_context* context = state ? RTVAL_PAYLOAD(state->command_context, struct rtval_command_context) : NULL;
+	if (!context || !context->queue || context->submitted) {
+		rtval_printf("[validation] %s: command buffer has no live, recordable context, dropping call\n", call_name);
 		return false;
 	}
 	if (!state->recording) {
@@ -25,50 +26,69 @@ static bool rtval_cb_rendering(struct rtval_command_buffer* state, const char* c
 	if (!rtval_cb_recording(state, call_name)) {
 		return false;
 	}
-	if (!state->rendering) {
-		rtval_printf("[validation] %s: command buffer is not rendering, dropping call\n", call_name);
+	struct rtval_command_context* context = RTVAL_PAYLOAD(state->command_context, struct rtval_command_context);
+	if (!context->framebuffer) {
+		rtval_printf("[validation] %s: command context has no framebuffer compatibility, dropping call\n", call_name);
 		return false;
 	}
 	return true;
+}
+
+static void rtval_context_remove_child(struct rtval_command_buffer* child) {
+	struct rtval_command_context* context = child ? RTVAL_PAYLOAD(child->command_context, struct rtval_command_context) : NULL;
+	if (!context) {
+		return;
+	}
+	if (child->previous) {
+		child->previous->next = child->next;
+	} else {
+		context->children = child->next;
+	}
+	if (child->next) {
+		child->next->previous = child->previous;
+	}
+}
+
+static void rtval_context_discard_children(struct rtval_command_context* context) {
+	for (struct rtval_command_buffer* child = context->children; child; child = child->next) {
+		child->recording = false;
+		child->executable = false;
+		child->executed = false;
+	}
+}
+
+static void rtval_context_invalidate_children(struct rtval_command_context* context) {
+	struct rtval_command_buffer* child = context->children;
+	while (child) {
+		struct rtval_command_buffer* next = child->next;
+		rtval_handle_destroy(child);
+		child = next;
+	}
+	context->children = NULL;
 }
 
 /*===============================================================================================*/
 /*                                                                                               */
 /*===============================================================================================*/
 
-RT_EXPORT rt_command_buffer rtCommandBufferCreate(void) {
-	return rtval_command_buffer_to_handle(rtval_command_buffer_create());
+RT_EXPORT rt_command_context rtCommandContextCreate(void) {
+	rt_command_context backend = rtval_next_rtCommandContextCreate();
+	if (!backend) { rtval_report_error("rtCommandContextCreate"); return NULL; }
+	struct rtval_command_context* context = rtval_handle_create(RTVAL_HANDLE_TYPE_COMMAND_CONTEXT);
+	if (!context) { rtval_next_rtCommandContextDestroy(backend); return NULL; }
+	RTVAL_PAYLOAD(context, struct rtval_command_context)->backend = backend;
+	return rtval_command_context_to_handle(context);
 }
-
-RT_EXPORT void rtCommandBufferDestroy(rt_command_buffer command_buffer) {
-	rtval_command_buffer_destroy(rtval_command_buffer_from_handle(command_buffer));
-}
-
-RT_EXPORT void rtCmdBegin(rt_command_buffer command_buffer, rt_queue queue) {
-	rtval_command_buffer_begin(
-		rtval_command_buffer_from_handle(command_buffer),
-		rtval_queue_from_handle(queue)
-	);
-}
-
-RT_EXPORT void rtCmdBeginRendering(rt_command_buffer command_buffer, rt_framebuffer framebuffer) {
-	rtval_command_buffer_begin_rendering(
-		rtval_command_buffer_from_handle(command_buffer),
-		rtval_framebuffer_from_handle(framebuffer)
-	);
-}
-
-RT_EXPORT void rtCmdClearColor(rt_command_buffer command_buffer, u32 color_index, f32 r, f32 g, f32 b, f32 a) {
-	rtval_command_buffer_clear_color(rtval_command_buffer_from_handle(command_buffer), color_index, r, g, b, a);
-}
-
-RT_EXPORT void rtCmdClearDepth(rt_command_buffer command_buffer, f32 depth) {
-	rtval_command_buffer_clear_depth(rtval_command_buffer_from_handle(command_buffer), depth);
-}
-
-RT_EXPORT void rtCmdClearStencil(rt_command_buffer command_buffer, u32 stencil) {
-	rtval_command_buffer_clear_stencil(rtval_command_buffer_from_handle(command_buffer), stencil);
-}
+RT_EXPORT void rtCommandContextDestroy(rt_command_context c) { struct rtval_command_context* x = RTVAL_PAYLOAD(rtval_command_context_from_handle(c), struct rtval_command_context); if (!x) { return; } rtval_context_invalidate_children(x); rtval_next_rtCommandContextDestroy(x->backend); rtval_handle_destroy(rtval_command_context_from_handle(c)); }
+RT_EXPORT void rtCommandContextBind(rt_command_context c, rt_queue q) { struct rtval_command_context* x = RTVAL_PAYLOAD(rtval_command_context_from_handle(c), struct rtval_command_context); struct rtval_queue* queue = RTVAL_PAYLOAD(rtval_queue_from_handle(q), struct rtval_queue); if (!x || !queue) { RTVAL_DROP("rtCommandContextBind: invalid handle"); return; } rtval_context_discard_children(x); x->queue = rtval_queue_from_handle(q); x->framebuffer = NULL; x->rendering = false; x->submitted = false; rtval_next_rtCommandContextBind(x->backend, queue->backend); rtval_report_error("rtCommandContextBind"); }
+RT_EXPORT rt_command_buffer rtCommandContextAllocate(rt_command_context c) { struct rtval_command_context* x = RTVAL_PAYLOAD(rtval_command_context_from_handle(c), struct rtval_command_context); if (!x || x->submitted) { RTVAL_DROP("rtCommandContextAllocate: invalid context state"); return NULL; } rt_command_buffer backend = rtval_next_rtCommandContextAllocate(x->backend); if (!backend) return NULL; struct rtval_command_buffer* b = rtval_handle_create(RTVAL_HANDLE_TYPE_COMMAND_BUFFER); if (!b) { rtval_next_rtCommandBufferDestroy(backend); return NULL; } struct rtval_command_buffer* state = RTVAL_PAYLOAD(b, struct rtval_command_buffer); state->backend = backend; state->command_context = rtval_command_context_from_handle(c); state->next = x->children; if (x->children) { x->children->previous = state; } x->children = state; return rtval_command_buffer_to_handle(b); }
+RT_EXPORT void rtCommandBufferDestroy(rt_command_buffer b) { struct rtval_command_buffer* x = RTVAL_PAYLOAD(rtval_command_buffer_from_handle(b), struct rtval_command_buffer); struct rtval_command_context* c = x ? RTVAL_PAYLOAD(x->command_context, struct rtval_command_context) : NULL; if (!x) { return; } if (x->executed && c && !c->submitted) { RTVAL_DROP("rtCommandBufferDestroy: buffer was executed by an unsubmitted context"); return; } rtval_context_remove_child(x); rtval_next_rtCommandBufferDestroy(x->backend); rtval_handle_destroy(rtval_command_buffer_from_handle(b)); }
+RT_EXPORT void rtCmdReset(rt_command_buffer b) { struct rtval_command_buffer* x = RTVAL_PAYLOAD(rtval_command_buffer_from_handle(b), struct rtval_command_buffer); struct rtval_command_context* c = x ? RTVAL_PAYLOAD(x->command_context, struct rtval_command_context) : NULL; if (!x || x->recording || (x->executed && c && !c->submitted)) { RTVAL_DROP("rtCmdReset: invalid, recording, or executed by an unsubmitted context"); return; } x->executable = false; x->executed = false; rtval_next_rtCmdReset(x->backend); rtval_report_error("rtCmdReset"); }
+RT_EXPORT void rtCmdBegin(rt_command_buffer b) { struct rtval_command_buffer* x = RTVAL_PAYLOAD(rtval_command_buffer_from_handle(b), struct rtval_command_buffer); struct rtval_command_context* c = x ? RTVAL_PAYLOAD(x->command_context, struct rtval_command_context) : NULL; if (!x || !c || !c->queue || !c->framebuffer || c->submitted || x->recording || x->executable) { RTVAL_DROP("rtCmdBegin: live, bound context, framebuffer, and reset buffer required"); return; } x->recording = true; rtval_next_rtCmdBegin(x->backend); rtval_report_error("rtCmdBegin"); }
+RT_EXPORT void rtCommandContextBindFramebuffer(rt_command_context c, rt_framebuffer f) { struct rtval_command_context* x = RTVAL_PAYLOAD(rtval_command_context_from_handle(c), struct rtval_command_context); struct rtval_framebuffer* fb = RTVAL_PAYLOAD(rtval_framebuffer_from_handle(f), struct rtval_framebuffer); if (!x || !x->queue || !fb || x->submitted || x->framebuffer) { RTVAL_DROP("rtCommandContextBindFramebuffer: context already has a rendering scope or is unbound"); return; } x->framebuffer = rtval_framebuffer_from_handle(f); x->rendering = true; rtval_next_rtCommandContextBindFramebuffer(x->backend, fb->backend); rtval_report_error("rtCommandContextBindFramebuffer"); }
+RT_EXPORT void rtCommandContextClearColor(rt_command_context c, u32 i, f32 r, f32 g, f32 b, f32 a) { struct rtval_command_context* x = RTVAL_PAYLOAD(rtval_command_context_from_handle(c), struct rtval_command_context); if (!x || !x->rendering) { RTVAL_DROP("rtCommandContextClearColor: invalid state"); return; } rtval_next_rtCommandContextClearColor(x->backend, i, r, g, b, a); }
+RT_EXPORT void rtCommandContextClearDepth(rt_command_context c, f32 d) { struct rtval_command_context* x = RTVAL_PAYLOAD(rtval_command_context_from_handle(c), struct rtval_command_context); if (!x || !x->rendering) { RTVAL_DROP("rtCommandContextClearDepth: invalid state"); return; } rtval_next_rtCommandContextClearDepth(x->backend, d); }
+RT_EXPORT void rtCommandContextClearStencil(rt_command_context c, u32 s) { struct rtval_command_context* x = RTVAL_PAYLOAD(rtval_command_context_from_handle(c), struct rtval_command_context); if (!x || !x->rendering) { RTVAL_DROP("rtCommandContextClearStencil: invalid state"); return; } rtval_next_rtCommandContextClearStencil(x->backend, s); }
 
 RT_EXPORT void rtCmdUseGraphicsProgram(rt_command_buffer command_buffer, rt_graphics_program program) {
 	rtval_command_buffer_use_graphics_program(
@@ -144,9 +164,9 @@ RT_EXPORT void rtCmdDispatch(rt_command_buffer command_buffer, u32 group_count_x
 	rtval_command_buffer_dispatch(rtval_command_buffer_from_handle(command_buffer), group_count_x, group_count_y, group_count_z);
 }
 
-RT_EXPORT void rtCmdEndRendering(rt_command_buffer command_buffer) {
-	rtval_command_buffer_end_rendering(rtval_command_buffer_from_handle(command_buffer));
-}
+RT_EXPORT void rtCommandContextEndRendering(rt_command_context c) { struct rtval_command_context* x = RTVAL_PAYLOAD(rtval_command_context_from_handle(c), struct rtval_command_context); if (!x || !x->rendering) { RTVAL_DROP("rtCommandContextEndRendering: invalid state"); return; } for (struct rtval_command_buffer* child = x->children; child; child = child->next) { if (child->recording) { RTVAL_DROP("rtCommandContextEndRendering: child buffer is recording"); return; } } x->rendering = false; rtval_next_rtCommandContextEndRendering(x->backend); rtval_report_error("rtCommandContextEndRendering"); }
+RT_EXPORT void rtCommandContextExecute(rt_command_context c, rt_command_buffer b) { struct rtval_command_context* x = RTVAL_PAYLOAD(rtval_command_context_from_handle(c), struct rtval_command_context); struct rtval_command_buffer* child = RTVAL_PAYLOAD(rtval_command_buffer_from_handle(b), struct rtval_command_buffer); if (!x || !child || child->command_context != rtval_command_context_from_handle(c) || !x->rendering || !child->executable) { RTVAL_DROP("rtCommandContextExecute: child ownership, executable state, and active rendering required"); return; } child->executed = true; rtval_next_rtCommandContextExecute(x->backend, child->backend); rtval_report_error("rtCommandContextExecute"); }
+RT_EXPORT rt_timepoint rtCommandContextSubmit(rt_command_context c) { struct rtval_command_context* x = RTVAL_PAYLOAD(rtval_command_context_from_handle(c), struct rtval_command_context); if (!x || !x->queue || !x->framebuffer || x->rendering || x->submitted) { RTVAL_DROP("rtCommandContextSubmit: completed bound rendering scope required"); return (rt_timepoint){ 0 }; } x->submitted = true; return rtval_timepoint_wrap(rtval_next_rtCommandContextSubmit(x->backend)); }
 
 RT_EXPORT void rtCmdEnd(rt_command_buffer command_buffer) {
 	rtval_command_buffer_end(rtval_command_buffer_from_handle(command_buffer));
@@ -155,122 +175,6 @@ RT_EXPORT void rtCmdEnd(rt_command_buffer command_buffer) {
 /*===============================================================================================*/
 /*                                                                                               */
 /*===============================================================================================*/
-
-struct rtval_command_buffer* rtval_command_buffer_create(void) {
-	rt_command_buffer backend = rtval_next_rtCommandBufferCreate();
-	if (!backend) {
-		rtval_report_error("rtCommandBufferCreate");
-		return NULL;
-	}
-	struct rtval_command_buffer* handle = rtval_handle_create(RTVAL_HANDLE_TYPE_COMMAND_BUFFER);
-	if (!handle) {
-		rtval_next_rtCommandBufferDestroy(backend);
-		return NULL;
-	}
-	struct rtval_command_buffer* state = RTVAL_PAYLOAD(handle, struct rtval_command_buffer);
-	state->backend = backend;
-	rtval_report_error("rtCommandBufferCreate");
-	return handle;
-}
-
-void rtval_command_buffer_destroy(struct rtval_command_buffer* cb) {
-	if (!cb) {
-		return;
-	}
-	struct rtval_command_buffer* state = RTVAL_PAYLOAD(cb, struct rtval_command_buffer);
-	if (!state) {
-		RTVAL_DROP("rtCommandBufferDestroy: invalid handle");
-		return;
-	}
-	rtval_next_rtCommandBufferDestroy(state->backend);
-	rtval_handle_destroy(cb);
-}
-
-void rtval_command_buffer_begin(struct rtval_command_buffer* cb, struct rtval_queue* queue) {
-	struct rtval_command_buffer* state = RTVAL_PAYLOAD(cb, struct rtval_command_buffer);
-	if (!state) {
-		RTVAL_DROP("rtCmdBegin: invalid command buffer");
-		return;
-	}
-	struct rtval_queue* queue_state = RTVAL_PAYLOAD(queue, struct rtval_queue);
-	if (!queue_state) {
-		RTVAL_DROP("rtCmdBegin: invalid queue");
-		return;
-	}
-	if (state->recording) {
-		RTVAL_DROP("rtCmdBegin: command buffer is already recording");
-		return;
-	}
-
-	state->queue = queue;
-	state->recording = true;
-	state->rendering = false;
-	rtval_next_rtCmdBegin(state->backend, queue_state->backend);
-	rtval_report_error("rtCmdBegin");
-}
-
-void rtval_command_buffer_begin_rendering(struct rtval_command_buffer* cb, struct rtval_framebuffer* framebuffer) {
-	struct rtval_command_buffer* state = RTVAL_PAYLOAD(cb, struct rtval_command_buffer);
-	if (!state) {
-		RTVAL_DROP("rtCmdBeginRendering: invalid command buffer");
-		return;
-	}
-	if (!rtval_cb_recording(state, "rtCmdBeginRendering")) {
-		return;
-	}
-	struct rtval_framebuffer* fb_state = RTVAL_PAYLOAD(framebuffer, struct rtval_framebuffer);
-	if (!fb_state) {
-		RTVAL_DROP("rtCmdBeginRendering: invalid framebuffer");
-		return;
-	}
-	if (state->rendering) {
-		RTVAL_DROP("rtCmdBeginRendering: command buffer is already rendering");
-		return;
-	}
-
-	state->rendering = true;
-	rtval_next_rtCmdBeginRendering(state->backend, fb_state->backend);
-	rtval_report_error("rtCmdBeginRendering");
-}
-
-void rtval_command_buffer_clear_color(struct rtval_command_buffer* cb, u32 color_index, f32 r, f32 g, f32 b, f32 a) {
-	struct rtval_command_buffer* state = RTVAL_PAYLOAD(cb, struct rtval_command_buffer);
-	if (!state) {
-		RTVAL_DROP("rtCmdClearColor: invalid handle");
-		return;
-	}
-	if (!rtval_cb_rendering(state, "rtCmdClearColor")) {
-		return;
-	}
-	rtval_next_rtCmdClearColor(state->backend, color_index, r, g, b, a);
-	rtval_report_error("rtCmdClearColor");
-}
-
-void rtval_command_buffer_clear_depth(struct rtval_command_buffer* cb, f32 depth) {
-	struct rtval_command_buffer* state = RTVAL_PAYLOAD(cb, struct rtval_command_buffer);
-	if (!state) {
-		RTVAL_DROP("rtCmdClearDepth: invalid handle");
-		return;
-	}
-	if (!rtval_cb_rendering(state, "rtCmdClearDepth")) {
-		return;
-	}
-	rtval_next_rtCmdClearDepth(state->backend, depth);
-	rtval_report_error("rtCmdClearDepth");
-}
-
-void rtval_command_buffer_clear_stencil(struct rtval_command_buffer* cb, u32 stencil) {
-	struct rtval_command_buffer* state = RTVAL_PAYLOAD(cb, struct rtval_command_buffer);
-	if (!state) {
-		RTVAL_DROP("rtCmdClearStencil: invalid handle");
-		return;
-	}
-	if (!rtval_cb_rendering(state, "rtCmdClearStencil")) {
-		return;
-	}
-	rtval_next_rtCmdClearStencil(state->backend, stencil);
-	rtval_report_error("rtCmdClearStencil");
-}
 
 void rtval_command_buffer_use_graphics_program(struct rtval_command_buffer* cb, struct rtval_graphics_program* program) {
 	struct rtval_command_buffer* state = RTVAL_PAYLOAD(cb, struct rtval_command_buffer);
@@ -312,17 +216,8 @@ void rtval_command_buffer_use_compute_program(struct rtval_command_buffer* cb, s
 	if (!rtval_cb_recording(state, "rtCmdUseComputeProgram")) {
 		return;
 	}
-	if (state->rendering) {
-		RTVAL_DROP("rtCmdUseComputeProgram: command buffer is rendering");
-		return;
-	}
-	struct rtval_compute_program* prog_state = RTVAL_PAYLOAD(program, struct rtval_compute_program);
-	if (!prog_state) {
-		RTVAL_DROP("rtCmdUseComputeProgram: invalid program");
-		return;
-	}
-	rtval_next_rtCmdUseComputeProgram(state->backend, prog_state->backend);
-	rtval_report_error("rtCmdUseComputeProgram");
+	RTVAL_DROP("rtCmdUseComputeProgram: child buffers are draw packets");
+	return;
 }
 
 void rtval_command_buffer_uniform_buffer(struct rtval_command_buffer* cb, rt_uniform_location location, struct rtval_buffer* buffer, u64 offset, u64 size) {
@@ -422,12 +317,7 @@ void rtval_command_buffer_compute_barrier(struct rtval_command_buffer* cb) {
 	if (!rtval_cb_recording(state, "rtCmdComputeBarrier")) {
 		return;
 	}
-	if (state->rendering) {
-		RTVAL_DROP("rtCmdComputeBarrier: command buffer is rendering");
-		return;
-	}
-	rtval_next_rtCmdComputeBarrier(state->backend);
-	rtval_report_error("rtCmdComputeBarrier");
+	RTVAL_DROP("rtCmdComputeBarrier: child buffers are draw packets");
 }
 
 void rtval_command_buffer_bind_vertex_buffer(struct rtval_command_buffer* cb, struct rtval_buffer* buffer, u64 offset) {
@@ -474,30 +364,7 @@ void rtval_command_buffer_dispatch(struct rtval_command_buffer* cb, u32 group_co
 	if (!rtval_cb_recording(state, "rtCmdDispatch")) {
 		return;
 	}
-	if (state->rendering) {
-		RTVAL_DROP("rtCmdDispatch: command buffer is rendering");
-		return;
-	}
-	if (!group_count_x || !group_count_y || !group_count_z) {
-		RTVAL_DROP("rtCmdDispatch: zero group count");
-		return;
-	}
-	rtval_next_rtCmdDispatch(state->backend, group_count_x, group_count_y, group_count_z);
-	rtval_report_error("rtCmdDispatch");
-}
-
-void rtval_command_buffer_end_rendering(struct rtval_command_buffer* cb) {
-	struct rtval_command_buffer* state = RTVAL_PAYLOAD(cb, struct rtval_command_buffer);
-	if (!state) {
-		RTVAL_DROP("rtCmdEndRendering: invalid handle");
-		return;
-	}
-	if (!rtval_cb_rendering(state, "rtCmdEndRendering")) {
-		return;
-	}
-	state->rendering = false;
-	rtval_next_rtCmdEndRendering(state->backend);
-	rtval_report_error("rtCmdEndRendering");
+	RTVAL_DROP("rtCmdDispatch: child buffers are draw packets");
 }
 
 void rtval_command_buffer_end(struct rtval_command_buffer* cb) {
@@ -506,48 +373,14 @@ void rtval_command_buffer_end(struct rtval_command_buffer* cb) {
 		RTVAL_DROP("rtCmdEnd: invalid handle");
 		return;
 	}
-	if (!state->queue) {
-		RTVAL_DROP("rtCmdEnd: command buffer has no queue");
-		return;
-	}
 	if (!state->recording) {
 		RTVAL_DROP("rtCmdEnd: command buffer is not recording");
 		return;
 	}
-	if (state->rendering) {
-		RTVAL_DROP("rtCmdEnd: command buffer is still rendering");
-		return;
-	}
-
 	state->recording = false;
+	state->executable = true;
 	rtval_next_rtCmdEnd(state->backend);
 	rtval_report_error("rtCmdEnd");
-}
-
-bool rtval_command_buffer_ready_for_submit(struct rtval_command_buffer* cb, struct rtval_queue* queue) {
-	struct rtval_command_buffer* state = RTVAL_PAYLOAD(cb, struct rtval_command_buffer);
-	if (!state) {
-		RTVAL_DROP("rtQueueSubmit: invalid command buffer");
-		return false;
-	}
-	struct rtval_queue* queue_state = RTVAL_PAYLOAD(queue, struct rtval_queue);
-	if (!queue_state) {
-		RTVAL_DROP("rtQueueSubmit: invalid queue");
-		return false;
-	}
-	if (!state->queue) {
-		RTVAL_DROP("rtQueueSubmit: command buffer has no queue");
-		return false;
-	}
-	if (state->queue != queue) {
-		RTVAL_DROP("rtQueueSubmit: queue does not match command buffer queue");
-		return false;
-	}
-	if (state->recording) {
-		RTVAL_DROP("rtQueueSubmit: command buffer is still recording");
-		return false;
-	}
-	return true;
 }
 
 #undef RTVAL_DROP

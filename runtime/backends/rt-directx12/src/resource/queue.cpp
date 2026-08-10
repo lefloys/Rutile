@@ -15,15 +15,6 @@ rt_queue rtQueueQuery(enum rt_queue_capability capability) {
 	return rtdx_queue_to_handle(queue);
 }
 
-rt_timepoint rtQueueSubmit(rt_queue queue, rt_command_buffer command_buffer) {
-	struct rtdx_timepoint timepoint = rtdx_queue_submit(
-		rtdx_get_current_context(),
-		rtdx_queue_from_handle(queue),
-		rtdx_command_buffer_from_handle(command_buffer)
-	);
-	return rtdx_timepoint_to_public(timepoint);
-}
-
 rt_timepoint rtQueueFlush(rt_queue queue) {
 	struct rtdx_timepoint timepoint = rtdx_queue_flush(rtdx_get_current_context(), rtdx_queue_from_handle(queue));
 	return rtdx_timepoint_to_public(timepoint);

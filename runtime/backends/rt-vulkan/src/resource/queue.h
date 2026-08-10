@@ -13,7 +13,6 @@
 
 RTVK_API rt_queue rtQueueQuery(enum rt_queue_capability capability);
 RTVK_API void rtQueueWait(rt_queue queue, rt_timepoint timepoint);
-RTVK_API rt_timepoint rtQueueSubmit(rt_queue queue, rt_command_buffer command_buffer);
 RTVK_API rt_timepoint rtQueueFlush(rt_queue queue);
 RTVK_API void rtTimepointWait(rt_timepoint timepoint);
 RTVK_API bool rtTimepointReached(rt_timepoint timepoint);

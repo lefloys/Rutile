@@ -1,17 +1,15 @@
 # Rutile language bindings
 
-Each subdirectory is a binding of the Rutile API to one host language. Every
-binding is built with its native toolchain.
+Each subdirectory provides Rutile headers for one host language.
 
 | Directory | Language | Build system | Status     |
 | --------- | -------- | ------------ | ---------- |
-| `c/`      | C99      | CMake        | Source of truth (defines the ABI) |
-| `zig/`    | Zig      | `build.zig`  | Planned    |
-| `rust/`   | Rust     | `cargo`      | Planned    |
+| `c/`      | C99      | CMake        | Available as `Rutile::rutile`; defines the ABI |
+| `cpp/`    | C++      | CMake        | Available as `Rutile::cpp` |
 
-The C binding is the source of truth. `rutile.h` defines the ABI; the runtime
-in `runtime/` implements it; every other binding wraps `rutile.h` either by
-hand-translation or by FFI.
+The C binding is the source of truth. `rutile.h` defines the ABI and the
+runtime in `runtime/` implements it. The C++ binding is a C++ interface over
+that API.
 
-CMake is intentionally used only here and in `runtime/` — the Windows build is
-orchestrated from `scripts/build.bat`.
+Both available bindings are CMake interface targets and are installed with
+Rutile.

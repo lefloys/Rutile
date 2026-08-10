@@ -6,7 +6,6 @@
 
 RT_EXPORT rt_queue rtQueueQuery(enum rt_queue_capability capability) { return rtlog_rtQueueQuery(capability); }
 RT_EXPORT void rtQueueWait(rt_queue queue, rt_timepoint timepoint) { rtlog_rtQueueWait(queue, timepoint); }
-RT_EXPORT rt_timepoint rtQueueSubmit(rt_queue queue, rt_command_buffer command_buffer) { return rtlog_rtQueueSubmit(queue, command_buffer); }
 RT_EXPORT rt_timepoint rtQueueFlush(rt_queue queue) { return rtlog_rtQueueFlush(queue); }
 RT_EXPORT void rtTimepointWait(rt_timepoint timepoint) { rtlog_rtTimepointWait(timepoint); }
 RT_EXPORT bool rtTimepointReached(rt_timepoint timepoint) { return rtlog_rtTimepointReached(timepoint); }
@@ -31,16 +30,6 @@ void rtlog_rtQueueWait(rt_queue queue, rt_timepoint timepoint) {
 	next_rtQueueWait(queue, timepoint);
 	rtlog_printf("rtQueueWait completed in %s\n", rtlog_elapsed(start_ns));
 	rtlog_error("rtQueueWait");
-}
-
-rt_timepoint rtlog_rtQueueSubmit(rt_queue queue, rt_command_buffer command_buffer) {
-	u64 start_ns = rtlog_now_ns();
-
-	rtlog_printf("rtQueueSubmit(queue=%s, command_buffer=%s)\n", rtlog_pointer(queue), rtlog_pointer(command_buffer));
-	rt_timepoint result = next_rtQueueSubmit(queue, command_buffer);
-	rtlog_printf("rtQueueSubmit -> %s [%s]\n", rtlog_timepoint(result), rtlog_elapsed(start_ns));
-	rtlog_error("rtQueueSubmit");
-	return result;
 }
 
 rt_timepoint rtlog_rtQueueFlush(rt_queue queue) {

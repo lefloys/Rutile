@@ -18,11 +18,6 @@ void rtQueueWait(rt_queue queue, rt_timepoint timepoint) {
 	rtTimepointWait(timepoint);
 }
 
-rt_timepoint rtQueueSubmit(rt_queue queue, rt_command_buffer command_buffer) {
-	struct rtgl_queue* internal = rtgl_queue_from_handle(queue);
-	return rtgl_timepoint_to_public(rtgl_command_buffer_submit(internal->base.ctx, internal, rtgl_command_buffer_from_handle(command_buffer)));
-}
-
 rt_timepoint rtQueueFlush(rt_queue queue) {
 	struct rtgl_queue* internal = rtgl_queue_from_handle(queue);
 	rtgl_timepoint_wait(internal->base.ctx, (struct rtgl_timepoint){ internal, internal->submitted_value });

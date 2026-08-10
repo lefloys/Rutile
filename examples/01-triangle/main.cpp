@@ -52,11 +52,13 @@ int main(int argc, char* argv[]) {
 	rtSwapchainBindWindowGLFW(swapchain, window);
 
 	rt_queue queue = rtQueueQuery(RT_QUEUE_GRAPHICS);
+	rt_command_context command_context = rtCommandContextCreate();
+	rtCommandContextBind(command_context, queue);
 
 	rt_buffer vbo = rtBufferCreate();
 	rtBufferData(vbo, RT_BUFFER_STATIC, RT_BUFFER_USAGE_VERTEX, sizeof(Vertices), Vertices);
 
-	rt_command_buffer cmd = rtCommandBufferCreate();
+	rt_command_buffer cmd = rtCommandContextAllocate(command_context);
 	u32 rendered_frames = 0;
 
 	while (!glfwWindowShouldClose(window) && (!options.frames || rendered_frames < options.frames)) {
@@ -68,20 +70,24 @@ int main(int argc, char* argv[]) {
 		}
 
 		rtQueueWait(queue, acquired.timepoint);
-		rtCmdBegin(cmd, queue);
-		rtCmdBeginRendering(cmd, acquired.framebuffer);
-		rtCmdClearColor(cmd, 0, 0.08f, 0.09f, 0.12f, 1.0f);
+		rtCommandContextBind(command_context, queue);
+		rtCommandContextBindFramebuffer(command_context, acquired.framebuffer);
+		rtCommandContextClearColor(command_context, 0, 0.08f, 0.09f, 0.12f, 1.0f);
+		rtCmdBegin(cmd);
 		rtCmdUseGraphicsProgram(cmd, program);
 		rtCmdBindVertexBuffer(cmd, vbo, 0);
 		rtCmdDraw(cmd, 3, 0);
-		rtCmdEndRendering(cmd);
 		rtCmdEnd(cmd);
+		rtCommandContextExecute(command_context, cmd);
+		rtCommandContextEndRendering(command_context);
 
-		rtSwapchainPresent(swapchain, rtQueueSubmit(queue, cmd));
+		rtSwapchainPresent(swapchain, rtCommandContextSubmit(command_context));
 		rendered_frames++;
 	}
 
+	rtTimepointWait(rtQueueFlush(queue));
 	rtCommandBufferDestroy(cmd);
+	rtCommandContextDestroy(command_context);
 	rtGraphicsProgramDestroy(program);
 	rtBufferDestroy(vbo);
 	rtSwapchainDestroy(swapchain);

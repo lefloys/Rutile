@@ -1,6 +1,7 @@
 #include "resource.h"
 #include "buffer.h"
 #include "command_buffer.h"
+#include "command_context.h"
 #include "error.h"
 #include "framebuffer.h"
 #include "graphics_program.h"
@@ -88,6 +89,9 @@ void rtvk_resource_finalize(struct rtvk_resource_base* base) {
 		break;
 	case RT_RESOURCE_COMMAND_BUFFER:
 		rtvk_command_buffer_finish((struct rtvk_command_buffer*)base);
+		break;
+	case RT_RESOURCE_COMMAND_CONTEXT:
+		rtvk_command_context_finish((struct rtvk_command_context*)base);
 		break;
 	case RT_RESOURCE_FRAMEBUFFER:
 		rtvk_framebuffer_finish((struct rtvk_framebuffer*)base);

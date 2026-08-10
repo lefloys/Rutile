@@ -118,12 +118,14 @@ void rtvk_graphics_program_clear_uniform_locations(struct rtvk_graphics_program*
 }
 
 void rtvk_graphics_program_destroy_pipeline(struct rtvk_context* ctx, struct rtvk_graphics_program* program) {
-	if (program->vk_pipeline) {
-		vkDestroyPipeline(ctx->vk_device, program->vk_pipeline, VK_ALLOCATOR);
-		program->vk_pipeline = VK_NULL_HANDLE;
-		program->vk_pipeline_format = VK_FORMAT_UNDEFINED;
-		program->vk_pipeline_depth_format = VK_FORMAT_UNDEFINED;
+	struct rtvk_graphics_pipeline_variant* variant = program->pipeline_variants;
+	while (variant) {
+		struct rtvk_graphics_pipeline_variant* next = variant->next;
+		vkDestroyPipeline(ctx->vk_device, variant->vk_pipeline, VK_ALLOCATOR);
+		free(variant);
+		variant = next;
 	}
+	program->pipeline_variants = NULL;
 }
 
 void rtvk_graphics_program_destroy_pipeline_layout(struct rtvk_context* ctx, struct rtvk_graphics_program* program) {
@@ -287,24 +289,26 @@ static void rtvk_graphics_program_viewport_state(VkViewport* viewport, VkRect2D*
 	viewport_info->pScissors = scissor;
 }
 
-static void rtvk_graphics_program_color_blend_state(struct rtvk_graphics_program* program, VkPipelineColorBlendAttachmentState* attachment, VkPipelineColorBlendStateCreateInfo* color_blend_info) {
-	attachment->blendEnable = program->blend_enabled ? VK_TRUE : VK_FALSE;
-	attachment->srcColorBlendFactor = rtvk_blend_factor(program->src_color_blend);
-	attachment->dstColorBlendFactor = rtvk_blend_factor(program->dst_color_blend);
-	attachment->colorBlendOp = rtvk_blend_op(program->color_blend_op);
-	attachment->srcAlphaBlendFactor = rtvk_blend_factor(program->src_alpha_blend);
-	attachment->dstAlphaBlendFactor = rtvk_blend_factor(program->dst_alpha_blend);
-	attachment->alphaBlendOp = rtvk_blend_op(program->alpha_blend_op);
-	attachment->colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+static void rtvk_graphics_program_color_blend_state(struct rtvk_graphics_program* program, VkPipelineColorBlendAttachmentState* attachments, u32 attachment_count, VkPipelineColorBlendStateCreateInfo* color_blend_info) {
+	for (u32 i = 0; i < attachment_count; i++) {
+		attachments[i].blendEnable = program->blend_enabled ? VK_TRUE : VK_FALSE;
+		attachments[i].srcColorBlendFactor = rtvk_blend_factor(program->src_color_blend);
+		attachments[i].dstColorBlendFactor = rtvk_blend_factor(program->dst_color_blend);
+		attachments[i].colorBlendOp = rtvk_blend_op(program->color_blend_op);
+		attachments[i].srcAlphaBlendFactor = rtvk_blend_factor(program->src_alpha_blend);
+		attachments[i].dstAlphaBlendFactor = rtvk_blend_factor(program->dst_alpha_blend);
+		attachments[i].alphaBlendOp = rtvk_blend_op(program->alpha_blend_op);
+		attachments[i].colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+	}
 
 	*color_blend_info = (VkPipelineColorBlendStateCreateInfo){ VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO };
 	color_blend_info->logicOpEnable = VK_FALSE;
 	color_blend_info->logicOp = VK_LOGIC_OP_COPY;
-	color_blend_info->attachmentCount = 1;
-	color_blend_info->pAttachments = attachment;
+	color_blend_info->attachmentCount = attachment_count;
+	color_blend_info->pAttachments = attachments;
 }
 
-static void rtvk_graphics_program_create_pipeline(struct rtvk_context* ctx, struct rtvk_graphics_program* program, VkFormat color_format, VkFormat depth_format) {
+static VkPipeline rtvk_graphics_program_create_pipeline(struct rtvk_context* ctx, struct rtvk_graphics_program* program, const VkFormat* color_formats, u32 color_format_count, VkFormat depth_format, VkFormat stencil_format, VkSampleCountFlagBits rasterization_samples) {
 	VkPipelineShaderStageCreateInfo stages[2];
 	rtvk_graphics_program_shader_stages(program, stages);
 
@@ -323,7 +327,7 @@ static void rtvk_graphics_program_create_pipeline(struct rtvk_context* ctx, stru
 			attributes[i].offset = program->vertex_attributes[i].offset;
 			if (attributes[i].format == VK_FORMAT_UNDEFINED) {
 				rtvk_throwf(RT_UNSUPPORTED_FEATURE, "unsupported vertex attribute format");
-				return;
+			return VK_NULL_HANDLE;
 			}
 		}
 
@@ -364,16 +368,16 @@ static void rtvk_graphics_program_create_pipeline(struct rtvk_context* ctx, stru
 	VkPipelineMultisampleStateCreateInfo multisample_info = { VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO };
 	multisample_info.pNext = NULL;
 	multisample_info.flags = 0;
-	multisample_info.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+	multisample_info.rasterizationSamples = rasterization_samples;
 	multisample_info.sampleShadingEnable = VK_FALSE;
 	multisample_info.minSampleShading = 1.0f;
 	multisample_info.pSampleMask = NULL;
 	multisample_info.alphaToCoverageEnable = VK_FALSE;
 	multisample_info.alphaToOneEnable = VK_FALSE;
 
-	VkPipelineColorBlendAttachmentState color_blend_attachment = { 0 };
+	VkPipelineColorBlendAttachmentState color_blend_attachments[RTVK_MAX_FRAMEBUFFER_COLOR_ATTACHMENTS] = { 0 };
 	VkPipelineColorBlendStateCreateInfo color_blend_info;
-	rtvk_graphics_program_color_blend_state(program, &color_blend_attachment, &color_blend_info);
+	rtvk_graphics_program_color_blend_state(program, color_blend_attachments, color_format_count, &color_blend_info);
 
 	VkPipelineDepthStencilStateCreateInfo depth_info = { VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO };
 	depth_info.pNext = NULL;
@@ -401,10 +405,10 @@ static void rtvk_graphics_program_create_pipeline(struct rtvk_context* ctx, stru
 	VkPipelineRenderingCreateInfo rendering_info = { VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO };
 	rendering_info.pNext = NULL;
 	rendering_info.viewMask = 0;
-	rendering_info.colorAttachmentCount = 1;
-	rendering_info.pColorAttachmentFormats = &color_format;
+	rendering_info.colorAttachmentCount = color_format_count;
+	rendering_info.pColorAttachmentFormats = color_formats;
 	rendering_info.depthAttachmentFormat = depth_format;
-	rendering_info.stencilAttachmentFormat = VK_FORMAT_UNDEFINED;
+	rendering_info.stencilAttachmentFormat = stencil_format;
 
 	VkGraphicsPipelineCreateInfo pipeline_info = { VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO };
 	pipeline_info.pNext = &rendering_info;
@@ -426,29 +430,48 @@ static void rtvk_graphics_program_create_pipeline(struct rtvk_context* ctx, stru
 	pipeline_info.basePipelineHandle = VK_NULL_HANDLE;
 	pipeline_info.basePipelineIndex = -1;
 
-	VkResult result = vkCreateGraphicsPipelines(ctx->vk_device, VK_NULL_HANDLE, 1, &pipeline_info, VK_ALLOCATOR, &program->vk_pipeline);
+	VkPipeline pipeline = VK_NULL_HANDLE;
+	VkResult result = vkCreateGraphicsPipelines(ctx->vk_device, VK_NULL_HANDLE, 1, &pipeline_info, VK_ALLOCATOR, &pipeline);
 	if (result != VK_SUCCESS) {
 		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
-		return;
+		return VK_NULL_HANDLE;
 	}
-
-	program->vk_pipeline_format = color_format;
-	program->vk_pipeline_depth_format = depth_format;
+	return pipeline;
 }
 
-void rtvk_graphics_program_prepare(struct rtvk_context* ctx, struct rtvk_graphics_program* program, VkFormat color_format, VkFormat depth_format) {
-	if (!program || !program->vk_pipeline_layout) {
+VkPipeline rtvk_graphics_program_prepare(struct rtvk_context* ctx, struct rtvk_graphics_program* program, const VkFormat* color_formats, u32 color_format_count, VkFormat depth_format, VkFormat stencil_format, VkSampleCountFlagBits rasterization_samples) {
+	if (!program || !program->vk_pipeline_layout || !color_formats || color_format_count == 0 || color_format_count > RTVK_MAX_FRAMEBUFFER_COLOR_ATTACHMENTS) {
 		rtvk_throwf(RT_IMPROPER_USAGE, "graphics program must be finalized before use");
-		return;
+		return VK_NULL_HANDLE;
 	}
 
-	if (program->vk_pipeline && program->vk_pipeline_format == color_format &&
-		program->vk_pipeline_depth_format == depth_format) {
-		return;
+	for (struct rtvk_graphics_pipeline_variant* variant = program->pipeline_variants; variant; variant = variant->next) {
+		if (variant->color_format_count == color_format_count && variant->depth_format == depth_format &&
+			variant->stencil_format == stencil_format && variant->rasterization_samples == rasterization_samples &&
+			memcmp(variant->color_formats, color_formats, sizeof(*color_formats) * color_format_count) == 0) {
+			return variant->vk_pipeline;
+		}
 	}
 
-	rtvk_graphics_program_destroy_pipeline(ctx, program);
-	rtvk_graphics_program_create_pipeline(ctx, program, color_format, depth_format);
+	VkPipeline pipeline = rtvk_graphics_program_create_pipeline(ctx, program, color_formats, color_format_count, depth_format, stencil_format, rasterization_samples);
+	if (!pipeline) {
+		return VK_NULL_HANDLE;
+	}
+	struct rtvk_graphics_pipeline_variant* variant = calloc(1, sizeof(*variant));
+	if (!variant) {
+		vkDestroyPipeline(ctx->vk_device, pipeline, VK_ALLOCATOR);
+		rtvk_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate graphics pipeline variant");
+		return VK_NULL_HANDLE;
+	}
+	variant->vk_pipeline = pipeline;
+	memcpy(variant->color_formats, color_formats, sizeof(*color_formats) * color_format_count);
+	variant->depth_format = depth_format;
+	variant->stencil_format = stencil_format;
+	variant->rasterization_samples = rasterization_samples;
+	variant->color_format_count = color_format_count;
+	variant->next = program->pipeline_variants;
+	program->pipeline_variants = variant;
+	return pipeline;
 }
 
 void rtvk_graphics_program_layout(struct rtvk_context* ctx, struct rtvk_graphics_program* program, const rt_vertex_layout* layout) {

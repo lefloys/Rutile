@@ -15,14 +15,6 @@ rt_queue rtQueueQuery(enum rt_queue_capability capability) {
 	return rtvk_queue_to_handle(rtvk_queue_query(rtvk_get_current_context(), capability));
 }
 
-rt_timepoint rtQueueSubmit(rt_queue queue, rt_command_buffer command_buffer) {
-	return rtvk_timepoint_to_public(rtvk_queue_submit(
-		rtvk_get_current_context(),
-		rtvk_queue_from_handle(queue),
-		rtvk_command_buffer_from_handle(command_buffer)
-	));
-}
-
 rt_timepoint rtQueueFlush(rt_queue queue) {
 	return rtvk_timepoint_to_public(rtvk_queue_flush(rtvk_get_current_context(), rtvk_queue_from_handle(queue)));
 }

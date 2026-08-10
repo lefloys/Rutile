@@ -54,14 +54,6 @@ function(rutile_use_runtime target)
                 "Target '${target}' requested unavailable Rutile runtime '${runtime_target}'")
         endif()
 
-        add_dependencies("${target}" "${runtime_target}")
-        add_custom_command(TARGET "${target}" POST_BUILD
-            COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-                "$<TARGET_FILE:${runtime_target}>"
-                "$<TARGET_FILE_DIR:${target}>"
-            VERBATIM
-        )
-
         # This target has no output on purpose: IDE builds execute it every
         # time the executable is built/launched, keeping copied runtimes in
         # sync even when the executable itself did not relink.
