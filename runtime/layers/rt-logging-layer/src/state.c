@@ -1,177 +1,25 @@
 #include "procs.h"
 
-PFN_rtInit next_rtInit = NULL;
-PFN_rtExit next_rtExit = NULL;
-PFN_rtSetOutput next_rtSetOutput = NULL;
-PFN_rtError next_rtError = NULL;
-PFN_rtErrorMessage next_rtErrorMessage = NULL;
-PFN_rtClearError next_rtClearError = NULL;
-PFN_rtGetName next_rtGetName = NULL;
-PFN_rtQueryFormatCapabilities next_rtQueryFormatCapabilities = NULL;
-PFN_rtBufferCreate next_rtBufferCreate = NULL;
-PFN_rtBufferDestroy next_rtBufferDestroy = NULL;
-PFN_rtBufferData next_rtBufferData = NULL;
-PFN_rtBufferSubdata next_rtBufferSubdata = NULL;
-PFN_rtBufferRead next_rtBufferRead = NULL;
-PFN_rtTextureCreate next_rtTextureCreate = NULL;
-PFN_rtTextureDestroy next_rtTextureDestroy = NULL;
-PFN_rtTextureViewCreate next_rtTextureViewCreate = NULL;
-PFN_rtTextureViewBind next_rtTextureViewBind = NULL;
-PFN_rtTextureViewDestroy next_rtTextureViewDestroy = NULL;
-PFN_rtTextureViewFilter next_rtTextureViewFilter = NULL;
-PFN_rtTextureViewAddress next_rtTextureViewAddress = NULL;
-PFN_rtTextureViewAnisotropy next_rtTextureViewAnisotropy = NULL;
-PFN_rtTextureViewLod next_rtTextureViewLod = NULL;
-PFN_rtTextureCopy next_rtTextureCopy = NULL;
-PFN_rtTextureData next_rtTextureData = NULL;
-PFN_rtTextureSubcopy next_rtTextureSubcopy = NULL;
-PFN_rtTextureSubdata next_rtTextureSubdata = NULL;
-PFN_rtTextureViewCopyToBuffer next_rtTextureViewCopyToBuffer = NULL;
-PFN_rtTextureViewExtent next_rtTextureViewExtent = NULL;
-PFN_rtFramebufferCreate next_rtFramebufferCreate = NULL;
-PFN_rtFramebufferDestroy next_rtFramebufferDestroy = NULL;
-PFN_rtFramebufferColorView next_rtFramebufferColorView = NULL;
-PFN_rtFramebufferSetColorView next_rtFramebufferSetColorView = NULL;
-PFN_rtFramebufferDepthView next_rtFramebufferDepthView = NULL;
-PFN_rtGraphicsProgramCreate next_rtGraphicsProgramCreate = NULL;
-PFN_rtGraphicsProgramDestroy next_rtGraphicsProgramDestroy = NULL;
-PFN_rtGraphicsProgramLayout next_rtGraphicsProgramLayout = NULL;
-PFN_rtGraphicsProgramSource next_rtGraphicsProgramSource = NULL;
-PFN_rtGraphicsProgramRasterState next_rtGraphicsProgramRasterState = NULL;
-PFN_rtGraphicsProgramBlendState next_rtGraphicsProgramBlendState = NULL;
-PFN_rtGraphicsProgramFinalize next_rtGraphicsProgramFinalize = NULL;
-PFN_rtGraphicsProgramReset next_rtGraphicsProgramReset = NULL;
-PFN_rtGraphicsProgramUniformLocation next_rtGraphicsProgramUniformLocation = NULL;
-PFN_rtComputeProgramCreate next_rtComputeProgramCreate = NULL;
-PFN_rtComputeProgramDestroy next_rtComputeProgramDestroy = NULL;
-PFN_rtComputeProgramShader next_rtComputeProgramShader = NULL;
-PFN_rtComputeProgramLink next_rtComputeProgramLink = NULL;
-PFN_rtCommandContextCreate next_rtCommandContextCreate = NULL;
-PFN_rtCommandContextDestroy next_rtCommandContextDestroy = NULL;
-PFN_rtCommandContextBind next_rtCommandContextBind = NULL;
-PFN_rtCommandContextAllocate next_rtCommandContextAllocate = NULL;
-PFN_rtCommandBufferDestroy next_rtCommandBufferDestroy = NULL;
-PFN_rtCmdReset next_rtCmdReset = NULL;
-PFN_rtCmdBegin next_rtCmdBegin = NULL;
-PFN_rtCommandContextBindFramebuffer next_rtCommandContextBindFramebuffer = NULL;
-PFN_rtCommandContextClearColor next_rtCommandContextClearColor = NULL;
-PFN_rtCommandContextClearDepth next_rtCommandContextClearDepth = NULL;
-PFN_rtCommandContextClearStencil next_rtCommandContextClearStencil = NULL;
-PFN_rtCmdUseGraphicsProgram next_rtCmdUseGraphicsProgram = NULL;
-PFN_rtCmdSetScissor next_rtCmdSetScissor = NULL;
-PFN_rtCmdUseComputeProgram next_rtCmdUseComputeProgram = NULL;
-PFN_rtCmdUniformBuffer next_rtCmdUniformBuffer = NULL;
-PFN_rtCmdUniformTexture next_rtCmdUniformTexture = NULL;
-PFN_rtCmdStorageBuffer next_rtCmdStorageBuffer = NULL;
-PFN_rtCmdStorageTexture next_rtCmdStorageTexture = NULL;
-PFN_rtCmdComputeBarrier next_rtCmdComputeBarrier = NULL;
-PFN_rtCmdBindVertexBuffer next_rtCmdBindVertexBuffer = NULL;
-PFN_rtCmdDraw next_rtCmdDraw = NULL;
-PFN_rtCmdDispatch next_rtCmdDispatch = NULL;
-PFN_rtCommandContextEndRendering next_rtCommandContextEndRendering = NULL;
-PFN_rtCommandContextExecute next_rtCommandContextExecute = NULL;
-PFN_rtCmdEnd next_rtCmdEnd = NULL;
-PFN_rtQueueQuery next_rtQueueQuery = NULL;
-PFN_rtQueueWait next_rtQueueWait = NULL;
-PFN_rtCommandContextSubmit next_rtCommandContextSubmit = NULL;
-PFN_rtQueueFlush next_rtQueueFlush = NULL;
-PFN_rtTimepointWait next_rtTimepointWait = NULL;
-PFN_rtTimepointReached next_rtTimepointReached = NULL;
-PFN_rtSwapchainCreate next_rtSwapchainCreate = NULL;
-PFN_rtSwapchainDestroy next_rtSwapchainDestroy = NULL;
-PFN_rtSwapchainResize next_rtSwapchainResize = NULL;
-PFN_rtSwapchainAcquire next_rtSwapchainAcquire = NULL;
-PFN_rtSwapchainPresent next_rtSwapchainPresent = NULL;
-PFN_rtInit_RT_EXT_GLFW next_rtInit_RT_EXT_GLFW = NULL;
-PFN_rtSwapchainBindWindowGLFW next_rtSwapchainBindWindowGLFW = NULL;
+#define RTLOG_DEFINE_NEXT(return_type, name, parameters, arguments) return_type (*next_##name) parameters = NULL;
+RT_CORE_PROCEDURES(RTLOG_DEFINE_NEXT)
+#undef RTLOG_DEFINE_NEXT
+
+#define RTLOG_DEFINE_EXTENSION_NEXT(return_type, name, parameters, arguments) return_type (*next_##name) parameters = NULL;
+RT_EXT_SWAPCHAIN_PROCEDURES(RTLOG_DEFINE_EXTENSION_NEXT)
+RT_EXT_GLFW_PROCEDURES(RTLOG_DEFINE_EXTENSION_NEXT)
+#undef RTLOG_DEFINE_EXTENSION_NEXT
 
 /*===============================================================================================*/
 /*                                                                                               */
 /*===============================================================================================*/
 
-RT_EXPORT void rtLayerSetNext(rt_proc_chain next) {
-	next_rtInit = (PFN_rtInit)next.get_proc(&next, "rtInit");
-	next_rtExit = (PFN_rtExit)next.get_proc(&next, "rtExit");
-	next_rtSetOutput = (PFN_rtSetOutput)next.get_proc(&next, "rtSetOutput");
-	next_rtError = (PFN_rtError)next.get_proc(&next, "rtError");
-	next_rtErrorMessage = (PFN_rtErrorMessage)next.get_proc(&next, "rtErrorMessage");
-	next_rtClearError = (PFN_rtClearError)next.get_proc(&next, "rtClearError");
-	next_rtGetName = (PFN_rtGetName)next.get_proc(&next, "rtGetName");
-	next_rtQueryFormatCapabilities = (PFN_rtQueryFormatCapabilities)next.get_proc(&next, "rtQueryFormatCapabilities");
-	next_rtBufferCreate = (PFN_rtBufferCreate)next.get_proc(&next, "rtBufferCreate");
-	next_rtBufferDestroy = (PFN_rtBufferDestroy)next.get_proc(&next, "rtBufferDestroy");
-	next_rtBufferData = (PFN_rtBufferData)next.get_proc(&next, "rtBufferData");
-	next_rtBufferSubdata = (PFN_rtBufferSubdata)next.get_proc(&next, "rtBufferSubdata");
-	next_rtBufferRead = (PFN_rtBufferRead)next.get_proc(&next, "rtBufferRead");
-	next_rtTextureCreate = (PFN_rtTextureCreate)next.get_proc(&next, "rtTextureCreate");
-	next_rtTextureDestroy = (PFN_rtTextureDestroy)next.get_proc(&next, "rtTextureDestroy");
-	next_rtTextureViewCreate = (PFN_rtTextureViewCreate)next.get_proc(&next, "rtTextureViewCreate");
-	next_rtTextureViewBind = (PFN_rtTextureViewBind)next.get_proc(&next, "rtTextureViewBind");
-	next_rtTextureViewDestroy = (PFN_rtTextureViewDestroy)next.get_proc(&next, "rtTextureViewDestroy");
-	next_rtTextureViewFilter = (PFN_rtTextureViewFilter)next.get_proc(&next, "rtTextureViewFilter");
-	next_rtTextureViewAddress = (PFN_rtTextureViewAddress)next.get_proc(&next, "rtTextureViewAddress");
-	next_rtTextureViewAnisotropy = (PFN_rtTextureViewAnisotropy)next.get_proc(&next, "rtTextureViewAnisotropy");
-	next_rtTextureViewLod = (PFN_rtTextureViewLod)next.get_proc(&next, "rtTextureViewLod");
-	next_rtTextureCopy = (PFN_rtTextureCopy)next.get_proc(&next, "rtTextureCopy");
-	next_rtTextureData = (PFN_rtTextureData)next.get_proc(&next, "rtTextureData");
-	next_rtTextureSubcopy = (PFN_rtTextureSubcopy)next.get_proc(&next, "rtTextureSubcopy");
-	next_rtTextureSubdata = (PFN_rtTextureSubdata)next.get_proc(&next, "rtTextureSubdata");
-	next_rtTextureViewCopyToBuffer = (PFN_rtTextureViewCopyToBuffer)next.get_proc(&next, "rtTextureViewCopyToBuffer");
-	next_rtTextureViewExtent = (PFN_rtTextureViewExtent)next.get_proc(&next, "rtTextureViewExtent");
-	next_rtFramebufferCreate = (PFN_rtFramebufferCreate)next.get_proc(&next, "rtFramebufferCreate");
-	next_rtFramebufferDestroy = (PFN_rtFramebufferDestroy)next.get_proc(&next, "rtFramebufferDestroy");
-	next_rtFramebufferColorView = (PFN_rtFramebufferColorView)next.get_proc(&next, "rtFramebufferColorView");
-	next_rtFramebufferSetColorView = (PFN_rtFramebufferSetColorView)next.get_proc(&next, "rtFramebufferSetColorView");
-	next_rtFramebufferDepthView = (PFN_rtFramebufferDepthView)next.get_proc(&next, "rtFramebufferDepthView");
-	next_rtGraphicsProgramCreate = (PFN_rtGraphicsProgramCreate)next.get_proc(&next, "rtGraphicsProgramCreate");
-	next_rtGraphicsProgramDestroy = (PFN_rtGraphicsProgramDestroy)next.get_proc(&next, "rtGraphicsProgramDestroy");
-	next_rtGraphicsProgramLayout = (PFN_rtGraphicsProgramLayout)next.get_proc(&next, "rtGraphicsProgramLayout");
-	next_rtGraphicsProgramSource = (PFN_rtGraphicsProgramSource)next.get_proc(&next, "rtGraphicsProgramSource");
-	next_rtGraphicsProgramRasterState = (PFN_rtGraphicsProgramRasterState)next.get_proc(&next, "rtGraphicsProgramRasterState");
-	next_rtGraphicsProgramBlendState = (PFN_rtGraphicsProgramBlendState)next.get_proc(&next, "rtGraphicsProgramBlendState");
-	next_rtGraphicsProgramFinalize = (PFN_rtGraphicsProgramFinalize)next.get_proc(&next, "rtGraphicsProgramFinalize");
-	next_rtGraphicsProgramReset = (PFN_rtGraphicsProgramReset)next.get_proc(&next, "rtGraphicsProgramReset");
-	next_rtGraphicsProgramUniformLocation = (PFN_rtGraphicsProgramUniformLocation)next.get_proc(&next, "rtGraphicsProgramUniformLocation");
-	next_rtComputeProgramCreate = (PFN_rtComputeProgramCreate)next.get_proc(&next, "rtComputeProgramCreate");
-	next_rtComputeProgramDestroy = (PFN_rtComputeProgramDestroy)next.get_proc(&next, "rtComputeProgramDestroy");
-	next_rtComputeProgramShader = (PFN_rtComputeProgramShader)next.get_proc(&next, "rtComputeProgramShader");
-	next_rtComputeProgramLink = (PFN_rtComputeProgramLink)next.get_proc(&next, "rtComputeProgramLink");
-	next_rtCommandContextCreate = (PFN_rtCommandContextCreate)next.get_proc(&next, "rtCommandContextCreate");
-	next_rtCommandContextDestroy = (PFN_rtCommandContextDestroy)next.get_proc(&next, "rtCommandContextDestroy");
-	next_rtCommandContextBind = (PFN_rtCommandContextBind)next.get_proc(&next, "rtCommandContextBind");
-	next_rtCommandContextAllocate = (PFN_rtCommandContextAllocate)next.get_proc(&next, "rtCommandContextAllocate");
-	next_rtCommandBufferDestroy = (PFN_rtCommandBufferDestroy)next.get_proc(&next, "rtCommandBufferDestroy");
-	next_rtCmdReset = (PFN_rtCmdReset)next.get_proc(&next, "rtCmdReset");
-	next_rtCmdBegin = (PFN_rtCmdBegin)next.get_proc(&next, "rtCmdBegin");
-	next_rtCommandContextBindFramebuffer = (PFN_rtCommandContextBindFramebuffer)next.get_proc(&next, "rtCommandContextBindFramebuffer");
-	next_rtCommandContextClearColor = (PFN_rtCommandContextClearColor)next.get_proc(&next, "rtCommandContextClearColor");
-	next_rtCommandContextClearDepth = (PFN_rtCommandContextClearDepth)next.get_proc(&next, "rtCommandContextClearDepth");
-	next_rtCommandContextClearStencil = (PFN_rtCommandContextClearStencil)next.get_proc(&next, "rtCommandContextClearStencil");
-	next_rtCmdUseGraphicsProgram = (PFN_rtCmdUseGraphicsProgram)next.get_proc(&next, "rtCmdUseGraphicsProgram");
-	next_rtCmdSetScissor = (PFN_rtCmdSetScissor)next.get_proc(&next, "rtCmdSetScissor");
-	next_rtCmdUseComputeProgram = (PFN_rtCmdUseComputeProgram)next.get_proc(&next, "rtCmdUseComputeProgram");
-	next_rtCmdUniformBuffer = (PFN_rtCmdUniformBuffer)next.get_proc(&next, "rtCmdUniformBuffer");
-	next_rtCmdUniformTexture = (PFN_rtCmdUniformTexture)next.get_proc(&next, "rtCmdUniformTexture");
-	next_rtCmdStorageBuffer = (PFN_rtCmdStorageBuffer)next.get_proc(&next, "rtCmdStorageBuffer");
-	next_rtCmdStorageTexture = (PFN_rtCmdStorageTexture)next.get_proc(&next, "rtCmdStorageTexture");
-	next_rtCmdComputeBarrier = (PFN_rtCmdComputeBarrier)next.get_proc(&next, "rtCmdComputeBarrier");
-	next_rtCmdBindVertexBuffer = (PFN_rtCmdBindVertexBuffer)next.get_proc(&next, "rtCmdBindVertexBuffer");
-	next_rtCmdDraw = (PFN_rtCmdDraw)next.get_proc(&next, "rtCmdDraw");
-	next_rtCmdDispatch = (PFN_rtCmdDispatch)next.get_proc(&next, "rtCmdDispatch");
-	next_rtCommandContextEndRendering = (PFN_rtCommandContextEndRendering)next.get_proc(&next, "rtCommandContextEndRendering");
-	next_rtCommandContextExecute = (PFN_rtCommandContextExecute)next.get_proc(&next, "rtCommandContextExecute");
-	next_rtCmdEnd = (PFN_rtCmdEnd)next.get_proc(&next, "rtCmdEnd");
-	next_rtQueueQuery = (PFN_rtQueueQuery)next.get_proc(&next, "rtQueueQuery");
-	next_rtQueueWait = (PFN_rtQueueWait)next.get_proc(&next, "rtQueueWait");
-	next_rtCommandContextSubmit = (PFN_rtCommandContextSubmit)next.get_proc(&next, "rtCommandContextSubmit");
-	next_rtQueueFlush = (PFN_rtQueueFlush)next.get_proc(&next, "rtQueueFlush");
-	next_rtTimepointWait = (PFN_rtTimepointWait)next.get_proc(&next, "rtTimepointWait");
-	next_rtTimepointReached = (PFN_rtTimepointReached)next.get_proc(&next, "rtTimepointReached");
-	next_rtSwapchainCreate = (PFN_rtSwapchainCreate)next.get_proc(&next, "rtSwapchainCreate");
-	next_rtSwapchainDestroy = (PFN_rtSwapchainDestroy)next.get_proc(&next, "rtSwapchainDestroy");
-	next_rtSwapchainResize = (PFN_rtSwapchainResize)next.get_proc(&next, "rtSwapchainResize");
-	next_rtSwapchainAcquire = (PFN_rtSwapchainAcquire)next.get_proc(&next, "rtSwapchainAcquire");
-	next_rtSwapchainPresent = (PFN_rtSwapchainPresent)next.get_proc(&next, "rtSwapchainPresent");
-	next_rtInit_RT_EXT_GLFW = (PFN_rtInit_RT_EXT_GLFW)next.get_proc(&next, "rtInit_RT_EXT_GLFW");
-	next_rtSwapchainBindWindowGLFW = (PFN_rtSwapchainBindWindowGLFW)next.get_proc(&next, "rtSwapchainBindWindowGLFW");
+RT_API_PUBLIC void rtLayerSetNext(rt_proc_chain next) {
+#define RTLOG_RESOLVE_NEXT(return_type, name, parameters, arguments) next_##name = (return_type (*) parameters)next.get_proc(&next, #name);
+	RT_CORE_PROCEDURES(RTLOG_RESOLVE_NEXT)
+#undef RTLOG_RESOLVE_NEXT
+
+#define RTLOG_RESOLVE_EXTENSION_NEXT(return_type, name, parameters, arguments) next_##name = (return_type (*) parameters)next.get_proc(&next, #name);
+	RT_EXT_SWAPCHAIN_PROCEDURES(RTLOG_RESOLVE_EXTENSION_NEXT)
+	RT_EXT_GLFW_PROCEDURES(RTLOG_RESOLVE_EXTENSION_NEXT)
+#undef RTLOG_RESOLVE_EXTENSION_NEXT
 }

@@ -1,4 +1,5 @@
 #include "resource.hpp"
+#include "context.hpp"
 #include "buffer.hpp"
 #include "command_buffer.hpp"
 #include "error.hpp"
@@ -145,6 +146,17 @@ bool rtdx_resource_ready_to_destroy(rtdx_resource_base* base) {
 		   rtdx_atomic_load(&base->job_count) == 0;
 }
 
-rt_timepoint rtdx_timepoint_to_public(rtdx_timepoint timepoint) {
-	return rt_timepoint{ reinterpret_cast<rt_queue>(timepoint.queue), timepoint.value };
+rt_timepoint rtdx_queue_timepoint(rtdx_queue* queue, u64 value) {
+	if (!queue || !value) {
+		return {};
+	}
+	return { ((u64)queue->timepoint_id << 56) | value };
+}
+
+rtdx_queue* rtdx_queue_from_timepoint(rtdx_context* ctx, rt_timepoint timepoint) {
+	if (!ctx || !timepoint.value) {
+		return NULL;
+	}
+	u08 id = (u08)(timepoint.value >> 56);
+	return ctx->timepoint_queues[id];
 }

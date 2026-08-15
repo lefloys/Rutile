@@ -10,7 +10,6 @@ add_library(${PROJECT_NAME} SHARED)
 
 target_sources(${PROJECT_NAME} PRIVATE
     "src/config.h"
-    "src/types.h"
     "src/core.c"
     "src/core.h"
     "src/context.c"
@@ -40,9 +39,6 @@ target_sources(${PROJECT_NAME} PRIVATE
     "src/resource/graphics_program.h"
     "../rt-vulkan/src/rtsl_spirv.cpp"
     "../rt-vulkan/src/rtsl_spirv.h"
-    "src/rtsl_glsl.cpp"
-    "src/rtsl_glsl.h"
-    "${RUTILE_SOURCE_DIR}/RTSL/transpilers/glsl/src/glsl.cpp"
     "${RUTILE_SOURCE_DIR}/RTSL/transpilers/spirv/src/spirv.cpp"
     "src/resource/queue.c"
     "src/resource/queue.h"
@@ -57,16 +53,15 @@ target_sources(${PROJECT_NAME} PRIVATE
     "src/glad/gl.c"
     "src/glad/gl.h"
     "src/KHR/khrplatform.h"
-    "src/types.h")
+    )
 
 rutile_configure_shared_library(${PROJECT_NAME})
 
 target_include_directories(${PROJECT_NAME} PRIVATE
     "src"
     "../../common"
-    "../../bindings/c/include"
+    "../../../include"
     "../rt-vulkan/src"
-    "${RUTILE_SOURCE_DIR}/RTSL/transpilers/glsl/include"
     "${RUTILE_SOURCE_DIR}/RTSL/transpilers/spirv/include"
 )
 

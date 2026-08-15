@@ -7,19 +7,19 @@
 /*                                                                                               */
 /*===============================================================================================*/
 
-RT_EXPORT rt_compute_program rtComputeProgramCreate(void) {
+RT_API_PUBLIC rt_compute_program rtComputeProgramCreate(void) {
 	return rtval_compute_program_to_handle(rtval_compute_program_create());
 }
 
-RT_EXPORT void rtComputeProgramDestroy(rt_compute_program program) {
+RT_API_PUBLIC void rtComputeProgramDestroy(rt_compute_program program) {
 	rtval_compute_program_destroy(rtval_compute_program_from_handle(program));
 }
 
-RT_EXPORT void rtComputeProgramShader(rt_compute_program program, u64 size, const void* data) {
+RT_API_PUBLIC void rtComputeProgramShader(rt_compute_program program, u64 size, const void* data) {
 	rtval_compute_program_shader(rtval_compute_program_from_handle(program), size, data);
 }
 
-RT_EXPORT void rtComputeProgramLink(rt_compute_program program) {
+RT_API_PUBLIC void rtComputeProgramLink(rt_compute_program program) {
 	rtval_compute_program_link(rtval_compute_program_from_handle(program));
 }
 

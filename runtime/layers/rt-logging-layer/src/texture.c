@@ -4,22 +4,22 @@
 /*                                                                                               */
 /*===============================================================================================*/
 
-RT_EXPORT rt_texture rtTextureCreate(void) { return rtlog_rtTextureCreate(); }
-RT_EXPORT void rtTextureDestroy(rt_texture texture) { rtlog_rtTextureDestroy(texture); }
-RT_EXPORT rt_texture_view rtTextureViewCreate(void) { return rtlog_rtTextureViewCreate(); }
-RT_EXPORT void rtTextureViewBind(rt_texture_view texture_view, rt_texture texture) { rtlog_rtTextureViewBind(texture_view, texture); }
-RT_EXPORT void rtTextureViewDestroy(rt_texture_view texture_view) { rtlog_rtTextureViewDestroy(texture_view); }
-RT_EXPORT void rtTextureViewFilter(rt_texture_view texture_view, enum rt_filter mag_filter, enum rt_filter min_filter, enum rt_mip_filter mip_filter) { rtlog_rtTextureViewFilter(texture_view, mag_filter, min_filter, mip_filter); }
-RT_EXPORT void rtTextureViewAddress(rt_texture_view texture_view, enum rt_address_mode address_u, enum rt_address_mode address_v, enum rt_address_mode address_w) { rtlog_rtTextureViewAddress(texture_view, address_u, address_v, address_w); }
-RT_EXPORT void rtTextureViewAnisotropy(rt_texture_view texture_view, u32 max_anisotropy) { rtlog_rtTextureViewAnisotropy(texture_view, max_anisotropy); }
-RT_EXPORT void rtTextureViewLod(rt_texture_view texture_view, f32 min_lod, f32 max_lod, f32 lod_bias) { rtlog_rtTextureViewLod(texture_view, min_lod, max_lod, lod_bias); }
+RT_API_PUBLIC rt_texture rtTextureCreate(void) { return rtlog_rtTextureCreate(); }
+RT_API_PUBLIC void rtTextureDestroy(rt_texture texture) { rtlog_rtTextureDestroy(texture); }
+RT_API_PUBLIC rt_texture_view rtTextureViewCreate(void) { return rtlog_rtTextureViewCreate(); }
+RT_API_PUBLIC void rtTextureViewBind(rt_texture_view texture_view, rt_texture texture) { rtlog_rtTextureViewBind(texture_view, texture); }
+RT_API_PUBLIC void rtTextureViewDestroy(rt_texture_view texture_view) { rtlog_rtTextureViewDestroy(texture_view); }
+RT_API_PUBLIC void rtTextureViewFilter(rt_texture_view texture_view, enum rt_filter mag_filter, enum rt_filter min_filter, enum rt_mip_filter mip_filter) { rtlog_rtTextureViewFilter(texture_view, mag_filter, min_filter, mip_filter); }
+RT_API_PUBLIC void rtTextureViewAddress(rt_texture_view texture_view, enum rt_address_mode address_u, enum rt_address_mode address_v, enum rt_address_mode address_w) { rtlog_rtTextureViewAddress(texture_view, address_u, address_v, address_w); }
+RT_API_PUBLIC void rtTextureViewAnisotropy(rt_texture_view texture_view, u32 max_anisotropy) { rtlog_rtTextureViewAnisotropy(texture_view, max_anisotropy); }
+RT_API_PUBLIC void rtTextureViewLod(rt_texture_view texture_view, f32 min_lod, f32 max_lod, f32 lod_bias) { rtlog_rtTextureViewLod(texture_view, min_lod, max_lod, lod_bias); }
 
-RT_EXPORT rt_timepoint rtTextureCopy(rt_texture src_texture, u32 src_mip, rt_texture dst_texture, u32 dst_mip) { return rtlog_rtTextureCopy(src_texture, src_mip, dst_texture, dst_mip); }
-RT_EXPORT rt_timepoint rtTextureData(rt_texture texture, enum rt_texture_type type, u32 mip, u32 width, u32 height, u32 depth, enum rt_format format, const void* data) { return rtlog_rtTextureData(texture, type, mip, width, height, depth, format, data); }
-RT_EXPORT rt_timepoint rtTextureSubcopy(rt_texture src_texture, u32 src_mip, u32 src_x, u32 src_y, u32 src_z, rt_texture dst_texture, u32 dst_mip, u32 dst_x, u32 dst_y, u32 dst_z, u32 width, u32 height, u32 depth) { return rtlog_rtTextureSubcopy(src_texture, src_mip, src_x, src_y, src_z, dst_texture, dst_mip, dst_x, dst_y, dst_z, width, height, depth); }
-RT_EXPORT rt_timepoint rtTextureSubdata(rt_texture texture, u32 mip, u32 offset_x, u32 offset_y, u32 offset_z, u32 width, u32 height, u32 depth, const void* data) { return rtlog_rtTextureSubdata(texture, mip, offset_x, offset_y, offset_z, width, height, depth, data); }
-RT_EXPORT rt_timepoint rtTextureViewCopyToBuffer(rt_texture_view texture_view, rt_buffer buffer) { return rtlog_rtTextureViewCopyToBuffer(texture_view, buffer); }
-RT_EXPORT rt_extent_3d rtTextureViewExtent(rt_texture_view texture_view) { return rtlog_rtTextureViewExtent(texture_view); }
+RT_API_PUBLIC rt_timepoint rtTextureCopy(rt_texture src_texture, u32 src_mip, rt_texture dst_texture, u32 dst_mip) { return rtlog_rtTextureCopy(src_texture, src_mip, dst_texture, dst_mip); }
+RT_API_PUBLIC rt_timepoint rtTextureData(rt_texture texture, enum rt_texture_type type, u32 mip, u32 width, u32 height, u32 depth, enum rt_format format, const void* data) { return rtlog_rtTextureData(texture, type, mip, width, height, depth, format, data); }
+RT_API_PUBLIC rt_timepoint rtTextureSubcopy(rt_texture src_texture, u32 src_mip, rt_extent_3d src_offset, rt_texture dst_texture, u32 dst_mip, rt_extent_3d dst_offset, rt_extent_3d extent) { return rtlog_rtTextureSubcopy(src_texture, src_mip, src_offset, dst_texture, dst_mip, dst_offset, extent); }
+RT_API_PUBLIC rt_timepoint rtTextureSubdata(rt_texture texture, u32 mip, rt_extent_3d offset, rt_extent_3d extent, const void* data) { return rtlog_rtTextureSubdata(texture, mip, offset, extent, data); }
+RT_API_PUBLIC rt_timepoint rtTextureViewCopyToBuffer(rt_texture_view texture_view, rt_buffer buffer) { return rtlog_rtTextureViewCopyToBuffer(texture_view, buffer); }
+RT_API_PUBLIC rt_extent_3d rtTextureViewExtent(rt_texture_view texture_view) { return rtlog_rtTextureViewExtent(texture_view); }
 
 /*===============================================================================================*/
 /*                                                                                               */
@@ -121,21 +121,21 @@ rt_timepoint rtlog_rtTextureData(rt_texture texture, enum rt_texture_type type, 
 	return result;
 }
 
-rt_timepoint rtlog_rtTextureSubcopy(rt_texture src_texture, u32 src_mip, u32 src_x, u32 src_y, u32 src_z, rt_texture dst_texture, u32 dst_mip, u32 dst_x, u32 dst_y, u32 dst_z, u32 width, u32 height, u32 depth) {
+rt_timepoint rtlog_rtTextureSubcopy(rt_texture src_texture, u32 src_mip, rt_extent_3d src_offset, rt_texture dst_texture, u32 dst_mip, rt_extent_3d dst_offset, rt_extent_3d extent) {
 	u64 start_ns = rtlog_now_ns();
 
-	rtlog_printf("rtTextureSubcopy(src_texture=%s, src_mip=%u, src=(%u,%u,%u), dst_texture=%s, dst_mip=%u, dst=(%u,%u,%u), size=(%u,%u,%u))\n", rtlog_pointer(src_texture), src_mip, src_x, src_y, src_z, rtlog_pointer(dst_texture), dst_mip, dst_x, dst_y, dst_z, width, height, depth);
-	rt_timepoint result = next_rtTextureSubcopy(src_texture, src_mip, src_x, src_y, src_z, dst_texture, dst_mip, dst_x, dst_y, dst_z, width, height, depth);
+	rtlog_printf("rtTextureSubcopy(src_texture=%s, src_mip=%u, src=(%zu,%zu,%zu), dst_texture=%s, dst_mip=%u, dst=(%zu,%zu,%zu), size=(%zu,%zu,%zu))\n", rtlog_pointer(src_texture), src_mip, src_offset.width, src_offset.height, src_offset.depth, rtlog_pointer(dst_texture), dst_mip, dst_offset.width, dst_offset.height, dst_offset.depth, extent.width, extent.height, extent.depth);
+	rt_timepoint result = next_rtTextureSubcopy(src_texture, src_mip, src_offset, dst_texture, dst_mip, dst_offset, extent);
 	rtlog_printf("rtTextureSubcopy -> %s [%s]\n", rtlog_timepoint(result), rtlog_elapsed(start_ns));
 	rtlog_error("rtTextureSubcopy");
 	return result;
 }
 
-rt_timepoint rtlog_rtTextureSubdata(rt_texture texture, u32 mip, u32 offset_x, u32 offset_y, u32 offset_z, u32 width, u32 height, u32 depth, const void* data) {
+rt_timepoint rtlog_rtTextureSubdata(rt_texture texture, u32 mip, rt_extent_3d offset, rt_extent_3d extent, const void* data) {
 	u64 start_ns = rtlog_now_ns();
 
-	rtlog_printf("rtTextureSubdata(texture=%s, mip=%u, offset=(%u,%u,%u), size=(%u,%u,%u), data=%s)\n", rtlog_pointer(texture), mip, offset_x, offset_y, offset_z, width, height, depth, rtlog_pointer(data));
-	rt_timepoint result = next_rtTextureSubdata(texture, mip, offset_x, offset_y, offset_z, width, height, depth, data);
+	rtlog_printf("rtTextureSubdata(texture=%s, mip=%u, offset=(%zu,%zu,%zu), size=(%zu,%zu,%zu), data=%s)\n", rtlog_pointer(texture), mip, offset.width, offset.height, offset.depth, extent.width, extent.height, extent.depth, rtlog_pointer(data));
+	rt_timepoint result = next_rtTextureSubdata(texture, mip, offset, extent, data);
 	rtlog_printf("rtTextureSubdata -> %s [%s]\n", rtlog_timepoint(result), rtlog_elapsed(start_ns));
 	rtlog_error("rtTextureSubdata");
 	return result;

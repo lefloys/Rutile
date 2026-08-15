@@ -1,8 +1,9 @@
 #ifndef RT_SYNC_H
 #define RT_SYNC_H
 
+#define RT_TYPES_ONLY
 #include "rutile.h"
-#include <stdbool.h>
+#undef RT_TYPES_ONLY
 
 #ifdef __cplusplus
 extern "C" {
@@ -26,6 +27,7 @@ void rt_native_wait_handle_wait(void* handle);
 void rt_native_wait_handle_close(void* handle);
 
 struct rt_mutex* rt_mutex_create(void);
+usize rt_mutex_allocation_size(void);
 void rt_mutex_destroy(struct rt_mutex* mutex);
 void rt_mutex_lock(struct rt_mutex* mutex);
 void rt_mutex_unlock(struct rt_mutex* mutex);

@@ -4,14 +4,14 @@
 /*                                                                                               */
 /*===============================================================================================*/
 
-RT_EXPORT void rtInit(const char* const* features, u32 feature_count) { rtlog_rtInit(features, feature_count); }
-RT_EXPORT void rtExit(void) { rtlog_rtExit(); }
-RT_EXPORT void rtSetOutput(PFN_rtOutput output, void* user_data) { rtlog_rtSetOutput(output, user_data); }
-RT_EXPORT enum rt_error rtError(void) { return rtlog_rtError(); }
-RT_EXPORT const char* rtErrorMessage(void) { return rtlog_rtErrorMessage(); }
-RT_EXPORT void rtClearError(void) { rtlog_rtClearError(); }
-RT_EXPORT const char* rtGetName(void) { return rtlog_rtGetName(); }
-RT_EXPORT enum rt_format_usage rtQueryFormatCapabilities(enum rt_format format) { return rtlog_rtQueryFormatCapabilities(format); }
+RT_API_PUBLIC void rtInit(const char* const* features, u32 feature_count) { rtlog_rtInit(features, feature_count); }
+RT_API_PUBLIC void rtExit(void) { rtlog_rtExit(); }
+RT_API_PUBLIC void rtSetOutput(PFN_rtOutput output, void* user_data) { rtlog_rtSetOutput(output, user_data); }
+RT_API_PUBLIC enum rt_error rtError(void) { return rtlog_rtError(); }
+RT_API_PUBLIC const char* rtErrorMessage(void) { return rtlog_rtErrorMessage(); }
+RT_API_PUBLIC void rtClearError(void) { rtlog_rtClearError(); }
+RT_API_PUBLIC const char* rtGetName(void) { return rtlog_rtGetName(); }
+RT_API_PUBLIC enum rt_format_usage rtQueryFormatCapabilities(enum rt_format format) { return rtlog_rtQueryFormatCapabilities(format); }
 
 /*===============================================================================================*/
 /*                                                                                               */

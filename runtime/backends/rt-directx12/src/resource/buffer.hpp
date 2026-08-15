@@ -46,8 +46,8 @@ struct rtdx_buffer_storage {
 	u32 ref_count;
 };
 
-rtdx_timepoint rtdx_buffer_data(rtdx_context* ctx, rtdx_buffer* buffer, rt_buffer_mode mode, rt_buffer_usage usage, u64 size, const void* data);
-rtdx_timepoint rtdx_buffer_subdata(rtdx_context* ctx, rtdx_buffer* buffer, u64 offset, u64 size, const void* data);
+rt_timepoint rtdx_buffer_data(rtdx_context* ctx, rtdx_buffer* buffer, rt_buffer_mode mode, rt_buffer_usage usage, u64 size, const void* data);
+rt_timepoint rtdx_buffer_subdata(rtdx_context* ctx, rtdx_buffer* buffer, u64 offset, u64 size, const void* data);
 void rtdx_buffer_read(rtdx_context* ctx, rtdx_buffer* buffer, u64 offset, u64 size, void* data);
 void rtdx_buffer_storage_retain(rtdx_buffer_storage* storage);
 void rtdx_buffer_storage_release(rtdx_buffer_storage* storage);

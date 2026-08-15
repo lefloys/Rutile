@@ -1,10 +1,11 @@
 #include "resource.h"
+#include "context.h"
 #include "buffer.h"
 #include "command_buffer.h"
-#include "command_context.h"
 #include "error.h"
 #include "framebuffer.h"
 #include "graphics_program.h"
+#include "queue.h"
 #include "resource/swapchain.h"
 #include "texture.h"
 
@@ -90,9 +91,6 @@ void rtvk_resource_finalize(struct rtvk_resource_base* base) {
 	case RT_RESOURCE_COMMAND_BUFFER:
 		rtvk_command_buffer_finish((struct rtvk_command_buffer*)base);
 		break;
-	case RT_RESOURCE_COMMAND_CONTEXT:
-		rtvk_command_context_finish((struct rtvk_command_context*)base);
-		break;
 	case RT_RESOURCE_FRAMEBUFFER:
 		rtvk_framebuffer_finish((struct rtvk_framebuffer*)base);
 		break;
@@ -124,7 +122,22 @@ bool rtvk_resource_ready_to_destroy(struct rtvk_resource_base* base) {
 		   rtvk_atomic_load(&base->job_count) == 0;
 }
 
-rt_timepoint rtvk_timepoint_to_public(struct rtvk_timepoint timepoint) {
-	rt_timepoint result = { (rt_queue)timepoint.queue, timepoint.value };
-	return result;
+rt_timepoint rtvk_timepoint_make(struct rtvk_queue* queue, u64 value) {
+	if (!queue || value == 0) {
+		return (rt_timepoint){ 0 };
+	}
+	return (rt_timepoint){ ((u64)queue->timepoint_id << 56) | value };
+}
+
+struct rtvk_queue* rtvk_timepoint_queue(struct rtvk_context* ctx, rt_timepoint timepoint) {
+	u32 id = (u32)(timepoint.value >> 56);
+	u64 value = timepoint.value & UINT64_C(0x00FFFFFFFFFFFFFF);
+	if (!id || !value || id > ctx->queue_count) {
+		return NULL;
+	}
+	return ctx->queues[id - 1];
+}
+
+u64 rtvk_timepoint_value(rt_timepoint timepoint) {
+	return timepoint.value & UINT64_C(0x00FFFFFFFFFFFFFF);
 }

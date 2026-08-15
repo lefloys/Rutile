@@ -10,47 +10,47 @@
 /*                                                                                               */
 /*===============================================================================================*/
 
-RT_EXPORT rt_texture rtTextureCreate(void) {
+RT_API_PUBLIC rt_texture rtTextureCreate(void) {
 	return rtval_texture_to_handle(rtval_texture_create());
 }
 
-RT_EXPORT void rtTextureDestroy(rt_texture texture) {
+RT_API_PUBLIC void rtTextureDestroy(rt_texture texture) {
 	rtval_texture_destroy(rtval_texture_from_handle(texture));
 }
 
-RT_EXPORT rt_texture_view rtTextureViewCreate(void) {
+RT_API_PUBLIC rt_texture_view rtTextureViewCreate(void) {
 	return rtval_texture_view_to_handle(rtval_texture_view_create());
 }
 
-RT_EXPORT void rtTextureViewBind(rt_texture_view texture_view, rt_texture texture) {
+RT_API_PUBLIC void rtTextureViewBind(rt_texture_view texture_view, rt_texture texture) {
 	rtval_texture_view_bind(rtval_texture_view_from_handle(texture_view), rtval_texture_from_handle(texture));
 }
 
-RT_EXPORT void rtTextureViewDestroy(rt_texture_view texture_view) {
+RT_API_PUBLIC void rtTextureViewDestroy(rt_texture_view texture_view) {
 	rtval_texture_view_destroy(rtval_texture_view_from_handle(texture_view));
 }
 
-RT_EXPORT void rtTextureViewFilter(rt_texture_view texture_view, enum rt_filter mag_filter, enum rt_filter min_filter, enum rt_mip_filter mip_filter) {
+RT_API_PUBLIC void rtTextureViewFilter(rt_texture_view texture_view, enum rt_filter mag_filter, enum rt_filter min_filter, enum rt_mip_filter mip_filter) {
 	rtval_texture_view_filter(rtval_texture_view_from_handle(texture_view), mag_filter, min_filter, mip_filter);
 }
 
-RT_EXPORT void rtTextureViewAddress(rt_texture_view texture_view, enum rt_address_mode address_u, enum rt_address_mode address_v, enum rt_address_mode address_w) {
+RT_API_PUBLIC void rtTextureViewAddress(rt_texture_view texture_view, enum rt_address_mode address_u, enum rt_address_mode address_v, enum rt_address_mode address_w) {
 	rtval_texture_view_address(rtval_texture_view_from_handle(texture_view), address_u, address_v, address_w);
 }
 
-RT_EXPORT void rtTextureViewAnisotropy(rt_texture_view texture_view, u32 max_anisotropy) {
+RT_API_PUBLIC void rtTextureViewAnisotropy(rt_texture_view texture_view, u32 max_anisotropy) {
 	rtval_texture_view_anisotropy(rtval_texture_view_from_handle(texture_view), max_anisotropy);
 }
 
-RT_EXPORT void rtTextureViewLod(rt_texture_view texture_view, f32 min_lod, f32 max_lod, f32 lod_bias) {
+RT_API_PUBLIC void rtTextureViewLod(rt_texture_view texture_view, f32 min_lod, f32 max_lod, f32 lod_bias) {
 	rtval_texture_view_lod(rtval_texture_view_from_handle(texture_view), min_lod, max_lod, lod_bias);
 }
 
-RT_EXPORT rt_extent_3d rtTextureViewExtent(rt_texture_view texture_view) {
+RT_API_PUBLIC rt_extent_3d rtTextureViewExtent(rt_texture_view texture_view) {
 	return rtval_texture_view_extent(rtval_texture_view_from_handle(texture_view));
 }
 
-RT_EXPORT rt_timepoint rtTextureCopy(rt_texture src_texture, u32 src_mip, rt_texture dst_texture, u32 dst_mip) {
+RT_API_PUBLIC rt_timepoint rtTextureCopy(rt_texture src_texture, u32 src_mip, rt_texture dst_texture, u32 dst_mip) {
 	return rtval_texture_copy(
 		rtval_texture_from_handle(src_texture),
 		src_mip,
@@ -59,7 +59,7 @@ RT_EXPORT rt_timepoint rtTextureCopy(rt_texture src_texture, u32 src_mip, rt_tex
 	);
 }
 
-RT_EXPORT rt_timepoint rtTextureData(rt_texture texture, enum rt_texture_type type, u32 mip, u32 width, u32 height, u32 depth, enum rt_format format, const void* data) {
+RT_API_PUBLIC rt_timepoint rtTextureData(rt_texture texture, enum rt_texture_type type, u32 mip, u32 width, u32 height, u32 depth, enum rt_format format, const void* data) {
 	return rtval_texture_data(
 		rtval_texture_from_handle(texture),
 		type,
@@ -72,39 +72,29 @@ RT_EXPORT rt_timepoint rtTextureData(rt_texture texture, enum rt_texture_type ty
 	);
 }
 
-RT_EXPORT rt_timepoint rtTextureSubcopy(rt_texture src_texture, u32 src_mip, u32 src_x, u32 src_y, u32 src_z, rt_texture dst_texture, u32 dst_mip, u32 dst_x, u32 dst_y, u32 dst_z, u32 width, u32 height, u32 depth) {
+RT_API_PUBLIC rt_timepoint rtTextureSubcopy(rt_texture src_texture, u32 src_mip, rt_extent_3d src_offset, rt_texture dst_texture, u32 dst_mip, rt_extent_3d dst_offset, rt_extent_3d extent) {
 	return rtval_texture_subcopy(
 		rtval_texture_from_handle(src_texture),
 		src_mip,
-		src_x,
-		src_y,
-		src_z,
+		src_offset,
 		rtval_texture_from_handle(dst_texture),
 		dst_mip,
-		dst_x,
-		dst_y,
-		dst_z,
-		width,
-		height,
-		depth
+		dst_offset,
+		extent
 	);
 }
 
-RT_EXPORT rt_timepoint rtTextureSubdata(rt_texture texture, u32 mip, u32 offset_x, u32 offset_y, u32 offset_z, u32 width, u32 height, u32 depth, const void* data) {
+RT_API_PUBLIC rt_timepoint rtTextureSubdata(rt_texture texture, u32 mip, rt_extent_3d offset, rt_extent_3d extent, const void* data) {
 	return rtval_texture_subdata(
 		rtval_texture_from_handle(texture),
 		mip,
-		offset_x,
-		offset_y,
-		offset_z,
-		width,
-		height,
-		depth,
+		offset,
+		extent,
 		data
 	);
 }
 
-RT_EXPORT rt_timepoint rtTextureViewCopyToBuffer(rt_texture_view texture_view, rt_buffer buffer) {
+RT_API_PUBLIC rt_timepoint rtTextureViewCopyToBuffer(rt_texture_view texture_view, rt_buffer buffer) {
 	return rtval_texture_view_copy_to_buffer(
 		rtval_texture_view_from_handle(texture_view),
 		rtval_buffer_from_handle(buffer)
@@ -239,7 +229,7 @@ rt_extent_3d rtval_texture_view_extent(struct rtval_texture_view* view) {
 }
 
 rt_timepoint rtval_texture_copy(struct rtval_texture* src, u32 src_mip, struct rtval_texture* dst, u32 dst_mip) {
-	rt_timepoint timepoint = { RT_NULL_HANDLE, 0 };
+	rt_timepoint timepoint = { 0 };
 	struct rtval_texture* s = RTVAL_PAYLOAD(src, struct rtval_texture);
 	struct rtval_texture* d = RTVAL_PAYLOAD(dst, struct rtval_texture);
 	if (!s || !d) {
@@ -247,18 +237,13 @@ rt_timepoint rtval_texture_copy(struct rtval_texture* src, u32 src_mip, struct r
 		return timepoint;
 	}
 
-	struct rtval_queue* q = rtval_queue_query(RT_QUEUE_TRANSFER);
-	if (!q) {
-		RTVAL_DROP("rtTextureCopy: no transfer queue");
-		return timepoint;
-	}
 	timepoint = rtval_next_rtTextureCopy(s->backend, src_mip, d->backend, dst_mip);
 	rtval_report_error("rtTextureCopy");
 	return rtval_timepoint_wrap(timepoint);
 }
 
 rt_timepoint rtval_texture_data(struct rtval_texture* texture, enum rt_texture_type type, u32 mip, u32 width, u32 height, u32 depth, enum rt_format format, const void* data) {
-	rt_timepoint timepoint = { RT_NULL_HANDLE, 0 };
+	rt_timepoint timepoint = { 0 };
 	struct rtval_texture* t = RTVAL_PAYLOAD(texture, struct rtval_texture);
 	if (!t) {
 		RTVAL_DROP("rtTextureData: invalid texture");
@@ -269,31 +254,26 @@ rt_timepoint rtval_texture_data(struct rtval_texture* texture, enum rt_texture_t
 	return rtval_timepoint_wrap(timepoint);
 }
 
-rt_timepoint rtval_texture_subcopy(struct rtval_texture* src, u32 src_mip, u32 src_x, u32 src_y, u32 src_z, struct rtval_texture* dst, u32 dst_mip, u32 dst_x, u32 dst_y, u32 dst_z, u32 width, u32 height, u32 depth) {
-	rt_timepoint timepoint = { RT_NULL_HANDLE, 0 };
+rt_timepoint rtval_texture_subcopy(struct rtval_texture* src, u32 src_mip, rt_extent_3d src_offset, struct rtval_texture* dst, u32 dst_mip, rt_extent_3d dst_offset, rt_extent_3d extent) {
+	rt_timepoint timepoint = { 0 };
 	struct rtval_texture* s = RTVAL_PAYLOAD(src, struct rtval_texture);
 	struct rtval_texture* d = RTVAL_PAYLOAD(dst, struct rtval_texture);
 	if (!s || !d) {
 		RTVAL_DROP("rtTextureSubcopy: invalid texture");
 		return timepoint;
 	}
-	if (width == 0 || height == 0 || depth == 0) {
+	if (extent.width == 0 || extent.height == 0 || extent.depth == 0) {
 		RTVAL_DROP("rtTextureSubcopy: zero extent");
 		return timepoint;
 	}
 
-	struct rtval_queue* q = rtval_queue_query(RT_QUEUE_TRANSFER);
-	if (!q) {
-		RTVAL_DROP("rtTextureSubcopy: no transfer queue");
-		return timepoint;
-	}
-	timepoint = rtval_next_rtTextureSubcopy(s->backend, src_mip, src_x, src_y, src_z, d->backend, dst_mip, dst_x, dst_y, dst_z, width, height, depth);
+	timepoint = rtval_next_rtTextureSubcopy(s->backend, src_mip, src_offset, d->backend, dst_mip, dst_offset, extent);
 	rtval_report_error("rtTextureSubcopy");
 	return rtval_timepoint_wrap(timepoint);
 }
 
-rt_timepoint rtval_texture_subdata(struct rtval_texture* texture, u32 mip, u32 offset_x, u32 offset_y, u32 offset_z, u32 width, u32 height, u32 depth, const void* data) {
-	rt_timepoint timepoint = { RT_NULL_HANDLE, 0 };
+rt_timepoint rtval_texture_subdata(struct rtval_texture* texture, u32 mip, rt_extent_3d offset, rt_extent_3d extent, const void* data) {
+	rt_timepoint timepoint = { 0 };
 	struct rtval_texture* t = RTVAL_PAYLOAD(texture, struct rtval_texture);
 	if (!t) {
 		RTVAL_DROP("rtTextureSubdata: invalid texture");
@@ -303,23 +283,18 @@ rt_timepoint rtval_texture_subdata(struct rtval_texture* texture, u32 mip, u32 o
 		RTVAL_DROP("rtTextureSubdata: NULL data");
 		return timepoint;
 	}
-	if (width == 0 || height == 0 || depth == 0) {
+	if (extent.width == 0 || extent.height == 0 || extent.depth == 0) {
 		RTVAL_DROP("rtTextureSubdata: zero extent");
 		return timepoint;
 	}
 
-	struct rtval_queue* q = rtval_queue_query(RT_QUEUE_TRANSFER);
-	if (!q) {
-		RTVAL_DROP("rtTextureSubdata: no transfer queue");
-		return timepoint;
-	}
-	timepoint = rtval_next_rtTextureSubdata(t->backend, mip, offset_x, offset_y, offset_z, width, height, depth, data);
+	timepoint = rtval_next_rtTextureSubdata(t->backend, mip, offset, extent, data);
 	rtval_report_error("rtTextureSubdata");
 	return rtval_timepoint_wrap(timepoint);
 }
 
 rt_timepoint rtval_texture_view_copy_to_buffer(struct rtval_texture_view* view, struct rtval_buffer* buffer) {
-	rt_timepoint timepoint = { RT_NULL_HANDLE, 0 };
+	rt_timepoint timepoint = { 0 };
 	struct rtval_texture_view* v = RTVAL_PAYLOAD(view, struct rtval_texture_view);
 	struct rtval_buffer* b = RTVAL_PAYLOAD(buffer, struct rtval_buffer);
 	if (!v || !b) {
@@ -327,11 +302,6 @@ rt_timepoint rtval_texture_view_copy_to_buffer(struct rtval_texture_view* view, 
 		return timepoint;
 	}
 
-	struct rtval_queue* q = rtval_queue_query(RT_QUEUE_TRANSFER);
-	if (!q) {
-		RTVAL_DROP("rtTextureViewCopyToBuffer: no transfer queue");
-		return timepoint;
-	}
 	timepoint = rtval_next_rtTextureViewCopyToBuffer(v->backend, b->backend);
 	rtval_report_error("rtTextureViewCopyToBuffer");
 	return rtval_timepoint_wrap(timepoint);

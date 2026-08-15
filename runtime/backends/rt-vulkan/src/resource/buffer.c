@@ -20,23 +20,23 @@ void rtBufferDestroy(rt_buffer buffer) {
 }
 
 rt_timepoint rtBufferData(rt_buffer buffer, enum rt_buffer_mode mode, enum rt_buffer_usage usage, u64 size, const void* data) {
-	return rtvk_timepoint_to_public(rtvk_buffer_data(
+	return rtvk_buffer_data(
 		rtvk_get_current_context(),
 		rtvk_buffer_from_handle(buffer),
 		mode,
 		usage,
 		size,
 		data
-	));
+	);
 }
 rt_timepoint rtBufferSubdata(rt_buffer buffer, u64 offset, u64 size, const void* data) {
-	return rtvk_timepoint_to_public(rtvk_buffer_subdata(
+	return rtvk_buffer_subdata(
 		rtvk_get_current_context(),
 		rtvk_buffer_from_handle(buffer),
 		offset,
 		size,
 		data
-	));
+	);
 }
 void rtBufferRead(rt_buffer buffer, u64 offset, u64 size, void* data) {
 	rtvk_buffer_read(
@@ -274,12 +274,12 @@ void rtvk_buffer_upload_command(struct rtvk_context* ctx, struct rtvk_queue* que
 	assert(queue);
 	if (queue->upload_command_pool && queue->upload_command_buffer) {
 		rtvk_queue_collect_to_value(ctx, queue, rtvk_queue_completed_value(ctx, queue));
-		if (queue->upload_command_timepoint.queue && queue->upload_command_timepoint.value > queue->completed_value) {
+		if (rtvk_timepoint_value(queue->upload_command_timepoint) > queue->completed_value) {
 			rtvk_queue_retire_upload_resources(ctx, queue, true, false);
 		}
 	}
 	if (queue->upload_command_pool && queue->upload_command_buffer) {
-		queue->upload_command_timepoint = (struct rtvk_timepoint){ NULL, 0 };
+		queue->upload_command_timepoint = (rt_timepoint){ 0 };
 		vkResetCommandPool(ctx->vk_device, queue->upload_command_pool, 0);
 		return;
 	}
@@ -310,7 +310,7 @@ void rtvk_buffer_upload_staging(struct rtvk_context* ctx, struct rtvk_queue* que
 	assert(queue);
 	if (queue->upload_staging_buffer && queue->upload_staging_size >= size) {
 		rtvk_queue_collect_to_value(ctx, queue, rtvk_queue_completed_value(ctx, queue));
-		if (queue->upload_command_timepoint.queue && queue->upload_command_timepoint.value > queue->completed_value) {
+		if (rtvk_timepoint_value(queue->upload_command_timepoint) > queue->completed_value) {
 			rtvk_queue_retire_upload_resources(ctx, queue, false, true);
 		}
 	}
@@ -320,7 +320,7 @@ void rtvk_buffer_upload_staging(struct rtvk_context* ctx, struct rtvk_queue* que
 
 	rtvk_queue_collect_to_value(ctx, queue, rtvk_queue_completed_value(ctx, queue));
 	if (queue->upload_staging_buffer) {
-		if (queue->upload_command_timepoint.queue && queue->upload_command_timepoint.value > queue->completed_value) {
+		if (rtvk_timepoint_value(queue->upload_command_timepoint) > queue->completed_value) {
 			rtvk_queue_retire_upload_resources(ctx, queue, false, true);
 		} else {
 			vmaDestroyBuffer(ctx->vma_allocator, queue->upload_staging_buffer, queue->upload_staging_allocation);
@@ -354,8 +354,8 @@ void rtvk_buffer_upload_staging(struct rtvk_context* ctx, struct rtvk_queue* que
 	queue->upload_staging_size = size;
 }
 
-struct rtvk_timepoint rtvk_buffer_upload_static(struct rtvk_context* ctx, struct rtvk_queue* queue, struct rtvk_buffer* buffer, u64 offset, u64 size, const void* data) {
-	struct rtvk_timepoint timepoint = { queue, 0 };
+rt_timepoint rtvk_buffer_upload_static(struct rtvk_context* ctx, struct rtvk_queue* queue, struct rtvk_buffer* buffer, u64 offset, u64 size, const void* data) {
+	rt_timepoint timepoint = { 0 };
 	if (!size) {
 		return timepoint;
 	}
@@ -438,7 +438,7 @@ struct rtvk_timepoint rtvk_buffer_upload_static(struct rtvk_context* ctx, struct
 
 	queue->timeline_value = signal_value;
 	queue->submitted_value = signal_value;
-	timepoint.value = signal_value;
+	timepoint = rtvk_timepoint_make(queue, signal_value);
 	queue->upload_command_timepoint = timepoint;
 	return timepoint;
 }
@@ -469,8 +469,8 @@ struct rtvk_buffer* rtvk_buffer_take_reusable_node(struct rtvk_buffer* buffer, u
 	return NULL;
 }
 
-struct rtvk_timepoint rtvk_buffer_data(struct rtvk_context* ctx, struct rtvk_buffer* buffer, enum rt_buffer_mode mode, enum rt_buffer_usage usage, u64 size, const void* data) {
-	struct rtvk_timepoint timepoint = { NULL, 0 };
+rt_timepoint rtvk_buffer_data(struct rtvk_context* ctx, struct rtvk_buffer* buffer, enum rt_buffer_mode mode, enum rt_buffer_usage usage, u64 size, const void* data) {
+	rt_timepoint timepoint = { 0 };
 	if (!buffer) {
 		rtvk_throwf(RT_IMPROPER_USAGE, "buffer is NULL");
 		return timepoint;
@@ -530,8 +530,8 @@ struct rtvk_timepoint rtvk_buffer_data(struct rtvk_context* ctx, struct rtvk_buf
 	return timepoint;
 }
 
-struct rtvk_timepoint rtvk_buffer_subdata(struct rtvk_context* ctx, struct rtvk_buffer* buffer, u64 offset, u64 size, const void* data) {
-	struct rtvk_timepoint timepoint = { NULL, 0 };
+rt_timepoint rtvk_buffer_subdata(struct rtvk_context* ctx, struct rtvk_buffer* buffer, u64 offset, u64 size, const void* data) {
+	rt_timepoint timepoint = { 0 };
 	if (!buffer || !buffer->active) {
 		rtvk_throwf(RT_IMPROPER_USAGE, "buffer has no storage");
 		return timepoint;

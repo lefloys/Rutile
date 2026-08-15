@@ -35,8 +35,6 @@ target_sources(${PROJECT_NAME} PRIVATE
     
     "src/resource/command_buffer.c"
     "src/resource/command_buffer.h"
-    "src/resource/command_context.c"
-    "src/resource/command_context.h"
     "src/resource/framebuffer.c"
     "src/resource/framebuffer.h"
     "src/resource/graphics_program.c"
@@ -58,14 +56,13 @@ target_sources(${PROJECT_NAME} PRIVATE
     "src/glfw/swapchain.h"
     "src/error.h"
     "src/core.h"
-    "src/types.h"
     "src/context.h"
     "src/context.c"
 )
 target_include_directories(${PROJECT_NAME} PRIVATE
     "src"
     "../../common"
-    "../../bindings/c/include"
+    "../../../include"
     "${RUTILE_SOURCE_DIR}/RTSL/transpilers/spirv/include"
 )
 

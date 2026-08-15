@@ -2,7 +2,9 @@
 #define RTGL_RESOURCE_H
 
 #include "config.h"
-#include "types.h"
+#define RT_TYPES_ONLY
+#include "rutile.h"
+#undef RT_TYPES_ONLY
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -34,10 +36,6 @@ struct rtgl_resource_base {
 	bool zombie;
 };
 
-struct rtgl_timepoint {
-	struct rtgl_queue* queue;
-	u64 value;
-};
 
 void* rtgl_alloc_resource(usize size);
 void rtgl_init_resource_base(struct rtgl_context* ctx, struct rtgl_resource_base* base, rtgl_resource_type type);
@@ -48,7 +46,6 @@ void rtgl_resource_retire(struct rtgl_resource_base* base);
 void rtgl_resource_try_free(struct rtgl_resource_base* base);
 void rtgl_resource_finalize(struct rtgl_resource_base* base);
 bool rtgl_resource_ready_to_destroy(struct rtgl_resource_base* base);
-rt_timepoint rtgl_timepoint_to_public(struct rtgl_timepoint timepoint);
 
 /*===============================================================================================*/
 /*                                                                                               */

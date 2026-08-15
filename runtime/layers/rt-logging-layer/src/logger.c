@@ -105,7 +105,7 @@ const char* rtlog_timepoint(rt_timepoint timepoint) {
 	static RTLOG_THREAD_LOCAL u32 buffer_index = 0;
 	char* buffer = buffers[buffer_index++ % RTLOG_TIMEPOINT_BUFFER_COUNT];
 
-	snprintf(buffer, RTLOG_TIMEPOINT_BUFFER_SIZE, "{queue=%s, value=%llu}", rtlog_pointer(timepoint.queue), (u64)timepoint.value);
+	snprintf(buffer, RTLOG_TIMEPOINT_BUFFER_SIZE, "{value=%llu}", (u64)timepoint.value);
 	buffer[RTLOG_TIMEPOINT_BUFFER_SIZE - 1] = '\0';
 	return buffer;
 }

@@ -28,8 +28,7 @@ rt_swapchain_acquire_result rtSwapchainAcquire(rt_swapchain swapchain) {
 }
 
 void rtSwapchainPresent(rt_swapchain swapchain, rt_timepoint rendered) {
-	struct rtgl_timepoint timepoint = { (struct rtgl_queue*)rendered.queue, rendered.value };
-	rtgl_swapchain_present(rtgl_get_current_context(), rtgl_swapchain_from_handle(swapchain), timepoint);
+	rtgl_swapchain_present(rtgl_get_current_context(), rtgl_swapchain_from_handle(swapchain), rendered);
 }
 
 /*===============================================================================================*/
@@ -149,11 +148,11 @@ void rtgl_swapchain_resize(struct rtgl_context* ctx, struct rtgl_swapchain* swap
 }
 rt_swapchain_acquire_result rtgl_swapchain_acquire(struct rtgl_context* ctx, struct rtgl_swapchain* swapchain) {
 	struct rtgl_framebuffer* framebuffer = swapchain->frames[swapchain->current_frame_index]->framebuffer;
-	return (rt_swapchain_acquire_result){ rtgl_framebuffer_to_handle(framebuffer), { RT_NULL_HANDLE, 0 } };
+	return (rt_swapchain_acquire_result){ rtgl_framebuffer_to_handle(framebuffer), { 0 } };
 }
 
-void rtgl_swapchain_present(struct rtgl_context* ctx, struct rtgl_swapchain* swapchain, struct rtgl_timepoint rendered) {
-	struct rtgl_queue* queue = rendered.queue ? rendered.queue : rtgl_context_graphics_queue(ctx);
+void rtgl_swapchain_present(struct rtgl_context* ctx, struct rtgl_swapchain* swapchain, rt_timepoint rendered) {
+	struct rtgl_queue* queue = rtgl_context_graphics_queue(ctx);
 	rtgl_timepoint_wait(ctx, rendered);
 	rtgl_queue_present(queue, swapchain, swapchain->frames[swapchain->current_frame_index]->framebuffer);
 	swapchain->current_frame_index = (swapchain->current_frame_index + 1) % swapchain->image_count;

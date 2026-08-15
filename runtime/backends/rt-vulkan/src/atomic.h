@@ -1,9 +1,9 @@
 #ifndef RTVK_ATOMIC_H
 #define RTVK_ATOMIC_H
 
-#include "types.h"
-
-#include <stdbool.h>
+#define RT_TYPES_ONLY
+#include "rutile.h"
+#undef RT_TYPES_ONLY
 
 #ifdef __cplusplus
 extern "C" {

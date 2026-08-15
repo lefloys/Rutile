@@ -9,7 +9,9 @@
 #include "resource/queue.h"
 #include "resource/swapchain.h"
 #include "resource/texture.h"
-#include "types.h"
+#define RT_TYPES_ONLY
+#include "rutile.h"
+#undef RT_TYPES_ONLY
 
 /*===============================================================================================*/
 /*                                                                                               */

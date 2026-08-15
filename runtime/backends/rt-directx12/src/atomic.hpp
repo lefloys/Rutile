@@ -1,6 +1,8 @@
 #pragma once
 
-#include "types.hpp"
+#define RT_TYPES_ONLY
+#include "rutile.h"
+#undef RT_TYPES_ONLY
 
 #include <atomic>
 

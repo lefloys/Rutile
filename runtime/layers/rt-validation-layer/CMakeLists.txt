@@ -10,7 +10,6 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE RT_BUILD_DLL)
 target_sources(${PROJECT_NAME} PRIVATE
     "src/buffer.c"
     "src/command_buffer.c"
-    "src/compute_program.c"
     "src/core.c"
     "src/entry.c"
     "src/framebuffer.c"
@@ -22,7 +21,6 @@ target_sources(${PROJECT_NAME} PRIVATE
     "src/texture.c"
     "src/buffer.h"
     "src/command_buffer.h"
-    "src/compute_program.h"
     "src/framebuffer.h"
     "src/graphics_program.h"
     "src/handles.h"

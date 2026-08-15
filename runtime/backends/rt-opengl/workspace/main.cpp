@@ -5,10 +5,15 @@
 
 #include <GLFW/glfw3.h>
 
-#include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <iostream>
 
-int main() {
+int main(int argc, char** argv) {
+	u32 frame_limit = 0;
+	if (argc == 3 && std::strcmp(argv[1], "--frames") == 0) {
+		frame_limit = static_cast<u32>(std::strtoul(argv[2], nullptr, 10));
+	}
 	rtLoadDevelopment("rt-opengl", nullptr, 0);
 
 	const char* features[] = { RT_FEATURE_PRESENTATION };
@@ -22,7 +27,7 @@ int main() {
 
 	rt_swapchain swapchain = rtSwapchainCreate();
 	rtSwapchainBindWindowGLFW(swapchain, window);
-	rt_queue queue = rtQueueQuery(RT_QUEUE_GRAPHICS);
+	rt_queue queue = rtQueueCreate(RT_QUEUE_GRAPHICS);
 
 	u32 upload[] = { 1, 2, 3, 4 };
 	u32 update[] = { 20, 30 };
@@ -35,7 +40,7 @@ int main() {
 	rtBufferRead(buffer, 0, sizeof(download), download);
 
 	if (std::memcmp(download, expected, sizeof(expected)) != 0) {
-		std::fprintf(stderr, "rt-opengl-workspace: buffer readback mismatch: {%u, %u, %u, %u}\n", download[0], download[1], download[2], download[3]);
+		std::cerr << "rt-opengl-workspace: buffer readback mismatch: {" << download[0] << ", " << download[1] << ", " << download[2] << ", " << download[3] << "}\n";
 		rtBufferDestroy(buffer);
 		rtSwapchainDestroy(swapchain);
 		rtExit();
@@ -45,9 +50,9 @@ int main() {
 		return 1;
 	}
 
-	rt_command_context command_context = rtCommandContextCreate();
-	rt_command_buffer command_buffer = rtCommandContextAllocate(command_context);
-	while (!glfwWindowShouldClose(window)) {
+	rt_command_buffer command_buffer = rtCommandBufferCreate();
+	u32 rendered_frames = 0;
+	while (!glfwWindowShouldClose(window) && (!frame_limit || rendered_frames < frame_limit)) {
 		glfwPollEvents();
 		if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
 			glfwSetWindowShouldClose(window, GLFW_TRUE);
@@ -57,24 +62,25 @@ int main() {
 		}
 
 		rt_swapchain_acquire_result acquired = rtSwapchainAcquire(swapchain);
-		rtCommandContextBind(command_context, queue);
-		rtCommandContextBindFramebuffer(command_context, acquired.framebuffer);
-		rtCommandContextClearColor(command_context, 0, 0.02f, 0.11f, 0.18f, 1.0f);
+		rtCmdReset(command_buffer);
 		rtCmdBegin(command_buffer);
+		rtCmdWait(command_buffer, acquired.timepoint);
+		rtCmdBeginRendering(command_buffer, acquired.framebuffer);
+		rtCmdClearColor(command_buffer, 0, 0.02f, 0.11f, 0.18f, 1.0f);
+		rtCmdEndRendering(command_buffer);
 		rtCmdEnd(command_buffer);
-		rtCommandContextExecute(command_context, command_buffer);
-		rtCommandContextEndRendering(command_context);
 
-		rt_timepoint cleared = rtCommandContextSubmit(command_context);
+		rt_timepoint cleared = rtQueueSubmit(queue, command_buffer);
 		rtSwapchainPresent(swapchain, cleared);
 		rtQueueFlush(queue);
+		rendered_frames++;
 	}
 	rtQueueFlush(queue);
 
-	std::printf("rt-opengl-workspace: initialized %s, verified buffer upload/readback, and cleared the swapchain\n", rtGetName());
+	std::cout << "rt-opengl-workspace: initialized " << rtGetName() << ", verified buffer upload/readback, and cleared the swapchain\n";
 
 	rtCommandBufferDestroy(command_buffer);
-	rtCommandContextDestroy(command_context);
+	rtQueueDestroy(queue);
 	rtBufferDestroy(buffer);
 	rtSwapchainDestroy(swapchain);
 	rtExit();

@@ -2,10 +2,11 @@
 #define RTVK_GLFW_SWAPCHAIN_H
 
 #include "config.h"
-#define RT_NO_API_WRAPPERS
-#include "rt_ext_glfw.h"
-#undef RT_NO_API_WRAPPERS
-#include "types.h"
+#define RT_TYPES_ONLY
+#include "rutile.h"
+#undef RT_TYPES_ONLY
+
+typedef struct GLFWwindow GLFWwindow;
 
 RTVK_API void rtSwapchainBindWindowGLFW(rt_swapchain swapchain, GLFWwindow* window);
 

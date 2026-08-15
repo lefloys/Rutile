@@ -54,6 +54,19 @@ function(rutile_use_runtime target)
                 "Target '${target}' requested unavailable Rutile runtime '${runtime_target}'")
         endif()
 
+        get_target_property(_runtime_deploy_files "${runtime_target}" RUTILE_RUNTIME_DEPLOY_FILES)
+        if(_runtime_deploy_files STREQUAL "_runtime_deploy_files-NOTFOUND")
+            set(_runtime_deploy_files)
+        endif()
+        set(_runtime_deploy_commands)
+        foreach(_runtime_deploy_file IN LISTS _runtime_deploy_files)
+            list(APPEND _runtime_deploy_commands
+                COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                    "${_runtime_deploy_file}"
+                    "$<TARGET_FILE_DIR:${target}>"
+            )
+        endforeach()
+
         # This target has no output on purpose: IDE builds execute it every
         # time the executable is built/launched, keeping copied runtimes in
         # sync even when the executable itself did not relink.
@@ -64,6 +77,7 @@ function(rutile_use_runtime target)
             COMMAND "${CMAKE_COMMAND}" -E copy_if_different
                 "$<TARGET_FILE:${runtime_target}>"
                 "$<TARGET_FILE_DIR:${target}>"
+            ${_runtime_deploy_commands}
             DEPENDS "${runtime_target}"
             VERBATIM
         )

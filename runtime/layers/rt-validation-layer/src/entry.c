@@ -4,4 +4,4 @@
 /*                                                                                               */
 /*===============================================================================================*/
 
-RT_EXPORT const char* rtLayerGetName(void) { return "RT_VALIDATION_LAYER"; }
+RT_API_PUBLIC const char* rtLayerGetName(void) { return "rt-validation-layer"; }

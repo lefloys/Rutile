@@ -1,11 +1,9 @@
 #ifndef RTGL_GLFW_GLFW_H
 #define RTGL_GLFW_GLFW_H
 
-#define RT_NO_API_WRAPPERS
-#include "rt_ext_glfw.h"
-#undef RT_NO_API_WRAPPERS
-
 #include "platform/context.h"
+
+typedef struct GLFWwindow GLFWwindow;
 
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN

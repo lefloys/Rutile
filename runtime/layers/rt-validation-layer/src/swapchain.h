@@ -14,6 +14,6 @@ void rtval_swapchain_destroy(struct rtval_swapchain* swapchain);
 void rtval_swapchain_resize(struct rtval_swapchain* swapchain, u32 width, u32 height);
 rt_swapchain_acquire_result rtval_swapchain_acquire(struct rtval_swapchain* swapchain);
 void rtval_swapchain_present(struct rtval_swapchain* swapchain, rt_timepoint rendered);
-void rtval_swapchain_bind_window_glfw(struct rtval_swapchain* swapchain, GLFWwindow* window);
+void rtval_swapchain_bind_window_glfw(struct rtval_swapchain* swapchain, struct GLFWwindow* window);
 
 #endif

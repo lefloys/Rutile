@@ -16,11 +16,11 @@ void rtBufferDestroy(rt_buffer buffer) {
 }
 
 rt_timepoint rtBufferData(rt_buffer buffer, enum rt_buffer_mode mode, enum rt_buffer_usage usage, u64 size, const void* data) {
-	return rtgl_timepoint_to_public(rtgl_buffer_data(rtgl_get_current_context(), rtgl_buffer_from_handle(buffer), mode, usage, size, data));
+	return rtgl_buffer_data(rtgl_get_current_context(), rtgl_buffer_from_handle(buffer), mode, usage, size, data);
 }
 
 rt_timepoint rtBufferSubdata(rt_buffer buffer, u64 offset, u64 size, const void* data) {
-	return rtgl_timepoint_to_public(rtgl_buffer_subdata(rtgl_get_current_context(), rtgl_buffer_from_handle(buffer), offset, size, data));
+	return rtgl_buffer_subdata(rtgl_get_current_context(), rtgl_buffer_from_handle(buffer), offset, size, data);
 }
 
 void rtBufferRead(rt_buffer buffer, u64 offset, u64 size, void* data) {
@@ -49,8 +49,8 @@ void rtgl_buffer_finish(struct rtgl_buffer* buffer) {
 	rtgl_finish_resource_base(RTGL_RESOURCE_BASE(buffer));
 }
 
-struct rtgl_timepoint rtgl_buffer_data(struct rtgl_context* ctx, struct rtgl_buffer* buffer, enum rt_buffer_mode mode, enum rt_buffer_usage usage, u64 size, const void* data) {
-	struct rtgl_timepoint timepoint = { NULL, 0 };
+rt_timepoint rtgl_buffer_data(struct rtgl_context* ctx, struct rtgl_buffer* buffer, enum rt_buffer_mode mode, enum rt_buffer_usage usage, u64 size, const void* data) {
+	rt_timepoint timepoint = { 0 };
 
 	buffer->mode = mode;
 	buffer->usage = usage;
@@ -59,8 +59,8 @@ struct rtgl_timepoint rtgl_buffer_data(struct rtgl_context* ctx, struct rtgl_buf
 	return timepoint;
 }
 
-struct rtgl_timepoint rtgl_buffer_subdata(struct rtgl_context* ctx, struct rtgl_buffer* buffer, u64 offset, u64 size, const void* data) {
-	struct rtgl_timepoint timepoint = { NULL, 0 };
+rt_timepoint rtgl_buffer_subdata(struct rtgl_context* ctx, struct rtgl_buffer* buffer, u64 offset, u64 size, const void* data) {
+	rt_timepoint timepoint = { 0 };
 
 	if (!size) {
 		return timepoint;

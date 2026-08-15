@@ -2,12 +2,10 @@
 #define RTVK_GLFW_GLFW_H
 
 #include "config.h"
-#define RT_NO_API_WRAPPERS
-#include "rt_ext_glfw.h"
-#undef RT_NO_API_WRAPPERS
 #include <volk.h>
 
 struct rtvk_context;
+typedef struct GLFWwindow GLFWwindow;
 
 void rtvk_init_glfw_platform(void);
 VkSurfaceKHR rtvk_create_glfw_surface(struct rtvk_context* ctx, GLFWwindow* window);

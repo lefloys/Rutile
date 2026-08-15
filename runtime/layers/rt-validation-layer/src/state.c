@@ -7,90 +7,14 @@
 #include <stdlib.h>
 #include <string.h>
 
-PFN_rtInit rtval_next_rtInit = NULL;
-PFN_rtExit rtval_next_rtExit = NULL;
-PFN_rtError rtval_next_rtError = NULL;
-PFN_rtErrorMessage rtval_next_rtErrorMessage = NULL;
-PFN_rtClearError rtval_next_rtClearError = NULL;
-PFN_rtGetName rtval_next_rtGetName = NULL;
-PFN_rtQueryFormatCapabilities rtval_next_rtQueryFormatCapabilities = NULL;
-PFN_rtBufferCreate rtval_next_rtBufferCreate = NULL;
-PFN_rtBufferDestroy rtval_next_rtBufferDestroy = NULL;
-PFN_rtBufferData rtval_next_rtBufferData = NULL;
-PFN_rtBufferSubdata rtval_next_rtBufferSubdata = NULL;
-PFN_rtBufferRead rtval_next_rtBufferRead = NULL;
-PFN_rtTextureCreate rtval_next_rtTextureCreate = NULL;
-PFN_rtTextureDestroy rtval_next_rtTextureDestroy = NULL;
-PFN_rtTextureViewCreate rtval_next_rtTextureViewCreate = NULL;
-PFN_rtTextureViewBind rtval_next_rtTextureViewBind = NULL;
-PFN_rtTextureViewDestroy rtval_next_rtTextureViewDestroy = NULL;
-PFN_rtTextureViewFilter rtval_next_rtTextureViewFilter = NULL;
-PFN_rtTextureViewAddress rtval_next_rtTextureViewAddress = NULL;
-PFN_rtTextureViewAnisotropy rtval_next_rtTextureViewAnisotropy = NULL;
-PFN_rtTextureViewLod rtval_next_rtTextureViewLod = NULL;
-PFN_rtTextureCopy rtval_next_rtTextureCopy = NULL;
-PFN_rtTextureData rtval_next_rtTextureData = NULL;
-PFN_rtTextureSubcopy rtval_next_rtTextureSubcopy = NULL;
-PFN_rtTextureSubdata rtval_next_rtTextureSubdata = NULL;
-PFN_rtTextureViewCopyToBuffer rtval_next_rtTextureViewCopyToBuffer = NULL;
-PFN_rtTextureViewExtent rtval_next_rtTextureViewExtent = NULL;
-PFN_rtFramebufferCreate rtval_next_rtFramebufferCreate = NULL;
-PFN_rtFramebufferDestroy rtval_next_rtFramebufferDestroy = NULL;
-PFN_rtFramebufferColorView rtval_next_rtFramebufferColorView = NULL;
-PFN_rtFramebufferSetColorView rtval_next_rtFramebufferSetColorView = NULL;
-PFN_rtFramebufferDepthView rtval_next_rtFramebufferDepthView = NULL;
-PFN_rtGraphicsProgramCreate rtval_next_rtGraphicsProgramCreate = NULL;
-PFN_rtGraphicsProgramDestroy rtval_next_rtGraphicsProgramDestroy = NULL;
-PFN_rtGraphicsProgramLayout rtval_next_rtGraphicsProgramLayout = NULL;
-PFN_rtGraphicsProgramSource rtval_next_rtGraphicsProgramSource = NULL;
-PFN_rtGraphicsProgramRasterState rtval_next_rtGraphicsProgramRasterState = NULL;
-PFN_rtGraphicsProgramBlendState rtval_next_rtGraphicsProgramBlendState = NULL;
-PFN_rtGraphicsProgramFinalize rtval_next_rtGraphicsProgramFinalize = NULL;
-PFN_rtGraphicsProgramReset rtval_next_rtGraphicsProgramReset = NULL;
-PFN_rtGraphicsProgramUniformLocation rtval_next_rtGraphicsProgramUniformLocation = NULL;
-PFN_rtComputeProgramCreate rtval_next_rtComputeProgramCreate = NULL;
-PFN_rtComputeProgramDestroy rtval_next_rtComputeProgramDestroy = NULL;
-PFN_rtComputeProgramShader rtval_next_rtComputeProgramShader = NULL;
-PFN_rtComputeProgramLink rtval_next_rtComputeProgramLink = NULL;
-PFN_rtCommandContextCreate rtval_next_rtCommandContextCreate = NULL;
-PFN_rtCommandContextDestroy rtval_next_rtCommandContextDestroy = NULL;
-PFN_rtCommandContextBind rtval_next_rtCommandContextBind = NULL;
-PFN_rtCommandContextAllocate rtval_next_rtCommandContextAllocate = NULL;
-PFN_rtCommandBufferDestroy rtval_next_rtCommandBufferDestroy = NULL;
-PFN_rtCmdReset rtval_next_rtCmdReset = NULL;
-PFN_rtCmdBegin rtval_next_rtCmdBegin = NULL;
-PFN_rtCommandContextBindFramebuffer rtval_next_rtCommandContextBindFramebuffer = NULL;
-PFN_rtCommandContextClearColor rtval_next_rtCommandContextClearColor = NULL;
-PFN_rtCommandContextClearDepth rtval_next_rtCommandContextClearDepth = NULL;
-PFN_rtCommandContextClearStencil rtval_next_rtCommandContextClearStencil = NULL;
-PFN_rtCmdUseGraphicsProgram rtval_next_rtCmdUseGraphicsProgram = NULL;
-PFN_rtCmdSetScissor rtval_next_rtCmdSetScissor = NULL;
-PFN_rtCmdUseComputeProgram rtval_next_rtCmdUseComputeProgram = NULL;
-PFN_rtCmdUniformBuffer rtval_next_rtCmdUniformBuffer = NULL;
-PFN_rtCmdUniformTexture rtval_next_rtCmdUniformTexture = NULL;
-PFN_rtCmdStorageBuffer rtval_next_rtCmdStorageBuffer = NULL;
-PFN_rtCmdStorageTexture rtval_next_rtCmdStorageTexture = NULL;
-PFN_rtCmdComputeBarrier rtval_next_rtCmdComputeBarrier = NULL;
-PFN_rtCmdBindVertexBuffer rtval_next_rtCmdBindVertexBuffer = NULL;
-PFN_rtCmdDraw rtval_next_rtCmdDraw = NULL;
-PFN_rtCmdDispatch rtval_next_rtCmdDispatch = NULL;
-PFN_rtCommandContextEndRendering rtval_next_rtCommandContextEndRendering = NULL;
-PFN_rtCommandContextExecute rtval_next_rtCommandContextExecute = NULL;
-PFN_rtCmdEnd rtval_next_rtCmdEnd = NULL;
-PFN_rtQueueQuery rtval_next_rtQueueQuery = NULL;
-PFN_rtQueueWait rtval_next_rtQueueWait = NULL;
-PFN_rtCommandContextSubmit rtval_next_rtCommandContextSubmit = NULL;
-PFN_rtQueueFlush rtval_next_rtQueueFlush = NULL;
-PFN_rtTimepointWait rtval_next_rtTimepointWait = NULL;
-PFN_rtTimepointReached rtval_next_rtTimepointReached = NULL;
-PFN_rtSwapchainCreate rtval_next_rtSwapchainCreate = NULL;
-PFN_rtSwapchainDestroy rtval_next_rtSwapchainDestroy = NULL;
-PFN_rtSwapchainResize rtval_next_rtSwapchainResize = NULL;
-PFN_rtSwapchainAcquire rtval_next_rtSwapchainAcquire = NULL;
-PFN_rtSwapchainPresent rtval_next_rtSwapchainPresent = NULL;
-PFN_rtInit_RT_EXT_GLFW rtval_next_rtInit_RT_EXT_GLFW = NULL;
-PFN_rtSwapchainBindWindowGLFW rtval_next_rtSwapchainBindWindowGLFW = NULL;
-PFN_rtSetOutput rtval_next_rtSetOutput = NULL;
+#define RTVAL_DEFINE_NEXT(return_type, name, parameters, arguments) return_type (*rtval_next_##name) parameters = NULL;
+RT_CORE_PROCEDURES(RTVAL_DEFINE_NEXT)
+#undef RTVAL_DEFINE_NEXT
+
+#define RTVAL_DEFINE_EXTENSION_NEXT(return_type, name, parameters, arguments) return_type (*rtval_next_##name) parameters = NULL;
+RT_EXT_SWAPCHAIN_PROCEDURES(RTVAL_DEFINE_EXTENSION_NEXT)
+RT_EXT_GLFW_PROCEDURES(RTVAL_DEFINE_EXTENSION_NEXT)
+#undef RTVAL_DEFINE_EXTENSION_NEXT
 
 /*===============================================================================================*/
 /* central handle registry: open-addressing hashmap. Each slot owns a heap-allocated payload so   */
@@ -120,12 +44,8 @@ static const char* rtval_handle_type_name(rtval_handle_type t) {
 		return "framebuffer";
 	case RTVAL_HANDLE_TYPE_GRAPHICS_PROGRAM:
 		return "graphics_program";
-	case RTVAL_HANDLE_TYPE_COMPUTE_PROGRAM:
-		return "compute_program";
 	case RTVAL_HANDLE_TYPE_COMMAND_BUFFER:
 		return "command_buffer";
-	case RTVAL_HANDLE_TYPE_COMMAND_CONTEXT:
-		return "command_context";
 	case RTVAL_HANDLE_TYPE_QUEUE:
 		return "queue";
 	case RTVAL_HANDLE_TYPE_SWAPCHAIN:
@@ -336,150 +256,28 @@ void rtval_handle_reset_registry(void) {
 #undef RTVAL_HANDLE_PAYLOAD_SIZE
 
 /*===============================================================================================*/
-/* queue wrapper registry: backend rt_queue -> rtval_queue (identity preserved across queries)    */
+/* timepoints are opaque backend values and need no validation-layer translation                  */
 /*===============================================================================================*/
 
-#define RTVAL_MAX_QUEUES 16
-
-typedef struct rtval_queue_slot {
-	rt_queue backend;
-	struct rtval_queue* handle;
-} rtval_queue_slot;
-
-static rtval_queue_slot rtval_queue_slots[RTVAL_MAX_QUEUES];
-static u32 rtval_queue_slot_count = 0;
-
-struct rtval_queue* rtval_queue_wrap(rt_queue backend) {
-	if (!backend) {
-		return NULL;
-	}
-	for (u32 i = 0; i < rtval_queue_slot_count; i++) {
-		if (rtval_queue_slots[i].backend == backend) {
-			return rtval_queue_slots[i].handle;
-		}
-	}
-	if (rtval_queue_slot_count == RTVAL_MAX_QUEUES) {
-		return NULL;
-	}
-	struct rtval_queue* handle = rtval_handle_create(RTVAL_HANDLE_TYPE_QUEUE);
-	if (!handle) {
-		return NULL;
-	}
-	struct rtval_queue* state = RTVAL_PAYLOAD(handle, struct rtval_queue);
-	state->backend = backend;
-	rtval_queue_slots[rtval_queue_slot_count++] = (rtval_queue_slot){ backend, handle };
-	return handle;
-}
-
-void rtval_queue_release_all(void) {
-	for (u32 i = 0; i < rtval_queue_slot_count; i++) {
-		rtval_handle_destroy(rtval_queue_slots[i].handle);
-	}
-	rtval_queue_slot_count = 0;
-}
-
 rt_timepoint rtval_timepoint_wrap(rt_timepoint backend_tp) {
-	rt_timepoint out = backend_tp;
-	out.queue = rtval_queue_to_handle(rtval_queue_wrap(backend_tp.queue));
-	return out;
+	return backend_tp;
 }
 
 rt_timepoint rtval_timepoint_unwrap(rt_timepoint public_tp) {
-	rt_timepoint out = public_tp;
-	struct rtval_queue* state = RTVAL_PAYLOAD(rtval_queue_from_handle(public_tp.queue), struct rtval_queue);
-	if (state) {
-		out.queue = state->backend;
-	}
-	return out;
+	return public_tp;
 }
 
 /*===============================================================================================*/
 /*                                                                                               */
 /*===============================================================================================*/
 
-RT_EXPORT void rtLayerSetNext(rt_proc_chain next) {
-	rtval_next_rtInit = (PFN_rtInit)next.get_proc(&next, "rtInit");
-	rtval_next_rtExit = (PFN_rtExit)next.get_proc(&next, "rtExit");
-	rtval_next_rtError = (PFN_rtError)next.get_proc(&next, "rtError");
-	rtval_next_rtErrorMessage = (PFN_rtErrorMessage)next.get_proc(&next, "rtErrorMessage");
-	rtval_next_rtClearError = (PFN_rtClearError)next.get_proc(&next, "rtClearError");
-	rtval_next_rtGetName = (PFN_rtGetName)next.get_proc(&next, "rtGetName");
-	rtval_next_rtQueryFormatCapabilities = (PFN_rtQueryFormatCapabilities)next.get_proc(&next, "rtQueryFormatCapabilities");
-	rtval_next_rtBufferCreate = (PFN_rtBufferCreate)next.get_proc(&next, "rtBufferCreate");
-	rtval_next_rtBufferDestroy = (PFN_rtBufferDestroy)next.get_proc(&next, "rtBufferDestroy");
-	rtval_next_rtBufferData = (PFN_rtBufferData)next.get_proc(&next, "rtBufferData");
-	rtval_next_rtBufferSubdata = (PFN_rtBufferSubdata)next.get_proc(&next, "rtBufferSubdata");
-	rtval_next_rtBufferRead = (PFN_rtBufferRead)next.get_proc(&next, "rtBufferRead");
-	rtval_next_rtTextureCreate = (PFN_rtTextureCreate)next.get_proc(&next, "rtTextureCreate");
-	rtval_next_rtTextureDestroy = (PFN_rtTextureDestroy)next.get_proc(&next, "rtTextureDestroy");
-	rtval_next_rtTextureViewCreate = (PFN_rtTextureViewCreate)next.get_proc(&next, "rtTextureViewCreate");
-	rtval_next_rtTextureViewBind = (PFN_rtTextureViewBind)next.get_proc(&next, "rtTextureViewBind");
-	rtval_next_rtTextureViewDestroy = (PFN_rtTextureViewDestroy)next.get_proc(&next, "rtTextureViewDestroy");
-	rtval_next_rtTextureViewFilter = (PFN_rtTextureViewFilter)next.get_proc(&next, "rtTextureViewFilter");
-	rtval_next_rtTextureViewAddress = (PFN_rtTextureViewAddress)next.get_proc(&next, "rtTextureViewAddress");
-	rtval_next_rtTextureViewAnisotropy = (PFN_rtTextureViewAnisotropy)next.get_proc(&next, "rtTextureViewAnisotropy");
-	rtval_next_rtTextureViewLod = (PFN_rtTextureViewLod)next.get_proc(&next, "rtTextureViewLod");
-	rtval_next_rtTextureCopy = (PFN_rtTextureCopy)next.get_proc(&next, "rtTextureCopy");
-	rtval_next_rtTextureData = (PFN_rtTextureData)next.get_proc(&next, "rtTextureData");
-	rtval_next_rtTextureSubcopy = (PFN_rtTextureSubcopy)next.get_proc(&next, "rtTextureSubcopy");
-	rtval_next_rtTextureSubdata = (PFN_rtTextureSubdata)next.get_proc(&next, "rtTextureSubdata");
-	rtval_next_rtTextureViewCopyToBuffer = (PFN_rtTextureViewCopyToBuffer)next.get_proc(&next, "rtTextureViewCopyToBuffer");
-	rtval_next_rtTextureViewExtent = (PFN_rtTextureViewExtent)next.get_proc(&next, "rtTextureViewExtent");
-	rtval_next_rtFramebufferCreate = (PFN_rtFramebufferCreate)next.get_proc(&next, "rtFramebufferCreate");
-	rtval_next_rtFramebufferDestroy = (PFN_rtFramebufferDestroy)next.get_proc(&next, "rtFramebufferDestroy");
-	rtval_next_rtFramebufferColorView = (PFN_rtFramebufferColorView)next.get_proc(&next, "rtFramebufferColorView");
-	rtval_next_rtFramebufferSetColorView = (PFN_rtFramebufferSetColorView)next.get_proc(&next, "rtFramebufferSetColorView");
-	rtval_next_rtFramebufferDepthView = (PFN_rtFramebufferDepthView)next.get_proc(&next, "rtFramebufferDepthView");
-	rtval_next_rtGraphicsProgramCreate = (PFN_rtGraphicsProgramCreate)next.get_proc(&next, "rtGraphicsProgramCreate");
-	rtval_next_rtGraphicsProgramDestroy = (PFN_rtGraphicsProgramDestroy)next.get_proc(&next, "rtGraphicsProgramDestroy");
-	rtval_next_rtGraphicsProgramLayout = (PFN_rtGraphicsProgramLayout)next.get_proc(&next, "rtGraphicsProgramLayout");
-	rtval_next_rtGraphicsProgramSource = (PFN_rtGraphicsProgramSource)next.get_proc(&next, "rtGraphicsProgramSource");
-	rtval_next_rtGraphicsProgramRasterState = (PFN_rtGraphicsProgramRasterState)next.get_proc(&next, "rtGraphicsProgramRasterState");
-	rtval_next_rtGraphicsProgramBlendState = (PFN_rtGraphicsProgramBlendState)next.get_proc(&next, "rtGraphicsProgramBlendState");
-	rtval_next_rtGraphicsProgramFinalize = (PFN_rtGraphicsProgramFinalize)next.get_proc(&next, "rtGraphicsProgramFinalize");
-	rtval_next_rtGraphicsProgramReset = (PFN_rtGraphicsProgramReset)next.get_proc(&next, "rtGraphicsProgramReset");
-	rtval_next_rtGraphicsProgramUniformLocation = (PFN_rtGraphicsProgramUniformLocation)next.get_proc(&next, "rtGraphicsProgramUniformLocation");
-	rtval_next_rtComputeProgramCreate = (PFN_rtComputeProgramCreate)next.get_proc(&next, "rtComputeProgramCreate");
-	rtval_next_rtComputeProgramDestroy = (PFN_rtComputeProgramDestroy)next.get_proc(&next, "rtComputeProgramDestroy");
-	rtval_next_rtComputeProgramShader = (PFN_rtComputeProgramShader)next.get_proc(&next, "rtComputeProgramShader");
-	rtval_next_rtComputeProgramLink = (PFN_rtComputeProgramLink)next.get_proc(&next, "rtComputeProgramLink");
-	rtval_next_rtCommandContextCreate = (PFN_rtCommandContextCreate)next.get_proc(&next, "rtCommandContextCreate");
-	rtval_next_rtCommandContextDestroy = (PFN_rtCommandContextDestroy)next.get_proc(&next, "rtCommandContextDestroy");
-	rtval_next_rtCommandContextBind = (PFN_rtCommandContextBind)next.get_proc(&next, "rtCommandContextBind");
-	rtval_next_rtCommandContextAllocate = (PFN_rtCommandContextAllocate)next.get_proc(&next, "rtCommandContextAllocate");
-	rtval_next_rtCommandBufferDestroy = (PFN_rtCommandBufferDestroy)next.get_proc(&next, "rtCommandBufferDestroy");
-	rtval_next_rtCmdReset = (PFN_rtCmdReset)next.get_proc(&next, "rtCmdReset");
-	rtval_next_rtCmdBegin = (PFN_rtCmdBegin)next.get_proc(&next, "rtCmdBegin");
-	rtval_next_rtCommandContextBindFramebuffer = (PFN_rtCommandContextBindFramebuffer)next.get_proc(&next, "rtCommandContextBindFramebuffer");
-	rtval_next_rtCommandContextClearColor = (PFN_rtCommandContextClearColor)next.get_proc(&next, "rtCommandContextClearColor");
-	rtval_next_rtCommandContextClearDepth = (PFN_rtCommandContextClearDepth)next.get_proc(&next, "rtCommandContextClearDepth");
-	rtval_next_rtCommandContextClearStencil = (PFN_rtCommandContextClearStencil)next.get_proc(&next, "rtCommandContextClearStencil");
-	rtval_next_rtCmdUseGraphicsProgram = (PFN_rtCmdUseGraphicsProgram)next.get_proc(&next, "rtCmdUseGraphicsProgram");
-	rtval_next_rtCmdSetScissor = (PFN_rtCmdSetScissor)next.get_proc(&next, "rtCmdSetScissor");
-	rtval_next_rtCmdUseComputeProgram = (PFN_rtCmdUseComputeProgram)next.get_proc(&next, "rtCmdUseComputeProgram");
-	rtval_next_rtCmdUniformBuffer = (PFN_rtCmdUniformBuffer)next.get_proc(&next, "rtCmdUniformBuffer");
-	rtval_next_rtCmdUniformTexture = (PFN_rtCmdUniformTexture)next.get_proc(&next, "rtCmdUniformTexture");
-	rtval_next_rtCmdStorageBuffer = (PFN_rtCmdStorageBuffer)next.get_proc(&next, "rtCmdStorageBuffer");
-	rtval_next_rtCmdStorageTexture = (PFN_rtCmdStorageTexture)next.get_proc(&next, "rtCmdStorageTexture");
-	rtval_next_rtCmdComputeBarrier = (PFN_rtCmdComputeBarrier)next.get_proc(&next, "rtCmdComputeBarrier");
-	rtval_next_rtCmdBindVertexBuffer = (PFN_rtCmdBindVertexBuffer)next.get_proc(&next, "rtCmdBindVertexBuffer");
-	rtval_next_rtCmdDraw = (PFN_rtCmdDraw)next.get_proc(&next, "rtCmdDraw");
-	rtval_next_rtCmdDispatch = (PFN_rtCmdDispatch)next.get_proc(&next, "rtCmdDispatch");
-	rtval_next_rtCommandContextEndRendering = (PFN_rtCommandContextEndRendering)next.get_proc(&next, "rtCommandContextEndRendering");
-	rtval_next_rtCommandContextExecute = (PFN_rtCommandContextExecute)next.get_proc(&next, "rtCommandContextExecute");
-	rtval_next_rtCmdEnd = (PFN_rtCmdEnd)next.get_proc(&next, "rtCmdEnd");
-	rtval_next_rtQueueQuery = (PFN_rtQueueQuery)next.get_proc(&next, "rtQueueQuery");
-	rtval_next_rtQueueWait = (PFN_rtQueueWait)next.get_proc(&next, "rtQueueWait");
-	rtval_next_rtCommandContextSubmit = (PFN_rtCommandContextSubmit)next.get_proc(&next, "rtCommandContextSubmit");
-	rtval_next_rtQueueFlush = (PFN_rtQueueFlush)next.get_proc(&next, "rtQueueFlush");
-	rtval_next_rtTimepointWait = (PFN_rtTimepointWait)next.get_proc(&next, "rtTimepointWait");
-	rtval_next_rtTimepointReached = (PFN_rtTimepointReached)next.get_proc(&next, "rtTimepointReached");
-	rtval_next_rtSwapchainCreate = (PFN_rtSwapchainCreate)next.get_proc(&next, "rtSwapchainCreate");
-	rtval_next_rtSwapchainDestroy = (PFN_rtSwapchainDestroy)next.get_proc(&next, "rtSwapchainDestroy");
-	rtval_next_rtSwapchainResize = (PFN_rtSwapchainResize)next.get_proc(&next, "rtSwapchainResize");
-	rtval_next_rtSwapchainAcquire = (PFN_rtSwapchainAcquire)next.get_proc(&next, "rtSwapchainAcquire");
-	rtval_next_rtSwapchainPresent = (PFN_rtSwapchainPresent)next.get_proc(&next, "rtSwapchainPresent");
-	rtval_next_rtInit_RT_EXT_GLFW = (PFN_rtInit_RT_EXT_GLFW)next.get_proc(&next, "rtInit_RT_EXT_GLFW");
-	rtval_next_rtSwapchainBindWindowGLFW = (PFN_rtSwapchainBindWindowGLFW)next.get_proc(&next, "rtSwapchainBindWindowGLFW");
-	rtval_next_rtSetOutput = (PFN_rtSetOutput)next.get_proc(&next, "rtSetOutput");
+RT_API_PUBLIC void rtLayerSetNext(rt_proc_chain next) {
+#define RTVAL_RESOLVE_NEXT(return_type, name, parameters, arguments) rtval_next_##name = (return_type (*) parameters)next.get_proc(&next, #name);
+	RT_CORE_PROCEDURES(RTVAL_RESOLVE_NEXT)
+#undef RTVAL_RESOLVE_NEXT
+
+#define RTVAL_RESOLVE_EXTENSION_NEXT(return_type, name, parameters, arguments) rtval_next_##name = (return_type (*) parameters)next.get_proc(&next, #name);
+	RT_EXT_SWAPCHAIN_PROCEDURES(RTVAL_RESOLVE_EXTENSION_NEXT)
+	RT_EXT_GLFW_PROCEDURES(RTVAL_RESOLVE_EXTENSION_NEXT)
+#undef RTVAL_RESOLVE_EXTENSION_NEXT
 }

@@ -11,15 +11,6 @@ extern "C" {
 
 struct rtgl_execution_context {
 	struct gl_context* gl_context;
-	u08 gl_major;
-	u08 gl_minor;
-	bool direct_state_access;
-	bool texture_storage;
-	bool texture_buffer;
-	bool texture_buffer_range;
-	bool separate_shader_objects;
-	bool shader_storage_buffer;
-	bool spirv;
 	struct rt_thread* thread;
 	struct rt_event* ready_event;
 	struct rt_event* stop_event;
@@ -54,13 +45,14 @@ void rtgl_execution_graphics_program_destroy(struct rtgl_context* ctx, struct rt
 
 void rtgl_execution_texture_create(struct rtgl_context* ctx, struct rtgl_image_base* image);
 void rtgl_execution_texture_delete(struct rtgl_context* ctx, struct rtgl_image_base* image);
+void rtgl_execution_texture_view_delete_sampler(struct rtgl_context* ctx, struct rtgl_texture_view* view);
 void rtgl_execution_texture_data(struct rtgl_context* ctx, struct rtgl_image_base* image, const void* data);
 void rtgl_execution_texture_subdata(struct rtgl_context* ctx, struct rtgl_image_base* image, u32 mip, u32 offset_x, u32 offset_y, u32 offset_z, u32 width, u32 height, u32 depth, const void* data);
 
 struct gl_surface* rtgl_execution_glfw_surface_create(struct rtgl_context* ctx, struct GLFWwindow* window);
 void rtgl_execution_surface_destroy(struct rtgl_context* ctx, struct gl_surface* surface);
 
-struct rtgl_timepoint rtgl_execution_present(struct rtgl_context* ctx, struct rtgl_queue* queue, struct rtgl_swapchain* swapchain, struct rtgl_framebuffer* framebuffer);
+rt_timepoint rtgl_execution_present(struct rtgl_context* ctx, struct rtgl_queue* queue, struct rtgl_swapchain* swapchain, struct rtgl_framebuffer* framebuffer);
 void rtgl_execution_queue_complete(struct rtgl_context* ctx, struct rtgl_queue* queue, u64 value);
 
 #ifdef __cplusplus

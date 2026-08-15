@@ -290,16 +290,6 @@ static void rtvk_add_presentation_instance_extensions(const VkExtensionPropertie
 #endif
 }
 
-static enum rt_queue_capability rtvk_queue_capability_from_vk(VkQueueFlags flags) {
-	if (flags & VK_QUEUE_GRAPHICS_BIT) {
-		return RT_QUEUE_GRAPHICS;
-	}
-	if (flags & VK_QUEUE_COMPUTE_BIT) {
-		return RT_QUEUE_COMPUTE;
-	}
-	return RT_QUEUE_TRANSFER;
-}
-
 static void rtvk_context_destroy_queues(struct rtvk_context* ctx) {
 	for (u32 i = 0; i < ctx->queue_count; i++) {
 		rtvk_queue_destroy(ctx, ctx->queues[i]);
@@ -513,7 +503,13 @@ static void rtvk_context_create_device(struct rtvk_context* ctx) {
 		VkQueue vk_queue;
 		vkGetDeviceQueue(ctx->vk_device, i, 0, &vk_queue);
 
-		struct rtvk_queue* queue = rtvk_queue_create(ctx, vk_queue, rtvk_queue_capability_from_vk(queue_families[i].queueFlags), i, 0);
+		enum rt_queue_capability capability = RT_QUEUE_TRANSFER;
+		if (queue_families[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
+			capability = RT_QUEUE_GRAPHICS;
+		} else if (queue_families[i].queueFlags & VK_QUEUE_COMPUTE_BIT) {
+			capability = RT_QUEUE_COMPUTE;
+		}
+		struct rtvk_queue* queue = rtvk_queue_create(ctx, vk_queue, queue_families[i].queueFlags, capability, i, 0);
 		if (!queue) {
 			free(queue_families);
 			return;

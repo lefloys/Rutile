@@ -18,8 +18,8 @@ RTDX_API void rtTextureViewLod(rt_texture_view texture_view, f32 min_lod, f32 ma
 
 RTDX_API rt_timepoint rtTextureCopy(rt_texture src_texture, u32 src_mip, rt_texture dst_texture, u32 dst_mip);
 RTDX_API rt_timepoint rtTextureData(rt_texture texture, rt_texture_type type, u32 mip, u32 width, u32 height, u32 depth, rt_format format, const void* data);
-RTDX_API rt_timepoint rtTextureSubcopy(rt_texture src_texture, u32 src_mip, u32 src_x, u32 src_y, u32 src_z, rt_texture dst_texture, u32 dst_mip, u32 dst_x, u32 dst_y, u32 dst_z, u32 width, u32 height, u32 depth);
-RTDX_API rt_timepoint rtTextureSubdata(rt_texture texture, u32 mip, u32 offset_x, u32 offset_y, u32 offset_z, u32 width, u32 height, u32 depth, const void* data);
+RTDX_API rt_timepoint rtTextureSubcopy(rt_texture src_texture, u32 src_mip, rt_extent_3d src_offset, rt_texture dst_texture, u32 dst_mip, rt_extent_3d dst_offset, rt_extent_3d extent);
+RTDX_API rt_timepoint rtTextureSubdata(rt_texture texture, u32 mip, rt_extent_3d offset, rt_extent_3d extent, const void* data);
 RTDX_API rt_timepoint rtTextureViewCopyToBuffer(rt_texture_view texture_view, rt_buffer buffer);
 RTDX_API rt_extent_3d rtTextureViewExtent(rt_texture_view texture_view);
 
@@ -46,12 +46,15 @@ struct rtdx_texture_view {
 
 	rtdx_image_base* image;
 	ID3D12DescriptorHeap* d3d_sampler_heap;
+	ID3D12DescriptorHeap* d3d_srv_heap;
 	ID3D12DescriptorHeap* d3d_rtv_heap;
 	ID3D12DescriptorHeap* d3d_dsv_heap;
 	D3D12_CPU_DESCRIPTOR_HANDLE rtv;
 	D3D12_CPU_DESCRIPTOR_HANDLE dsv;
 	D3D12_CPU_DESCRIPTOR_HANDLE sampler_cpu;
 	D3D12_GPU_DESCRIPTOR_HANDLE sampler_gpu;
+	D3D12_CPU_DESCRIPTOR_HANDLE srv_cpu;
+	D3D12_GPU_DESCRIPTOR_HANDLE srv_gpu;
 
 	rt_filter mag_filter;
 	rt_filter min_filter;
@@ -77,8 +80,8 @@ void rtdx_texture_view_lod(rtdx_texture_view* texture_view, f32 min_lod, f32 max
 bool rtdx_texture_view_prepare_sampler(rtdx_context* ctx, rtdx_texture_view* texture_view);
 bool rtdx_texture_format_is_depth(DXGI_FORMAT format);
 
-rtdx_timepoint rtdx_texture_copy(rtdx_context* ctx, rtdx_texture* src_texture, u32 src_mip, rtdx_texture* dst_texture, u32 dst_mip);
-rtdx_timepoint rtdx_texture_data(rtdx_context* ctx, rtdx_texture* texture, rt_texture_type type, u32 width, u32 height, u32 depth, u32 mip, rt_format format, const void* data);
-rtdx_timepoint rtdx_texture_subcopy(rtdx_context* ctx, rtdx_texture* src_texture, u32 src_mip, u32 src_x, u32 src_y, u32 src_z, rtdx_texture* dst_texture, u32 dst_mip, u32 dst_x, u32 dst_y, u32 dst_z, u32 width, u32 height, u32 depth);
-rtdx_timepoint rtdx_texture_subdata(rtdx_context* ctx, rtdx_texture* texture, u32 mip, u32 offset_x, u32 offset_y, u32 offset_z, u32 width, u32 height, u32 depth, const void* data);
-rtdx_timepoint rtdx_texture_view_copy_to_buffer(rtdx_context* ctx, rtdx_texture_view* texture_view, rtdx_buffer* buffer);
+rt_timepoint rtdx_texture_copy(rtdx_context* ctx, rtdx_texture* src_texture, u32 src_mip, rtdx_texture* dst_texture, u32 dst_mip);
+rt_timepoint rtdx_texture_data(rtdx_context* ctx, rtdx_texture* texture, rt_texture_type type, u32 width, u32 height, u32 depth, u32 mip, rt_format format, const void* data);
+rt_timepoint rtdx_texture_subcopy(rtdx_context* ctx, rtdx_texture* src_texture, u32 src_mip, u32 src_x, u32 src_y, u32 src_z, rtdx_texture* dst_texture, u32 dst_mip, u32 dst_x, u32 dst_y, u32 dst_z, u32 width, u32 height, u32 depth);
+rt_timepoint rtdx_texture_subdata(rtdx_context* ctx, rtdx_texture* texture, u32 mip, u32 offset_x, u32 offset_y, u32 offset_z, u32 width, u32 height, u32 depth, const void* data);
+rt_timepoint rtdx_texture_view_copy_to_buffer(rtdx_context* ctx, rtdx_texture_view* texture_view, rtdx_buffer* buffer);

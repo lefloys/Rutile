@@ -28,7 +28,7 @@ bool rtdx_swapchain_create_for_hwnd(rtdx_context* ctx, rtdx_swapchain* swapchain
 	swapchain_info.AlphaMode = DXGI_ALPHA_MODE_UNSPECIFIED;
 	swapchain_info.Flags = ctx->allow_tearing ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0;
 
-	rtdx_queue* queue = rtdx_queue_query(ctx, RT_QUEUE_GRAPHICS);
+	rtdx_queue* queue = rtdx_context_queue(ctx, RT_QUEUE_GRAPHICS);
 	IDXGISwapChain1* swapchain1 = NULL;
 	HRESULT result = ctx->dxgi_factory->CreateSwapChainForHwnd(
 		queue->d3d_queue,

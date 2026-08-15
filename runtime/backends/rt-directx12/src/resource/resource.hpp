@@ -1,7 +1,9 @@
 #pragma once
 
 #include "atomic.hpp"
-#include "types.hpp"
+#define RT_TYPES_ONLY
+#include "rutile.h"
+#undef RT_TYPES_ONLY
 
 #include <cstddef>
 #include <new>
@@ -30,11 +32,6 @@ struct rtdx_resource_base {
 	atomic_bool zombie;
 };
 
-struct rtdx_timepoint {
-	rtdx_queue* queue;
-	u64 value;
-};
-
 void* rtdx_alloc_resource(usize size);
 void rtdx_free_resource(void* resource);
 void rtdx_init_resource_base(rtdx_context* ctx, rtdx_resource_base* base, rtdx_resource_type type);
@@ -46,7 +43,8 @@ void rtdx_release_resource_impl(void* resource);
 void rtdx_resource_retire(rtdx_resource_base* base);
 void rtdx_resource_finalize(rtdx_resource_base* base);
 bool rtdx_resource_ready_to_destroy(rtdx_resource_base* base);
-rt_timepoint rtdx_timepoint_to_public(rtdx_timepoint timepoint);
+rt_timepoint rtdx_queue_timepoint(rtdx_queue* queue, u64 value);
+rtdx_queue* rtdx_queue_from_timepoint(rtdx_context* ctx, rt_timepoint timepoint);
 
 template <typename T>
 inline T* rtdx_new_resource() {

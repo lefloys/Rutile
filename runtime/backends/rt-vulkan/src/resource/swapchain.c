@@ -50,11 +50,10 @@ rt_swapchain_acquire_result rtSwapchainAcquire(rt_swapchain swapchain) {
 }
 
 void rtSwapchainPresent(rt_swapchain swapchain, rt_timepoint rendered) {
-	struct rtvk_timepoint timepoint = { rtvk_queue_from_handle(rendered.queue), rendered.value };
 	rtvk_swapchain_present(
 		rtvk_get_current_context(),
 		rtvk_swapchain_from_handle(swapchain),
-		timepoint
+		rendered
 	);
 }
 
@@ -119,16 +118,14 @@ static void rtvk_swapchain_destroy_present_command(struct rtvk_context* ctx, str
 }
 
 static void rtvk_swapchain_wait_frame(struct rtvk_context* ctx, struct rtvk_swapchain_frame* frame) {
-	if (frame->acquire_wait.queue) {
+	if (frame->acquire_wait.value) {
 		rtvk_timepoint_wait(ctx, frame->acquire_wait);
-		frame->acquire_wait.queue = NULL;
-		frame->acquire_wait.value = 0;
+		frame->acquire_wait = (rt_timepoint){ 0 };
 	}
 
-	if (frame->present_done.queue) {
+	if (frame->present_done.value) {
 		rtvk_timepoint_wait(ctx, frame->present_done);
-		frame->present_done.queue = NULL;
-		frame->present_done.value = 0;
+		frame->present_done = (rt_timepoint){ 0 };
 	}
 }
 
@@ -524,12 +521,14 @@ void rtvk_swapchain_prepare_present_command(
 	frame->present_command_family_index = family_index;
 }
 
-void rtvk_swapchain_submit_present_transition(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain, struct rtvk_swapchain_frame* frame, struct rtvk_timepoint rendered) {
+void rtvk_swapchain_submit_present_transition(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain, struct rtvk_swapchain_frame* frame, rt_timepoint rendered) {
 	struct rtvk_swapchain_frame* current = swapchain->frames[swapchain->current_image_index];
-	if (!current || !rendered.queue) {
+	struct rtvk_queue* rendered_queue = rtvk_timepoint_queue(ctx, rendered);
+	u64 rendered_value = rtvk_timepoint_value(rendered);
+	if (!current || !rendered_queue) {
 		return;
 	}
-	rtvk_swapchain_prepare_present_command(ctx, frame, rendered.queue->family_index);
+	rtvk_swapchain_prepare_present_command(ctx, frame, rendered_queue->family_index);
 	if (rtvk_error() != RT_SUCCESS) {
 		return;
 	}
@@ -551,22 +550,7 @@ void rtvk_swapchain_submit_present_transition(struct rtvk_context* ctx, struct r
 		return;
 	}
 
-	VkImageMemoryBarrier barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
-	barrier.pNext = NULL;
-	barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-	barrier.dstAccessMask = 0;
-	barrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-	barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	barrier.image = current->base.vk_image;
-	barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-	barrier.subresourceRange.baseMipLevel = 0;
-	barrier.subresourceRange.levelCount = 1;
-	barrier.subresourceRange.baseArrayLayer = 0;
-	barrier.subresourceRange.layerCount = 1;
-
-	vkCmdPipelineBarrier(frame->present_command_buffer, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, NULL, 0, NULL, 1, &barrier);
+	rtvk_image_transition_layout(frame->present_command_buffer, &current->base, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 
 	result = vkEndCommandBuffer(frame->present_command_buffer);
 	if (result != VK_SUCCESS) {
@@ -574,33 +558,33 @@ void rtvk_swapchain_submit_present_transition(struct rtvk_context* ctx, struct r
 		return;
 	}
 
-	if (rendered.value > rendered.queue->submitted_value) {
-		rtvk_queue_flush(ctx, rendered.queue);
+	if (rendered_value > rendered_queue->submitted_value) {
+		rtvk_queue_flush(ctx, rendered_queue);
 	}
 
-	u64 signal_value = rendered.queue->timeline_value + 1;
+	u64 signal_value = rendered_queue->timeline_value + 1;
 	u64 signal_values[2] = { 0, signal_value };
-	VkSemaphore signal_semaphores[2] = { frame->present_ready, rendered.queue->vk_timeline };
+	VkSemaphore signal_semaphores[2] = { frame->present_ready, rendered_queue->vk_timeline };
 
 	VkTimelineSemaphoreSubmitInfo timeline_info = { VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO };
 	timeline_info.pNext = NULL;
 	timeline_info.waitSemaphoreValueCount = 1;
-	timeline_info.pWaitSemaphoreValues = &rendered.value;
+	timeline_info.pWaitSemaphoreValues = &rendered_value;
 	timeline_info.signalSemaphoreValueCount = 2;
 	timeline_info.pSignalSemaphoreValues = signal_values;
 
-	VkPipelineStageFlags wait_stage = rtvk_queue_wait_stage(rendered.queue);
+	VkPipelineStageFlags wait_stage = rtvk_queue_wait_stage(rendered_queue);
 	VkSubmitInfo submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
 	submit_info.pNext = &timeline_info;
 	submit_info.waitSemaphoreCount = 1;
-	submit_info.pWaitSemaphores = &rendered.queue->vk_timeline;
+	submit_info.pWaitSemaphores = &rendered_queue->vk_timeline;
 	submit_info.pWaitDstStageMask = &wait_stage;
 	submit_info.commandBufferCount = 1;
 	submit_info.pCommandBuffers = &frame->present_command_buffer;
 	submit_info.signalSemaphoreCount = 2;
 	submit_info.pSignalSemaphores = signal_semaphores;
 
-	result = vkQueueSubmit(rendered.queue->vk_queue, 1, &submit_info, VK_NULL_HANDLE);
+	result = vkQueueSubmit(rendered_queue->vk_queue, 1, &submit_info, VK_NULL_HANDLE);
 	if (result != VK_SUCCESS) {
 		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		return;
@@ -613,9 +597,9 @@ void rtvk_swapchain_submit_present_transition(struct rtvk_context* ctx, struct r
 		// oldLayout.
 		color_view->image->vk_layout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 	}
-	rendered.queue->timeline_value = signal_value;
-	rendered.queue->submitted_value = signal_value;
-	frame->present_done = (struct rtvk_timepoint){ rendered.queue, signal_value };
+	rendered_queue->timeline_value = signal_value;
+	rendered_queue->submitted_value = signal_value;
+	frame->present_done = rtvk_timepoint_make(rendered_queue, signal_value);
 }
 
 u32 rtSwapchainFramebufferCount(rt_swapchain swapchain) {
@@ -667,7 +651,7 @@ bool rtvk_swapchain_resize(struct rtvk_context* ctx, struct rtvk_swapchain* swap
 }
 
 rt_swapchain_acquire_result rtvk_swapchain_acquire(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain) {
-	rt_swapchain_acquire_result acquire = { RT_NULL_HANDLE, { RT_NULL_HANDLE, 0 } };
+	rt_swapchain_acquire_result acquire = { RT_NULL_HANDLE, { 0 } };
 	if (!swapchain) {
 		rtvk_throwf(RT_IMPROPER_USAGE, "swapchain acquire requires a valid swapchain");
 		return acquire;
@@ -715,28 +699,28 @@ rt_swapchain_acquire_result rtvk_swapchain_acquire(struct rtvk_context* ctx, str
 		return acquire;
 	}
 	acquire_frame->acquire_wait = rtvk_queue_wait_binary(ctx, swapchain->present_queue, acquire_frame->image_available);
-	if (!acquire_frame->acquire_wait.queue || acquire_frame->acquire_wait.value == 0) {
+	if (acquire_frame->acquire_wait.value == 0) {
 		rtvk_throwf(RT_PLATFORM_FAILURE, "swapchain acquire failed: acquire wait is invalid");
 		rtvk_swapchain_unlock(swapchain);
 		return acquire;
 	}
-	acquire.timepoint = rtvk_timepoint_to_public(acquire_frame->acquire_wait);
-	if (!acquire.timepoint.queue || acquire.timepoint.value == 0) {
+	acquire.timepoint = acquire_frame->acquire_wait;
+	if (acquire.timepoint.value == 0) {
 		rtvk_throwf(RT_PLATFORM_FAILURE, "swapchain acquire failed: null timepoint");
 		rtvk_swapchain_unlock(swapchain);
-		return (rt_swapchain_acquire_result){ RT_NULL_HANDLE, { RT_NULL_HANDLE, 0 } };
+		return (rt_swapchain_acquire_result){ RT_NULL_HANDLE, { 0 } };
 	}
 	rtvk_swapchain_unlock(swapchain);
 	return acquire;
 }
 
-void rtvk_swapchain_present(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain, struct rtvk_timepoint rendered) {
+void rtvk_swapchain_present(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain, rt_timepoint rendered) {
 	if (!swapchain || !swapchain->frames || swapchain->image_count == 0 || !swapchain->frame_acquired) {
 		rtvk_throwf(RT_IMPROPER_USAGE, "swapchain present requires an acquired frame");
 		return;
 	}
 	struct rtvk_swapchain_frame* frame = swapchain->frames[swapchain->current_frame_index];
-	if (!rendered.queue || rendered.value == 0) {
+	if (!rtvk_timepoint_queue(ctx, rendered) || rendered.value == 0) {
 		rtvk_throwf(RT_IMPROPER_USAGE, "swapchain present requires a render timepoint");
 		rtvk_swapchain_mark_unacquired(swapchain);
 		return;

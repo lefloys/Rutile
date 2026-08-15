@@ -101,27 +101,25 @@ static bool rtdx_context_create_device(rtdx_context* ctx) {
 		return false;
 	}
 
-	ctx->queues = new (std::nothrow) rtdx_queue*[1]{};
-	if (!ctx->queues) {
-		rtdx_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate D3D12 queue handles");
+	if (!rtdx_queue_create(ctx, RT_QUEUE_GRAPHICS)) {
 		return false;
 	}
-
-	ctx->queues[0] = rtdx_queue_create(ctx, RT_QUEUE_GRAPHICS);
-	if (!ctx->queues[0]) {
-		return false;
-	}
-	ctx->queue_count = 1;
 	return true;
 }
 
 static void rtdx_context_destroy_queues(rtdx_context* ctx) {
-	for (u32 i = 0; i < ctx->queue_count; i++) {
-		rtdx_queue_destroy(ctx, ctx->queues[i]);
+	while (ctx->queue_count) {
+		rtdx_queue_destroy(ctx, ctx->queues[ctx->queue_count - 1]);
 	}
 	delete[] ctx->queues;
 	ctx->queues = nullptr;
 	ctx->queue_count = 0;
+	for (usize index = 0; index < sizeof(ctx->timepoint_queues) / sizeof(*ctx->timepoint_queues); index++) {
+		if (ctx->timepoint_queues[index]) {
+			rtdx_resource_release(RTDX_RESOURCE_BASE(ctx->timepoint_queues[index]));
+			ctx->timepoint_queues[index] = NULL;
+		}
+	}
 }
 
 rtdx_context* rtdx_create_context(rtdx_context_flags flags) {
@@ -143,6 +141,11 @@ rtdx_context* rtdx_create_context(rtdx_context_flags flags) {
 
 void rtdx_context_init(rtdx_context* ctx) {
 	u64 start_ns = rtdx_now_ns();
+	ctx->queue_lock = rt_mutex_create();
+	if (!ctx->queue_lock) {
+		rtdx_throwf(RT_PLATFORM_FAILURE, "failed to create DirectX queue synchronization");
+		return;
+	}
 	if (!rtdx_context_create_factory(ctx)) {
 		return;
 	}
@@ -164,6 +167,14 @@ void rtdx_context_finish(rtdx_context* ctx) {
 
 	ctx->shutting_down = true;
 	rtdx_context_destroy_queues(ctx);
+	rt_mutex_destroy(ctx->queue_lock);
+	ctx->queue_lock = nullptr;
+	if (ctx->graphics_fence_event) {
+		rt_event_destroy(ctx->graphics_fence_event);
+		ctx->graphics_fence_event = nullptr;
+	}
+	rtdx_release(&ctx->d3d_graphics_fence);
+	rtdx_release(&ctx->d3d_graphics_queue);
 	rtdx_release(&ctx->d3d_device);
 	rtdx_release(&ctx->dxgi_adapter);
 	rtdx_release(&ctx->dxgi_factory);

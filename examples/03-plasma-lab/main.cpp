@@ -43,11 +43,15 @@ constexpr Vertex Vertices[] = {
 };
 
 constexpr rt_vertex_attribute Attributes[] = {
-	{ "position", offsetof(Vertex, position), RT_RG32_SFLOAT },
-	{ "uv", offsetof(Vertex, uv), RT_RG32_SFLOAT },
+	{ "position", 0, offsetof(Vertex, position), RT_RG32_SFLOAT },
+	{ "uv", 0, offsetof(Vertex, uv), RT_RG32_SFLOAT },
 };
 
-constexpr rt_vertex_layout Layout = { sizeof(Vertex), Attributes, 2 };
+constexpr rt_vertex_stream Streams[] = {
+	{ sizeof(Vertex), RT_VERTEX_RATE_VERTEX },
+};
+
+constexpr rt_vertex_layout Layout = { Streams, Attributes, 1, 2 };
 
 void framebuffer_resized(GLFWwindow*, int width, int height) {
 	if (width <= 0 || height <= 0) {
@@ -108,7 +112,7 @@ void update_plasma(std::vector<std::uint8_t>& pixels, f32 time) {
 
 int main(int argc, char** argv) {
 	const ExampleOptions options = parse_cli(argc, argv);
-	if (rtLoad(options.backend.c_str(), nullptr, 0) != RT_SUCCESS) {
+	if (rtLoad("rt-vulkan", nullptr, 0) != RT_SUCCESS) {
 		std::fprintf(stderr, "rtLoad failed\n");
 		return 1;
 	}
@@ -127,7 +131,7 @@ int main(int argc, char** argv) {
 	rt_swapchain swapchain = rtSwapchainCreate();
 	rtSwapchainBindWindowGLFW(swapchain, window);
 	Swapchain = swapchain;
-	rt_queue queue = rtQueueQuery(RT_QUEUE_GRAPHICS);
+	rt_queue queue = rtQueueCreate(RT_QUEUE_GRAPHICS);
 
 	rt_buffer vertex_buffer = rtBufferCreate();
 	rtBufferData(vertex_buffer, RT_BUFFER_STATIC, RT_BUFFER_USAGE_VERTEX, sizeof(Vertices), Vertices);
@@ -141,13 +145,13 @@ int main(int argc, char** argv) {
 	rtTextureViewAddress(texture_view, RT_ADDRESS_CLAMP, RT_ADDRESS_CLAMP, RT_ADDRESS_CLAMP);
 
 	rt_graphics_program program = rtGraphicsProgramCreate();
-	rtGraphicsProgramSource(program, plasma_rtslp.size, plasma_rtslp.data);
+	rtGraphicsProgramSource(program, plasma_rtslp.data, plasma_rtslp.size);
 	rtGraphicsProgramLayout(program, &Layout);
 	rtGraphicsProgramFinalize(program);
-	rt_uniform_location plasma_location = rtGraphicsProgramUniformLocation(program, "plasma");
-	rt_command_context command_context = rtCommandContextCreate();
-	rtCommandContextBind(command_context, queue);
-	rt_command_buffer command_buffer = rtCommandContextAllocate(command_context);
+	rt_location plasma_location = rtGraphicsProgramLocation(program, "plasma");
+	rt_location position_location = rtGraphicsProgramLocation(program, "position");
+	rt_location uv_location = rtGraphicsProgramLocation(program, "uv");
+	rt_command_buffer command_buffer = rtCommandBufferCreate();
 	const auto start = std::chrono::steady_clock::now();
 	u32 rendered_frames = 0;
 
@@ -155,30 +159,30 @@ int main(int argc, char** argv) {
 		glfwPollEvents();
 		const f32 time = std::chrono::duration<f32>(std::chrono::steady_clock::now() - start).count();
 		update_plasma(pixels, time);
-		rtTextureSubdata(texture, 0, 0, 0, 0, PlasmaWidth, PlasmaHeight, 1, pixels.data());
+		rtTextureSubdata(texture, 0, { 0, 0, 0 }, { PlasmaWidth, PlasmaHeight, 1 }, pixels.data());
 		rt_swapchain_acquire_result acquired = rtSwapchainAcquire(swapchain);
 		if (!acquired.framebuffer) {
 			continue;
 		}
-		rtQueueWait(queue, acquired.timepoint);
-		rtCommandContextBind(command_context, queue);
-		rtCommandContextBindFramebuffer(command_context, acquired.framebuffer);
-		rtCommandContextClearColor(command_context, 0, 0.0f, 0.0f, 0.0f, 1.0f);
+		rtCmdReset(command_buffer);
 		rtCmdBegin(command_buffer);
+		rtCmdWait(command_buffer, acquired.timepoint);
+		rtCmdBeginRendering(command_buffer, acquired.framebuffer);
+		rtCmdClearColor(command_buffer, 0, 0.0f, 0.0f, 0.0f, 1.0f);
 		rtCmdUseGraphicsProgram(command_buffer, program);
-		rtCmdUniformTexture(command_buffer, plasma_location, texture_view);
-		rtCmdBindVertexBuffer(command_buffer, vertex_buffer, 0);
+		rtCmdBindTexture(command_buffer, plasma_location, texture_view);
+		rtCmdVertexBuffer(command_buffer, position_location, vertex_buffer, 0);
+		rtCmdVertexBuffer(command_buffer, uv_location, vertex_buffer, 0);
 		rtCmdDraw(command_buffer, 6, 0);
+		rtCmdEndRendering(command_buffer);
 		rtCmdEnd(command_buffer);
-		rtCommandContextExecute(command_context, command_buffer);
-		rtCommandContextEndRendering(command_context);
-		rtSwapchainPresent(swapchain, rtCommandContextSubmit(command_context));
+		rtSwapchainPresent(swapchain, rtQueueSubmit(queue, command_buffer));
 		rendered_frames++;
 	}
 
 	rtTimepointWait(rtQueueFlush(queue));
 	rtCommandBufferDestroy(command_buffer);
-	rtCommandContextDestroy(command_context);
+	rtQueueDestroy(queue);
 	rtGraphicsProgramDestroy(program);
 	rtTextureViewDestroy(texture_view);
 	rtTextureDestroy(texture);

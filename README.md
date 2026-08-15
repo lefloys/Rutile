@@ -95,8 +95,8 @@ are excluded from the default build.
 
 ## Project Shape
 
-- `bindings/c/include/rutile.h` is the public loader and core API.
-- `bindings/c/include/rt_ext_*.h` files are optional extension packages.
+- `include/rutile.h` is the public loader and core API.
+- `include/rt_ext_*.h` files are optional extension packages.
 - `rt-vulkan` is the Vulkan backend.
 - `rt-directx12` is the DirectX 12 backend (Windows only).
 - `rt-validation-layer` is a validation layer.
@@ -123,11 +123,15 @@ After `rtLoad` and `rtInit`, extension headers can resolve their own procs and i
 const char* features[] = { RT_FEATURE_PRESENTATION };
 rtInit(features, 1);
 
-if (rtLoad_RT_EXT_SWAPCHAIN() != RT_SUCCESS) {
+rtClearError();
+rtLoad_RT_EXT_SWAPCHAIN();
+if (rtError() != RT_SUCCESS) {
     /* the loaded backend/layer chain does not expose the swapchain extension */
 }
 
-if (rtLoad_RT_EXT_GLFW() != RT_SUCCESS) {
+rtClearError();
+rtLoad_RT_EXT_GLFW();
+if (rtError() != RT_SUCCESS) {
     /* the extension exists but the current context may not support it */
 }
 ```
@@ -162,7 +166,9 @@ The application includes the extension header and loads it after the backend and
 rtLoad("rt-vulkan", layers, layer_count);
 rtInit(features, feature_count);
 
-if (rtLoad_RT_EXT_MY_FEATURE() == RT_SUCCESS) {
+rtClearError();
+rtLoad_RT_EXT_MY_FEATURE();
+if (rtError() == RT_SUCCESS) {
     rtMyFeatureDoThing(...);
 }
 ```

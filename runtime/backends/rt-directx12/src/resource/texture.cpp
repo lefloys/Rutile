@@ -113,18 +113,18 @@ static D3D12_SAMPLER_DESC rtdx_sampler_desc(struct rtdx_texture_view* view) {
 }
 
 rt_timepoint rtTextureCopy(rt_texture src_texture, u32 src_mip, rt_texture dst_texture, u32 dst_mip) {
-	struct rtdx_timepoint timepoint = rtdx_texture_copy(
+	rt_timepoint timepoint = rtdx_texture_copy(
 		rtdx_get_current_context(),
 		rtdx_texture_from_handle(src_texture),
 		src_mip,
 		rtdx_texture_from_handle(dst_texture),
 		dst_mip
 	);
-	return rtdx_timepoint_to_public(timepoint);
+	return timepoint;
 }
 
 rt_timepoint rtTextureData(rt_texture texture, enum rt_texture_type type, u32 mip, u32 width, u32 height, u32 depth, enum rt_format format, const void* data) {
-	struct rtdx_timepoint timepoint = rtdx_texture_data(
+	rt_timepoint timepoint = rtdx_texture_data(
 		rtdx_get_current_context(),
 		rtdx_texture_from_handle(texture),
 		type,
@@ -135,52 +135,52 @@ rt_timepoint rtTextureData(rt_texture texture, enum rt_texture_type type, u32 mi
 		format,
 		data
 	);
-	return rtdx_timepoint_to_public(timepoint);
+	return timepoint;
 }
 
-rt_timepoint rtTextureSubcopy(rt_texture src_texture, u32 src_mip, u32 src_x, u32 src_y, u32 src_z, rt_texture dst_texture, u32 dst_mip, u32 dst_x, u32 dst_y, u32 dst_z, u32 width, u32 height, u32 depth) {
-	struct rtdx_timepoint timepoint = rtdx_texture_subcopy(
+rt_timepoint rtTextureSubcopy(rt_texture src_texture, u32 src_mip, rt_extent_3d src_offset, rt_texture dst_texture, u32 dst_mip, rt_extent_3d dst_offset, rt_extent_3d extent) {
+	rt_timepoint timepoint = rtdx_texture_subcopy(
 		rtdx_get_current_context(),
 		rtdx_texture_from_handle(src_texture),
 		src_mip,
-		src_x,
-		src_y,
-		src_z,
+		src_offset.width,
+		src_offset.height,
+		src_offset.depth,
 		rtdx_texture_from_handle(dst_texture),
 		dst_mip,
-		dst_x,
-		dst_y,
-		dst_z,
-		width,
-		height,
-		depth
+		dst_offset.width,
+		dst_offset.height,
+		dst_offset.depth,
+		extent.width,
+		extent.height,
+		extent.depth
 	);
-	return rtdx_timepoint_to_public(timepoint);
+	return timepoint;
 }
 
-rt_timepoint rtTextureSubdata(rt_texture texture, u32 mip, u32 offset_x, u32 offset_y, u32 offset_z, u32 width, u32 height, u32 depth, const void* data) {
-	struct rtdx_timepoint timepoint = rtdx_texture_subdata(
+rt_timepoint rtTextureSubdata(rt_texture texture, u32 mip, rt_extent_3d offset, rt_extent_3d extent, const void* data) {
+	rt_timepoint timepoint = rtdx_texture_subdata(
 		rtdx_get_current_context(),
 		rtdx_texture_from_handle(texture),
 		mip,
-		offset_x,
-		offset_y,
-		offset_z,
-		width,
-		height,
-		depth,
+		offset.width,
+		offset.height,
+		offset.depth,
+		extent.width,
+		extent.height,
+		extent.depth,
 		data
 	);
-	return rtdx_timepoint_to_public(timepoint);
+	return timepoint;
 }
 
 rt_timepoint rtTextureViewCopyToBuffer(rt_texture_view texture_view, rt_buffer buffer) {
-	struct rtdx_timepoint timepoint = rtdx_texture_view_copy_to_buffer(
+	rt_timepoint timepoint = rtdx_texture_view_copy_to_buffer(
 		rtdx_get_current_context(),
 		rtdx_texture_view_from_handle(texture_view),
 		rtdx_buffer_from_handle(buffer)
 	);
-	return rtdx_timepoint_to_public(timepoint);
+	return timepoint;
 }
 
 rt_extent_3d rtTextureViewExtent(rt_texture_view texture_view) {
@@ -256,11 +256,11 @@ static u32 rtdx_texture_format_bytes_per_pixel(enum rt_format format) {
 }
 
 static struct rtdx_queue* rtdx_texture_upload_queue(struct rtdx_context* ctx) {
-	struct rtdx_queue* queue = rtdx_queue_query(ctx, RT_QUEUE_TRANSFER);
+	struct rtdx_queue* queue = rtdx_context_queue(ctx, RT_QUEUE_TRANSFER);
 	if (queue) {
 		return queue;
 	}
-	return rtdx_queue_query(ctx, RT_QUEUE_GRAPHICS);
+	return rtdx_context_queue(ctx, RT_QUEUE_GRAPHICS);
 }
 
 bool rtdx_texture_format_is_depth(DXGI_FORMAT format) {
@@ -310,7 +310,10 @@ static bool rtdx_texture_copy_region(
 		return false;
 	}
 
+	rtdx_queue_upload_scope upload_scope(queue);
+	rtdx_wait_for_timepoint(ctx, rtdx_queue_timepoint(queue, queue->upload_fence_value));
 	rtdx_queue_collect(ctx, queue);
+	rtdx_physical_queue_scope physical_queue(ctx);
 	if (!rtdx_queue_acquire_upload_command(ctx, queue)) {
 		return false;
 	}
@@ -375,7 +378,7 @@ static bool rtdx_texture_copy_region(
 
 	ID3D12CommandList* lists[] = { command_list };
 	queue->d3d_queue->ExecuteCommandLists(1, lists);
-	u64 fence_value = queue->fence_value + 1;
+	u64 fence_value = ++ctx->next_fence_value;
 	result = queue->d3d_queue->Signal(queue->d3d_fence, fence_value);
 	if (FAILED(result)) {
 		rtdx_throwf(rtdx_error_from_hresult(result), "ID3D12CommandQueue::Signal failed: 0x%08x", (u32)result);
@@ -414,6 +417,7 @@ void rtdx_texture_finish(struct rtdx_context* ctx, struct rtdx_texture* texture)
 
 void rtdx_texture_view_finish(struct rtdx_context* ctx, struct rtdx_texture_view* view) {
 	rtdx_release(&view->d3d_sampler_heap);
+	rtdx_release(&view->d3d_srv_heap);
 	rtdx_release(&view->d3d_rtv_heap);
 	rtdx_release(&view->d3d_dsv_heap);
 	if (view->image) {
@@ -424,6 +428,8 @@ void rtdx_texture_view_finish(struct rtdx_context* ctx, struct rtdx_texture_view
 	view->dsv.ptr = 0;
 	view->sampler_cpu.ptr = 0;
 	view->sampler_gpu.ptr = 0;
+	view->srv_cpu.ptr = 0;
+	view->srv_gpu.ptr = 0;
 	rtdx_finish_resource_base(ctx, RTDX_RESOURCE_BASE(view));
 }
 
@@ -448,14 +454,18 @@ static bool rtdx_texture_view_rebuild_descriptors(struct rtdx_context* ctx, stru
 
 	rtdx_release(&view->d3d_rtv_heap);
 	rtdx_release(&view->d3d_dsv_heap);
+	rtdx_release(&view->d3d_srv_heap);
 	view->rtv.ptr = 0;
 	view->dsv.ptr = 0;
+	view->srv_cpu.ptr = 0;
+	view->srv_gpu.ptr = 0;
+	HRESULT result = S_OK;
 
 	if (rtdx_texture_format_is_depth(view->image->dxgi_format)) {
 		D3D12_DESCRIPTOR_HEAP_DESC heap_desc = {};
 		heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
 		heap_desc.NumDescriptors = 1;
-		HRESULT result = ctx->d3d_device->CreateDescriptorHeap(&heap_desc, IID_PPV_ARGS(&view->d3d_dsv_heap));
+		result = ctx->d3d_device->CreateDescriptorHeap(&heap_desc, IID_PPV_ARGS(&view->d3d_dsv_heap));
 		if (FAILED(result)) {
 			rtdx_throwf(rtdx_error_from_hresult(result), "CreateDescriptorHeap(DSV) failed: 0x%08x", (u32)result);
 			return false;
@@ -468,10 +478,28 @@ static bool rtdx_texture_view_rebuild_descriptors(struct rtdx_context* ctx, stru
 		return true;
 	}
 
+	D3D12_DESCRIPTOR_HEAP_DESC srv_heap_desc = {};
+	srv_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+	srv_heap_desc.NumDescriptors = 1;
+	srv_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+	result = ctx->d3d_device->CreateDescriptorHeap(&srv_heap_desc, IID_PPV_ARGS(&view->d3d_srv_heap));
+	if (FAILED(result)) {
+		rtdx_throwf(rtdx_error_from_hresult(result), "CreateDescriptorHeap(SRV) failed: 0x%08x", (u32)result);
+		return false;
+	}
+	view->srv_cpu = view->d3d_srv_heap->GetCPUDescriptorHandleForHeapStart();
+	view->srv_gpu = view->d3d_srv_heap->GetGPUDescriptorHandleForHeapStart();
+	D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc = {};
+	srv_desc.Format = view->image->dxgi_format;
+	srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+	srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+	srv_desc.Texture2D.MipLevels = UINT_MAX;
+	ctx->d3d_device->CreateShaderResourceView(view->image->d3d_resource, &srv_desc, view->srv_cpu);
+
 	D3D12_DESCRIPTOR_HEAP_DESC heap_desc = {};
 	heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
 	heap_desc.NumDescriptors = 1;
-	HRESULT result = ctx->d3d_device->CreateDescriptorHeap(&heap_desc, IID_PPV_ARGS(&view->d3d_rtv_heap));
+	result = ctx->d3d_device->CreateDescriptorHeap(&heap_desc, IID_PPV_ARGS(&view->d3d_rtv_heap));
 	if (FAILED(result)) {
 		rtdx_throwf(rtdx_error_from_hresult(result), "CreateDescriptorHeap(RTV) failed: 0x%08x", (u32)result);
 		return false;
@@ -561,7 +589,7 @@ void rtdx_texture_view_bind(struct rtdx_context* ctx, struct rtdx_texture_view* 
 	if (view->image == node) {
 		return;
 	}
-	if (view->image || view->d3d_rtv_heap || view->d3d_dsv_heap || view->d3d_sampler_heap) {
+	if (view->image || view->d3d_rtv_heap || view->d3d_dsv_heap || view->d3d_sampler_heap || view->d3d_srv_heap) {
 		rtdx_texture_view_destroy(ctx, view);
 		rtdx_texture_view_init(ctx, view);
 	}
@@ -597,7 +625,7 @@ static bool rtdx_texture_view_prepare_sampler_heap(struct rtdx_context* ctx, str
 	D3D12_DESCRIPTOR_HEAP_DESC heap_desc = {};
 	heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER;
 	heap_desc.NumDescriptors = 1;
-	heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+	heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
 	HRESULT result = ctx->d3d_device->CreateDescriptorHeap(&heap_desc, IID_PPV_ARGS(&texture_view->d3d_sampler_heap));
 	if (FAILED(result)) {
 		rtdx_throwf(rtdx_error_from_hresult(result), "CreateDescriptorHeap(sampler) failed: 0x%08x", (u32)result);
@@ -605,7 +633,7 @@ static bool rtdx_texture_view_prepare_sampler_heap(struct rtdx_context* ctx, str
 	}
 
 	texture_view->sampler_cpu = texture_view->d3d_sampler_heap->GetCPUDescriptorHandleForHeapStart();
-	texture_view->sampler_gpu.ptr = 0;
+	texture_view->sampler_gpu = texture_view->d3d_sampler_heap->GetGPUDescriptorHandleForHeapStart();
 	return true;
 }
 
@@ -707,9 +735,9 @@ void rtdx_texture_view_lod(
 	rtdx_texture_view_recreate_sampler(texture_view);
 }
 
-struct rtdx_timepoint rtdx_texture_copy(struct rtdx_context* ctx, struct rtdx_texture* src_texture, u32 src_mip, struct rtdx_texture* dst_texture, u32 dst_mip) {
+rt_timepoint rtdx_texture_copy(struct rtdx_context* ctx, struct rtdx_texture* src_texture, u32 src_mip, struct rtdx_texture* dst_texture, u32 dst_mip) {
 	struct rtdx_queue* queue = rtdx_texture_upload_queue(ctx);
-	struct rtdx_timepoint timepoint = { queue, 0 };
+	rt_timepoint timepoint = {};
 	if (!queue) {
 		rtdx_throwf(RT_IMPROPER_USAGE, "texture copy requires a valid queue");
 		return timepoint;
@@ -727,18 +755,18 @@ struct rtdx_timepoint rtdx_texture_copy(struct rtdx_context* ctx, struct rtdx_te
 	if (!rtdx_texture_copy_region(ctx, queue, src_node, 0, 0, 0, dst_node, 0, 0, 0, src_node->width, src_node->height, 1)) {
 		return timepoint;
 	}
-	timepoint.value = queue->fence_value;
+	timepoint = rtdx_queue_timepoint(queue, queue->fence_value);
 	return timepoint;
 }
 
 static bool rtdx_texture_upload_staging(struct rtdx_context* ctx, struct rtdx_queue* queue, u64 size) {
 	if (queue->upload_buffer && queue->upload_buffer_size >= size) {
-		rtdx_timepoint_wait(ctx, { queue, queue->upload_fence_value });
+		rtdx_wait_for_timepoint(ctx, rtdx_queue_timepoint(queue, queue->upload_fence_value));
 		queue->upload_fence_value = 0;
 		return true;
 	}
 
-	rtdx_timepoint_wait(ctx, { queue, queue->upload_fence_value });
+	rtdx_wait_for_timepoint(ctx, rtdx_queue_timepoint(queue, queue->upload_fence_value));
 	queue->upload_fence_value = 0;
 	rtdx_release(&queue->upload_buffer);
 	queue->upload_buffer_size = 0;
@@ -773,9 +801,9 @@ static bool rtdx_texture_upload_staging(struct rtdx_context* ctx, struct rtdx_qu
 	return true;
 }
 
-struct rtdx_timepoint rtdx_texture_data(struct rtdx_context* ctx, struct rtdx_texture* texture, enum rt_texture_type type, u32 width, u32 height, u32 depth, u32 mip, enum rt_format format, const void* data) {
+rt_timepoint rtdx_texture_data(struct rtdx_context* ctx, struct rtdx_texture* texture, enum rt_texture_type type, u32 width, u32 height, u32 depth, u32 mip, enum rt_format format, const void* data) {
 	struct rtdx_queue* queue = rtdx_texture_upload_queue(ctx);
-	struct rtdx_timepoint timepoint = { queue, 0 };
+	rt_timepoint timepoint = {};
 	assert(queue);
 	assert(texture);
 	assert(type == RT_TEXTURE_2D);
@@ -783,6 +811,7 @@ struct rtdx_timepoint rtdx_texture_data(struct rtdx_context* ctx, struct rtdx_te
 	assert(depth <= 1);
 	assert(width != 0);
 	assert(height != 0);
+	rtdx_queue_upload_scope upload_scope(queue);
 
 	DXGI_FORMAT dxgi_format = rtdx_texture_format(format);
 	u32 bytes_per_pixel = rtdx_texture_format_bytes_per_pixel(format);
@@ -886,6 +915,7 @@ struct rtdx_timepoint rtdx_texture_data(struct rtdx_context* ctx, struct rtdx_te
 		queue->upload_buffer->Unmap(0, NULL);
 	}
 
+	rtdx_physical_queue_scope physical_queue(ctx);
 	if (!rtdx_queue_acquire_upload_command(ctx, queue)) {
 		rtdx_release_resource(node);
 		return timepoint;
@@ -922,7 +952,7 @@ struct rtdx_timepoint rtdx_texture_data(struct rtdx_context* ctx, struct rtdx_te
 
 	ID3D12CommandList* lists[] = { command_list };
 	queue->d3d_queue->ExecuteCommandLists(1, lists);
-	u64 fence_value = queue->fence_value + 1;
+	u64 fence_value = ++ctx->next_fence_value;
 	result = queue->d3d_queue->Signal(queue->d3d_fence, fence_value);
 	if (FAILED(result)) {
 		rtdx_release_resource(node);
@@ -932,7 +962,7 @@ struct rtdx_timepoint rtdx_texture_data(struct rtdx_context* ctx, struct rtdx_te
 
 	queue->fence_value = fence_value;
 	queue->upload_fence_value = fence_value;
-	timepoint.value = fence_value;
+	timepoint = rtdx_queue_timepoint(queue, fence_value);
 	node->state = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
 
 	rtdx_texture_recycle_node(texture, texture->active);
@@ -940,9 +970,9 @@ struct rtdx_timepoint rtdx_texture_data(struct rtdx_context* ctx, struct rtdx_te
 	return timepoint;
 }
 
-struct rtdx_timepoint rtdx_texture_subcopy(struct rtdx_context* ctx, struct rtdx_texture* src_texture, u32 src_mip, u32 src_x, u32 src_y, u32 src_z, struct rtdx_texture* dst_texture, u32 dst_mip, u32 dst_x, u32 dst_y, u32 dst_z, u32 width, u32 height, u32 depth) {
+rt_timepoint rtdx_texture_subcopy(struct rtdx_context* ctx, struct rtdx_texture* src_texture, u32 src_mip, u32 src_x, u32 src_y, u32 src_z, struct rtdx_texture* dst_texture, u32 dst_mip, u32 dst_x, u32 dst_y, u32 dst_z, u32 width, u32 height, u32 depth) {
 	struct rtdx_queue* queue = rtdx_texture_upload_queue(ctx);
-	struct rtdx_timepoint timepoint = { queue, 0 };
+	rt_timepoint timepoint = {};
 	assert(queue);
 	struct rtdx_texture* src_node = src_texture ? src_texture->active : NULL;
 	struct rtdx_texture* dst_node = dst_texture ? dst_texture->active : NULL;
@@ -956,13 +986,13 @@ struct rtdx_timepoint rtdx_texture_subcopy(struct rtdx_context* ctx, struct rtdx
 	if (!rtdx_texture_copy_region(ctx, queue, src_node, src_x, src_y, src_z, dst_node, dst_x, dst_y, dst_z, width, height, depth)) {
 		return timepoint;
 	}
-	timepoint.value = queue->fence_value;
+	timepoint = rtdx_queue_timepoint(queue, queue->fence_value);
 	return timepoint;
 }
 
-struct rtdx_timepoint rtdx_texture_subdata(struct rtdx_context* ctx, struct rtdx_texture* texture, u32 mip, u32 offset_x, u32 offset_y, u32 offset_z, u32 width, u32 height, u32 depth, const void* data) {
+rt_timepoint rtdx_texture_subdata(struct rtdx_context* ctx, struct rtdx_texture* texture, u32 mip, u32 offset_x, u32 offset_y, u32 offset_z, u32 width, u32 height, u32 depth, const void* data) {
 	struct rtdx_queue* queue = rtdx_texture_upload_queue(ctx);
-	struct rtdx_timepoint timepoint = { queue, 0 };
+	rt_timepoint timepoint = {};
 	assert(queue);
 	struct rtdx_texture* node = texture ? texture->active : NULL;
 	assert(node && node->d3d_resource);
@@ -976,6 +1006,7 @@ struct rtdx_timepoint rtdx_texture_subdata(struct rtdx_context* ctx, struct rtdx
 	assert(offset_y <= node->height);
 	assert(width <= node->width - offset_x);
 	assert(height <= node->height - offset_y);
+	rtdx_queue_upload_scope upload_scope(queue);
 
 	u32 bytes_per_pixel = rtdx_texture_view_bytes_per_pixel(node->dxgi_format);
 	if (bytes_per_pixel == 0) {
@@ -1016,6 +1047,7 @@ struct rtdx_timepoint rtdx_texture_subdata(struct rtdx_context* ctx, struct rtdx
 	}
 	queue->upload_buffer->Unmap(0, NULL);
 
+	rtdx_physical_queue_scope physical_queue(ctx);
 	if (!rtdx_queue_acquire_upload_command(ctx, queue)) {
 		return timepoint;
 	}
@@ -1060,7 +1092,7 @@ struct rtdx_timepoint rtdx_texture_subdata(struct rtdx_context* ctx, struct rtdx
 
 	ID3D12CommandList* lists[] = { command_list };
 	queue->d3d_queue->ExecuteCommandLists(1, lists);
-	u64 fence_value = queue->fence_value + 1;
+	u64 fence_value = ++ctx->next_fence_value;
 	result = queue->d3d_queue->Signal(queue->d3d_fence, fence_value);
 	if (FAILED(result)) {
 		rtdx_throwf(rtdx_error_from_hresult(result), "ID3D12CommandQueue::Signal failed: 0x%08x", (u32)result);
@@ -1069,14 +1101,14 @@ struct rtdx_timepoint rtdx_texture_subdata(struct rtdx_context* ctx, struct rtdx
 
 	queue->fence_value = fence_value;
 	queue->upload_fence_value = fence_value;
-	timepoint.value = fence_value;
+	timepoint = rtdx_queue_timepoint(queue, fence_value);
 	node->state = original_state;
 	return timepoint;
 }
 
-struct rtdx_timepoint rtdx_texture_view_copy_to_buffer(struct rtdx_context* ctx, struct rtdx_texture_view* texture_view, struct rtdx_buffer* buffer) {
+rt_timepoint rtdx_texture_view_copy_to_buffer(struct rtdx_context* ctx, struct rtdx_texture_view* texture_view, struct rtdx_buffer* buffer) {
 	struct rtdx_queue* queue = rtdx_texture_upload_queue(ctx);
-	struct rtdx_timepoint timepoint = { queue, 0 };
+	rt_timepoint timepoint = {};
 	assert(queue);
 	assert(texture_view && texture_view->image->d3d_resource);
 	assert(buffer);
@@ -1148,6 +1180,8 @@ struct rtdx_timepoint rtdx_texture_view_copy_to_buffer(struct rtdx_context* ctx,
 		return timepoint;
 	}
 
+	{
+	rtdx_physical_queue_scope physical_queue(ctx);
 	D3D12_RESOURCE_STATES original_state = texture_view->image->state;
 	if (original_state != D3D12_RESOURCE_STATE_COPY_SOURCE) {
 		D3D12_RESOURCE_BARRIER barrier = {};
@@ -1191,7 +1225,7 @@ struct rtdx_timepoint rtdx_texture_view_copy_to_buffer(struct rtdx_context* ctx,
 
 	ID3D12CommandList* lists[] = { command_list };
 	queue->d3d_queue->ExecuteCommandLists(1, lists);
-	u64 fence_value = queue->fence_value + 1;
+	u64 fence_value = ++ctx->next_fence_value;
 	result = queue->d3d_queue->Signal(queue->d3d_fence, fence_value);
 	if (FAILED(result)) {
 		rtdx_release(&command_list);
@@ -1201,7 +1235,9 @@ struct rtdx_timepoint rtdx_texture_view_copy_to_buffer(struct rtdx_context* ctx,
 		return timepoint;
 	}
 	queue->fence_value = fence_value;
-	rtdx_timepoint_wait(ctx, { queue, fence_value });
+	timepoint = rtdx_queue_timepoint(queue, fence_value);
+	}
+	rtdx_wait_for_timepoint(ctx, timepoint);
 
 	D3D12_RANGE read_range = { 0, (SIZE_T)total_size };
 	void* mapped = NULL;

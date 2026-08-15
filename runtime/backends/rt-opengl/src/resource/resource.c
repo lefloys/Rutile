@@ -1,5 +1,4 @@
 #include "resource.h"
-
 #include "buffer.h"
 #include "command_buffer.h"
 #include "error.h"
@@ -107,9 +106,4 @@ void rtgl_resource_finalize(struct rtgl_resource_base* base) {
 bool rtgl_resource_ready_to_destroy(struct rtgl_resource_base* base) {
 	assert(base);
 	return base->zombie && base->ref_count == 0 && base->job_count == 0;
-}
-
-rt_timepoint rtgl_timepoint_to_public(struct rtgl_timepoint timepoint) {
-	rt_timepoint result = { (rt_queue)timepoint.queue, timepoint.value };
-	return result;
 }

@@ -17,7 +17,6 @@ target_sources(${PROJECT_NAME} PRIVATE
     "src/error.cpp"
     "src/error.hpp"
     "src/init.cpp"
-    "src/types.hpp"
     "src/resource/buffer.cpp"
     "src/resource/buffer.hpp"
     "src/resource/command_buffer.cpp"
@@ -46,7 +45,7 @@ target_sources(${PROJECT_NAME} PRIVATE
 target_include_directories(${PROJECT_NAME} PRIVATE
     "src"
     "../../common"
-    "../../bindings/c/include"
+    "../../../include"
     "${RUTILE_SOURCE_DIR}/RTSL/transpilers/hlsl/include"
 )
 target_compile_definitions(${PROJECT_NAME} PRIVATE
@@ -87,6 +86,10 @@ find_file(_rtdx_dxil_dll dxil.dll HINTS
     "$ENV{VULKAN_SDK}/Bin"
 )
 if(_rtdx_dxcompiler_dll AND _rtdx_dxil_dll)
+    set_property(TARGET ${PROJECT_NAME} PROPERTY RUTILE_RUNTIME_DEPLOY_FILES
+        "${_rtdx_dxcompiler_dll}"
+        "${_rtdx_dxil_dll}"
+    )
     add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${_rtdx_dxcompiler_dll}"

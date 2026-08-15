@@ -1,7 +1,9 @@
 #ifndef RTGL_PLATFORM_CONTEXT_H
 #define RTGL_PLATFORM_CONTEXT_H
 #include "config.h"
-#include "types.h"
+#define RT_TYPES_ONLY
+#include "rutile.h"
+#undef RT_TYPES_ONLY
 
 RTGL_EXTERN_C_ENTER
 

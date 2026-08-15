@@ -2,7 +2,9 @@
 #define RTGL_ERROR_H
 
 #include "config.h"
-#include "types.h"
+#define RT_TYPES_ONLY
+#include "rutile.h"
+#undef RT_TYPES_ONLY
 
 #include <stdarg.h>
 

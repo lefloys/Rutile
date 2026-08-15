@@ -29,8 +29,8 @@ void rtGraphicsProgramLayout(rt_graphics_program program, const rt_vertex_layout
 	rtdx_graphics_program_layout(rtdx_get_current_context(), rtdx_graphics_program_from_handle(program), layout);
 }
 
-void rtGraphicsProgramSource(rt_graphics_program program, u64 size, const void* data) {
-	rtdx_graphics_program_source(rtdx_get_current_context(), rtdx_graphics_program_from_handle(program), size, data);
+void rtGraphicsProgramSource(rt_graphics_program program, const void* data, usize size) {
+	rtdx_graphics_program_source(rtdx_get_current_context(), rtdx_graphics_program_from_handle(program), data, size);
 }
 
 void rtGraphicsProgramRasterState(rt_graphics_program program, rt_cull_mode cull_mode, rt_front_face front_face, rt_fill_mode fill_mode) {
@@ -45,12 +45,8 @@ void rtGraphicsProgramFinalize(rt_graphics_program program) {
 	rtdx_graphics_program_finalize(rtdx_get_current_context(), rtdx_graphics_program_from_handle(program));
 }
 
-void rtGraphicsProgramReset(rt_graphics_program program) {
-	rtdx_graphics_program_reset(rtdx_get_current_context(), rtdx_graphics_program_from_handle(program));
-}
-
-rt_uniform_location rtGraphicsProgramUniformLocation(rt_graphics_program program, const char* name) {
-	return rtdx_graphics_program_uniform_location(rtdx_get_current_context(), rtdx_graphics_program_from_handle(program), name);
+rt_location rtGraphicsProgramLocation(rt_graphics_program program, const char* name) {
+	return rtdx_graphics_program_location(rtdx_get_current_context(), rtdx_graphics_program_from_handle(program), name);
 }
 
 /*===============================================================================================*/
@@ -86,7 +82,7 @@ static void rtdx_graphics_program_destroy_root_signature(rtdx_graphics_program* 
 
 void rtdx_graphics_program_finish(rtdx_context* ctx, rtdx_graphics_program* program) {
 	rtdx_graphics_program_destroy_root_signature(program);
-	program->uniform_locations.clear();
+	program->locations.clear();
 	program->program_source.clear();
 	program->rtsl_program.reset();
 	program->vertex_dxil.clear();
@@ -155,28 +151,35 @@ static bool rtdx_graphics_program_create_root_signature(rtdx_context* ctx, rtdx_
 	std::vector<D3D12_ROOT_PARAMETER> parameters;
 	ranges.reserve(program->rtsl_program->resources().size() * 2);
 	parameters.reserve(program->rtsl_program->resources().size() * 2);
-	program->uniform_locations.clear();
-	program->uniform_locations.reserve(program->rtsl_program->resources().size());
+	program->locations.clear();
+	program->locations.reserve(program->rtsl_program->resources().size());
 
 	for (const rtsl::Resource& resource : program->rtsl_program->resources()) {
-		rtdx_uniform_location location = {};
+		rtdx_location location = {};
 		location.program = program;
 		strncpy_s(location.name, resource.name.c_str(), _TRUNCATE);
-		location.slot = static_cast<u32>(program->uniform_locations.size());
+		location.slot = static_cast<u32>(program->locations.size());
 		location.binding = resource.descriptor.binding;
 		const D3D12_SHADER_VISIBILITY visibility = rtdx_shader_visibility(resource.stages);
 
 		if (resource.kind == rtsl::ResourceKind::uniform_buffer) {
-			location.kind = rtdx_uniform_location_kind::buffer;
+			location.kind = rtdx_location_kind::buffer;
 			location.root_parameter = static_cast<u32>(parameters.size());
+			D3D12_DESCRIPTOR_RANGE range = {};
+			range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
+			range.NumDescriptors = 1;
+			range.BaseShaderRegister = resource.descriptor.binding;
+			range.RegisterSpace = resource.descriptor.set;
+			range.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+			ranges.push_back(range);
 			D3D12_ROOT_PARAMETER parameter = {};
-			parameter.ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
-			parameter.Descriptor.ShaderRegister = resource.descriptor.binding;
-			parameter.Descriptor.RegisterSpace = resource.descriptor.set;
+			parameter.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+			parameter.DescriptorTable.NumDescriptorRanges = 1;
+			parameter.DescriptorTable.pDescriptorRanges = &ranges.back();
 			parameter.ShaderVisibility = visibility;
 			parameters.push_back(parameter);
 		} else if (resource.kind == rtsl::ResourceKind::sampled_texture || resource.kind == rtsl::ResourceKind::sampler) {
-			location.kind = rtdx_uniform_location_kind::texture;
+			location.kind = rtdx_location_kind::texture;
 			location.root_parameter = static_cast<u32>(parameters.size());
 			for (const D3D12_DESCRIPTOR_RANGE_TYPE range_type : { D3D12_DESCRIPTOR_RANGE_TYPE_SRV, D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER }) {
 				D3D12_DESCRIPTOR_RANGE range = {};
@@ -201,10 +204,9 @@ static bool rtdx_graphics_program_create_root_signature(rtdx_context* ctx, rtdx_
 				rtdx_throwf(RT_UNSUPPORTED_FEATURE, "DirectX 12 cannot reflect RTSL storage buffer '%s'", resource.name.c_str());
 				return false;
 			}
-			location.kind = rtdx_uniform_location_kind::storage_buffer;
+			location.kind = rtdx_location_kind::storage_buffer;
 			location.storage_stride = *stride;
 			location.root_parameter = static_cast<u32>(parameters.size());
-
 			D3D12_DESCRIPTOR_RANGE range = {};
 			range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
 			range.NumDescriptors = 1;
@@ -223,7 +225,17 @@ static bool rtdx_graphics_program_create_root_signature(rtdx_context* ctx, rtdx_
 			rtdx_throwf(RT_UNSUPPORTED_FEATURE, "DirectX 12 does not support RTSL resource '%s' yet", resource.name.c_str());
 			return false;
 		}
-		program->uniform_locations.push_back(location);
+		program->locations.push_back(location);
+	}
+	for (usize index = 0; index < program->vertex_layout.attribute_count; index++) {
+		const rt_vertex_attribute& attribute = program->vertex_attributes[index];
+		rtdx_location location = {};
+		location.program = program;
+		strncpy_s(location.name, attribute.name, _TRUNCATE);
+		location.kind = rtdx_location_kind::vertex_stream;
+		location.slot = static_cast<u32>(index);
+		location.vertex_stream = attribute.stream;
+		program->locations.push_back(location);
 	}
 
 	D3D12_ROOT_SIGNATURE_DESC desc = {};
@@ -370,19 +382,19 @@ bool rtdx_graphics_program_prepare(
 		}
 		elements.push_back(D3D12_INPUT_ELEMENT_DESC{
 			.SemanticName = "TEXCOORD",
-			.SemanticIndex = *reflected->location,
+			.SemanticIndex = static_cast<UINT>(*reflected->location),
 			.Format = format,
-			.InputSlot = 0,
-			.AlignedByteOffset = attribute.offset,
-			.InputSlotClass = D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,
-			.InstanceDataStepRate = 0,
+			.InputSlot = static_cast<UINT>(attribute.stream),
+			.AlignedByteOffset = static_cast<UINT>(attribute.offset),
+			.InputSlotClass = program->vertex_streams[attribute.stream].rate == RT_VERTEX_RATE_INSTANCE ? D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA : D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,
+			.InstanceDataStepRate = program->vertex_streams[attribute.stream].rate == RT_VERTEX_RATE_INSTANCE ? 1u : 0u,
 		});
 	}
 
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC desc = {};
 	desc.pRootSignature = program->d3d_root_signature;
-	desc.VS = { program->vertex_dxil.data(), program->vertex_dxil.size() };
-	desc.PS = { program->fragment_dxil.data(), program->fragment_dxil.size() };
+	desc.VS = { program->vertex_dxil.data(), static_cast<UINT>(program->vertex_dxil.size()) };
+	desc.PS = { program->fragment_dxil.data(), static_cast<UINT>(program->fragment_dxil.size()) };
 	desc.BlendState.AlphaToCoverageEnable = FALSE;
 	desc.BlendState.IndependentBlendEnable = FALSE;
 	D3D12_RENDER_TARGET_BLEND_DESC& blend = desc.BlendState.RenderTarget[0];
@@ -439,30 +451,33 @@ void rtdx_graphics_program_layout(rtdx_context* /*ctx*/, rtdx_graphics_program* 
 		rtdx_graphics_program_destroy_pipeline(program);
 		return;
 	}
-	if (layout->attribute_count > RTDX_MAX_VERTEX_ATTRIBUTES) {
+	if (layout->attribute_count > RTDX_MAX_VERTEX_ATTRIBUTES || layout->stream_count > RTDX_MAX_VERTEX_STREAMS) {
 		rtdx_throwf(RT_IMPROPER_USAGE, "too many vertex attributes");
 		return;
 	}
-	if (layout->stride == 0) {
-		rtdx_throwf(RT_IMPROPER_USAGE, "vertex layout stride is zero");
-		return;
-	}
-
 	std::memcpy(program->vertex_attributes, layout->attributes, sizeof(layout->attributes[0]) * layout->attribute_count);
-	program->vertex_layout.stride = layout->stride;
+	std::memcpy(program->vertex_streams, layout->streams, sizeof(layout->streams[0]) * layout->stream_count);
+	program->vertex_layout.streams = program->vertex_streams;
+	program->vertex_layout.stream_count = layout->stream_count;
 	program->vertex_layout.attributes = program->vertex_attributes;
 	program->vertex_layout.attribute_count = layout->attribute_count;
+	for (usize index = 0; index < layout->attribute_count; index++) {
+		if (program->vertex_attributes[index].stream >= layout->stream_count) {
+			rtdx_throwf(RT_IMPROPER_USAGE, "vertex attribute stream index is outside the configured vertex streams");
+			return;
+		}
+	}
 	rtdx_graphics_program_destroy_pipeline(program);
 }
 
-void rtdx_graphics_program_source(rtdx_context* /*ctx*/, rtdx_graphics_program* program, u64 size, const void* data) {
+void rtdx_graphics_program_source(rtdx_context* /*ctx*/, rtdx_graphics_program* program, const void* data, usize size) {
 	if (!program) {
 		rtdx_throwf(RT_IMPROPER_USAGE, "graphics program is NULL");
 		return;
 	}
 	const auto* bytes = static_cast<const unsigned char*>(data);
 	program->program_source.assign(bytes, bytes + size);
-	program->uniform_locations.clear();
+	program->locations.clear();
 	program->rtsl_program.reset();
 	program->vertex_dxil.clear();
 	program->fragment_dxil.clear();
@@ -511,18 +526,6 @@ void rtdx_graphics_program_blend_state(
 	program->dst_alpha_blend = dst_alpha;
 	program->alpha_blend_op = alpha_op;
 	rtdx_graphics_program_destroy_pipeline(program);
-}
-
-void rtdx_graphics_program_reset(rtdx_context* /*ctx*/, rtdx_graphics_program* program) {
-	if (!program) {
-		rtdx_throwf(RT_IMPROPER_USAGE, "graphics program is NULL");
-		return;
-	}
-	rtdx_graphics_program_destroy_root_signature(program);
-	program->uniform_locations.clear();
-	program->rtsl_program.reset();
-	program->vertex_dxil.clear();
-	program->fragment_dxil.clear();
 }
 
 static bool rtdx_compile_hlsl(std::string_view source, const wchar_t* profile, std::vector<unsigned char>& bytecode) {
@@ -609,7 +612,7 @@ void rtdx_graphics_program_finalize(rtdx_context* ctx, rtdx_graphics_program* pr
 	}
 }
 
-rt_uniform_location rtdx_graphics_program_uniform_location(rtdx_context* /*ctx*/, rtdx_graphics_program* program, const char* name) {
+rt_location rtdx_graphics_program_location(rtdx_context* /*ctx*/, rtdx_graphics_program* program, const char* name) {
 	if (!program) {
 		rtdx_throwf(RT_IMPROPER_USAGE, "graphics program is NULL");
 		return RT_NULL_HANDLE;
@@ -622,9 +625,9 @@ rt_uniform_location rtdx_graphics_program_uniform_location(rtdx_context* /*ctx*/
 		rtdx_throwf(RT_IMPROPER_USAGE, "graphics program must be finalized before querying uniforms");
 		return RT_NULL_HANDLE;
 	}
-	for (rtdx_uniform_location& loc : program->uniform_locations) {
+	for (rtdx_location& loc : program->locations) {
 		if (std::strcmp(name, loc.name) == 0) {
-			return reinterpret_cast<rt_uniform_location>(&loc);
+			return rtdx_location_to_handle(&loc);
 		}
 	}
 	return RT_NULL_HANDLE;

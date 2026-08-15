@@ -32,12 +32,7 @@ rt_swapchain_acquire_result rtSwapchainAcquire(rt_swapchain swapchain) {
 }
 
 void rtSwapchainPresent(rt_swapchain swapchain, rt_timepoint rendered) {
-	struct rtdx_timepoint timepoint = { rtdx_queue_from_handle(rendered.queue), rendered.value };
-	rtdx_swapchain_present(
-		rtdx_get_current_context(),
-		rtdx_swapchain_from_handle(swapchain),
-		timepoint
-	);
+	rtdx_swapchain_present(rtdx_get_current_context(), rtdx_swapchain_from_handle(swapchain), rendered);
 }
 
 /*===============================================================================================*/
@@ -47,7 +42,7 @@ void rtSwapchainPresent(rt_swapchain swapchain, rt_timepoint rendered) {
 RTDX_DEFINE_RESOURCE_PRIVATE(swapchain)
 
 static bool rtdx_swapchain_prepare_present_command(struct rtdx_context* ctx, struct rtdx_swapchain_frame* frame);
-static bool rtdx_swapchain_submit_present_transition(struct rtdx_context* ctx, struct rtdx_swapchain* swapchain, struct rtdx_timepoint rendered);
+static bool rtdx_swapchain_submit_present_transition(struct rtdx_context* ctx, struct rtdx_swapchain* swapchain, rt_timepoint rendered);
 
 void rtdx_swapchain_init(struct rtdx_context* ctx, struct rtdx_swapchain* swapchain) {
 	rtdx_init_resource_base(ctx, RTDX_RESOURCE_BASE(swapchain), rtdx_resource_type::swapchain);
@@ -93,12 +88,9 @@ void rtdx_swapchain_wait_frame(struct rtdx_context* ctx, struct rtdx_swapchain_f
 	if (!frame) {
 		return;
 	}
-	if (frame->has_present_timepoint) {
-		struct rtdx_timepoint timepoint = { frame->present_queue, frame->present_value };
-		rtdx_timepoint_wait(ctx, timepoint);
-		frame->present_queue = NULL;
-		frame->present_value = 0;
-		frame->has_present_timepoint = false;
+	if (frame->present_timepoint.value) {
+		rtdx_wait_for_timepoint(ctx, frame->present_timepoint);
+		frame->present_timepoint = {};
 	}
 }
 
@@ -267,7 +259,7 @@ bool rtdx_swapchain_create_framebuffers(struct rtdx_context* ctx, struct rtdx_sw
 }
 
 rt_swapchain_acquire_result rtdx_swapchain_acquire(struct rtdx_context* ctx, struct rtdx_swapchain* swapchain) {
-	rt_swapchain_acquire_result empty = { RT_NULL_HANDLE, { RT_NULL_HANDLE, 0 } };
+	rt_swapchain_acquire_result empty = { RT_NULL_HANDLE, { 0 } };
 	if (!swapchain || !swapchain->dxgi_swapchain) {
 		rtdx_throwf(RT_IMPROPER_USAGE, "swapchain acquire requires a valid swapchain");
 		return empty;
@@ -283,7 +275,7 @@ rt_swapchain_acquire_result rtdx_swapchain_acquire(struct rtdx_context* ctx, str
 	}
 	rt_swapchain_acquire_result acquire = {
 		rtdx_framebuffer_to_handle(swapchain->framebuffers[swapchain->current_image_index]),
-		{ RT_NULL_HANDLE, 0 },
+		{ 0 },
 	};
 	swapchain->frame_acquired = true;
 	rtdx_swapchain_unlock(swapchain);
@@ -311,9 +303,14 @@ static bool rtdx_swapchain_prepare_present_command(struct rtdx_context* ctx, str
 	return true;
 }
 
-static bool rtdx_swapchain_submit_present_transition(struct rtdx_context* ctx, struct rtdx_swapchain* swapchain, struct rtdx_timepoint rendered) {
+static bool rtdx_swapchain_submit_present_transition(struct rtdx_context* ctx, struct rtdx_swapchain* swapchain, rt_timepoint rendered) {
+	rtdx_physical_queue_scope physical_queue(ctx);
 	struct rtdx_swapchain_frame* frame = &swapchain->frames[swapchain->current_image_index];
 	struct rtdx_texture_view* view = swapchain->texture_views[swapchain->current_image_index];
+	if (!view || !view->image || !view->image->d3d_resource) {
+		rtdx_throwf(RT_IMPROPER_USAGE, "swapchain presentation image is unavailable");
+		return false;
+	}
 	if (!rtdx_swapchain_prepare_present_command(ctx, frame)) {
 		return false;
 	}
@@ -348,20 +345,29 @@ static bool rtdx_swapchain_submit_present_transition(struct rtdx_context* ctx, s
 		return false;
 	}
 
-	result = rendered.queue->d3d_queue->Wait(rendered.queue->d3d_fence, rendered.value);
+	rtdx_queue* queue = rtdx_queue_from_timepoint(ctx, rendered);
+	if (!queue) {
+		rtdx_throwf(RT_IMPROPER_USAGE, "swapchain present uses a timepoint from an unknown queue");
+		return false;
+	}
+	if (!queue->d3d_queue || !queue->d3d_fence) {
+		rtdx_throwf(RT_IMPROPER_USAGE, "swapchain present queue is not initialized");
+		return false;
+	}
+	result = queue->d3d_queue->Wait(queue->d3d_fence, rendered.value & UINT64_C(0x00ffffffffffffff));
 	if (FAILED(result)) {
 		rtdx_throwf(rtdx_error_from_hresult(result), "ID3D12CommandQueue::Wait(present) failed: 0x%08x", (u32)result);
 		return false;
 	}
 
 	ID3D12CommandList* lists[] = { frame->present_command_list };
-	rendered.queue->d3d_queue->ExecuteCommandLists(1, lists);
+	queue->d3d_queue->ExecuteCommandLists(1, lists);
 	return true;
 }
 
-void rtdx_swapchain_present(struct rtdx_context* ctx, struct rtdx_swapchain* swapchain, struct rtdx_timepoint rendered) {
+void rtdx_swapchain_present(struct rtdx_context* ctx, struct rtdx_swapchain* swapchain, rt_timepoint rendered) {
 	struct rtdx_swapchain_frame* frame = &swapchain->frames[swapchain->current_image_index];
-	if (!rendered.queue || rendered.value == 0) {
+	if (!rendered.value) {
 		rtdx_throwf(RT_IMPROPER_USAGE, "swapchain present requires a render timepoint");
 		rtdx_swapchain_mark_unacquired(swapchain);
 		return;
@@ -381,13 +387,17 @@ void rtdx_swapchain_present(struct rtdx_context* ctx, struct rtdx_swapchain* swa
 		return;
 	}
 
-	struct rtdx_timepoint present_done = rtdx_queue_signal(ctx, rendered.queue);
+	rtdx_queue* queue = rtdx_queue_from_timepoint(ctx, rendered);
+	if (!queue) {
+		rtdx_throwf(RT_IMPROPER_USAGE, "swapchain present uses a timepoint from an unknown queue");
+		rtdx_swapchain_mark_unacquired(swapchain);
+		return;
+	}
+	rt_timepoint present_done = rtdx_queue_signal(ctx, queue);
 	if (rtError() != RT_SUCCESS) {
 		rtdx_swapchain_mark_unacquired(swapchain);
 		return;
 	}
-	frame->present_queue = present_done.queue;
-	frame->present_value = present_done.value;
-	frame->has_present_timepoint = present_done.value != 0;
+	frame->present_timepoint = present_done;
 	rtdx_swapchain_mark_unacquired(swapchain);
 }

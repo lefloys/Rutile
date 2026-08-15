@@ -6,14 +6,14 @@
 /*                                                                                               */
 /*===============================================================================================*/
 
-RT_EXPORT void rtInit(const char* const* features, u32 feature_count) { rtval_rtInit(features, feature_count); }
-RT_EXPORT void rtExit(void) { rtval_rtExit(); }
-RT_EXPORT enum rt_error rtError(void) { return rtval_rtError(); }
-RT_EXPORT const char* rtErrorMessage(void) { return rtval_rtErrorMessage(); }
-RT_EXPORT void rtClearError(void) { rtval_rtClearError(); }
-RT_EXPORT const char* rtGetName(void) { return rtval_rtGetName(); }
-RT_EXPORT enum rt_format_usage rtQueryFormatCapabilities(enum rt_format format) { return rtval_rtQueryFormatCapabilities(format); }
-RT_EXPORT void rtSetOutput(PFN_rtOutput output, void* user_data) { rtval_rtSetOutput(output, user_data); }
+RT_API_PUBLIC void rtInit(const char* const* features, u32 feature_count) { rtval_rtInit(features, feature_count); }
+RT_API_PUBLIC void rtExit(void) { rtval_rtExit(); }
+RT_API_PUBLIC enum rt_error rtError(void) { return rtval_rtError(); }
+RT_API_PUBLIC const char* rtErrorMessage(void) { return rtval_rtErrorMessage(); }
+RT_API_PUBLIC void rtClearError(void) { rtval_rtClearError(); }
+RT_API_PUBLIC const char* rtGetName(void) { return rtval_rtGetName(); }
+RT_API_PUBLIC enum rt_format_usage rtQueryFormatCapabilities(enum rt_format format) { return rtval_rtQueryFormatCapabilities(format); }
+RT_API_PUBLIC void rtSetOutput(PFN_rtOutput output, void* user_data) { rtval_rtSetOutput(output, user_data); }
 
 /*===============================================================================================*/
 /*                                                                                               */
@@ -25,7 +25,6 @@ void rtval_rtInit(const char* const* features, u32 feature_count) {
 }
 
 void rtval_rtExit(void) {
-	rtval_queue_release_all();
 	rtval_handle_report_leaks();
 	rtval_handle_reset_registry();
 	rtval_next_rtExit();

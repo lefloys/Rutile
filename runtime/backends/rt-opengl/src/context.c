@@ -29,13 +29,7 @@ void rtgl_context_init(struct rtgl_context* ctx) {
 	if (!rtgl_execution_init(ctx)) {
 		return;
 	}
-	ctx->queues = calloc(1, sizeof(*ctx->queues));
-	RTGL_CHECK_ALLOC(ctx->queues, sizeof(*ctx->queues), "OpenGL queue handles");
-	if (!ctx->queues) {
-		return;
-	}
-	ctx->queues[0] = rtgl_queue_create(ctx);
-	if (!ctx->queues[0]) {
+	if (!rtgl_queue_create_virtual(ctx, RT_QUEUE_GRAPHICS)) {
 		return;
 	}
 	ctx->queue_count = 1;
@@ -50,6 +44,7 @@ void rtgl_context_finish(struct rtgl_context* ctx) {
 	free(ctx->queues);
 	ctx->queues = NULL;
 	ctx->queue_count = 0;
+	ctx->queue_capacity = 0;
 }
 
 void rtgl_context_destroy(struct rtgl_context* ctx) {

@@ -2,7 +2,9 @@
 #define RTGL_CONTEXT_H
 #include "execution.h"
 #include "platform/context.h"
-#include "types.h"
+#define RT_TYPES_ONLY
+#include "rutile.h"
+#undef RT_TYPES_ONLY
 
 #ifdef __cplusplus
 extern "C" {
@@ -20,6 +22,7 @@ struct rtgl_context {
 	struct rtgl_execution_context execution;
 	struct rtgl_queue** queues;
 	u32 queue_count;
+	u32 queue_capacity;
 	rtgl_context_flags flags;
 };
 extern struct rtgl_context* current_context;

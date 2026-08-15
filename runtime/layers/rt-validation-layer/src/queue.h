@@ -7,8 +7,10 @@ struct rtval_queue {
 	rt_queue backend;
 };
 
-struct rtval_queue* rtval_queue_query(enum rt_queue_capability capability);
+struct rtval_queue* rtval_queue_create(enum rt_queue_capability capability);
+void rtval_queue_destroy(struct rtval_queue* queue);
 void rtval_queue_wait(struct rtval_queue* queue, rt_timepoint timepoint);
+rt_timepoint rtval_queue_submit(struct rtval_queue* queue, struct rtval_command_buffer* command_buffer);
 rt_timepoint rtval_queue_flush(struct rtval_queue* queue);
 
 void rtval_timepoint_wait_public(rt_timepoint timepoint);

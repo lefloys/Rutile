@@ -145,6 +145,10 @@ struct rt_mutex* rt_mutex_create(void) {
 	return mutex;
 }
 
+usize rt_mutex_allocation_size(void) {
+	return sizeof(struct rt_mutex);
+}
+
 void rt_mutex_destroy(struct rt_mutex* mutex) {
 	if (!mutex) {
 		return;

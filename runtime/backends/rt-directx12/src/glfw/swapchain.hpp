@@ -1,9 +1,10 @@
 #pragma once
 
 #include "config.hpp"
-#define RT_NO_API_WRAPPERS
-#include "rt_ext_glfw.h"
-#undef RT_NO_API_WRAPPERS
-#include "types.hpp"
+#define RT_TYPES_ONLY
+#include "rutile.h"
+#undef RT_TYPES_ONLY
+
+struct GLFWwindow;
 
 RTDX_API void rtSwapchainBindWindowGLFW(rt_swapchain swapchain, GLFWwindow* window);

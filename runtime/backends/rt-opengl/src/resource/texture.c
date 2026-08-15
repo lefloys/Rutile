@@ -46,36 +46,37 @@ void rtTextureViewLod(rt_texture_view texture_view, f32 min_lod, f32 max_lod, f3
 
 rt_timepoint rtTextureCopy(rt_texture src_texture, u32 src_mip, rt_texture dst_texture, u32 dst_mip) {
 	rtgl_throwf(RT_UNSUPPORTED_FEATURE, "OpenGL texture copy is not implemented");
-	return (rt_timepoint){ RT_NULL_HANDLE, 0 };
+	return (rt_timepoint){ 0 };
 }
 
 rt_timepoint rtTextureData(rt_texture texture, enum rt_texture_type type, u32 mip, u32 width, u32 height, u32 depth, enum rt_format format, const void* data) {
-	return rtgl_timepoint_to_public(rtgl_texture_data(rtgl_get_current_context(), rtgl_texture_from_handle(texture), type, mip, width, height, depth, format, data));
+	return rtgl_texture_data(rtgl_get_current_context(), rtgl_texture_from_handle(texture), type, mip, width, height, depth, format, data);
 }
 
-rt_timepoint rtTextureSubcopy(rt_texture src_texture, u32 src_mip, u32 src_x, u32 src_y, u32 src_z, rt_texture dst_texture, u32 dst_mip, u32 dst_x, u32 dst_y, u32 dst_z, u32 width, u32 height, u32 depth) {
+rt_timepoint rtTextureSubcopy(rt_texture src_texture, u32 src_mip, rt_extent_3d src_offset, rt_texture dst_texture, u32 dst_mip, rt_extent_3d dst_offset, rt_extent_3d extent) {
+	(void)src_texture; (void)src_mip; (void)src_offset; (void)dst_texture; (void)dst_mip; (void)dst_offset; (void)extent;
 	rtgl_throwf(RT_UNSUPPORTED_FEATURE, "OpenGL texture subcopy is not implemented");
-	return (rt_timepoint){ RT_NULL_HANDLE, 0 };
+	return (rt_timepoint){ 0 };
 }
 
-rt_timepoint rtTextureSubdata(rt_texture texture, u32 mip, u32 offset_x, u32 offset_y, u32 offset_z, u32 width, u32 height, u32 depth, const void* data) {
-	return rtgl_timepoint_to_public(rtgl_texture_subdata(
+rt_timepoint rtTextureSubdata(rt_texture texture, u32 mip, rt_extent_3d offset, rt_extent_3d extent, const void* data) {
+	return rtgl_texture_subdata(
 		rtgl_get_current_context(),
 		rtgl_texture_from_handle(texture),
 		mip,
-		offset_x,
-		offset_y,
-		offset_z,
-		width,
-		height,
-		depth,
+		offset.width,
+		offset.height,
+		offset.depth,
+		extent.width,
+		extent.height,
+		extent.depth,
 		data
-	));
+	);
 }
 
 rt_timepoint rtTextureViewCopyToBuffer(rt_texture_view texture_view, rt_buffer buffer) {
 	rtgl_throwf(RT_UNSUPPORTED_FEATURE, "OpenGL texture view copy to buffer is not implemented");
-	return (rt_timepoint){ RT_NULL_HANDLE, 0 };
+	return (rt_timepoint){ 0 };
 }
 
 rt_extent_3d rtTextureViewExtent(rt_texture_view texture_view) {
@@ -148,7 +149,6 @@ void rtgl_texture_view_init(struct rtgl_context* ctx, struct rtgl_texture_view* 
 	view->min_lod = 0.0f;
 	view->max_lod = 1000.0f;
 	view->lod_bias = 0.0f;
-	view->parameters_applied = false;
 }
 
 void rtgl_texture_finish(struct rtgl_texture* texture) {
@@ -157,12 +157,15 @@ void rtgl_texture_finish(struct rtgl_texture* texture) {
 }
 
 void rtgl_texture_view_finish(struct rtgl_texture_view* view) {
+	if (view->gl_sampler) {
+		rtgl_execution_texture_view_delete_sampler(view->base.ctx, view);
+	}
 	view->image = NULL;
 	rtgl_finish_resource_base(RTGL_RESOURCE_BASE(view));
 }
 
-struct rtgl_timepoint rtgl_texture_data(struct rtgl_context* ctx, struct rtgl_texture* texture, enum rt_texture_type type, u32 mip, u32 width, u32 height, u32 depth, enum rt_format format, const void* data) {
-	struct rtgl_timepoint timepoint = { NULL, 0 };
+rt_timepoint rtgl_texture_data(struct rtgl_context* ctx, struct rtgl_texture* texture, enum rt_texture_type type, u32 mip, u32 width, u32 height, u32 depth, enum rt_format format, const void* data) {
+	rt_timepoint timepoint = { 0 };
 	GLenum internal_format = rtgl_texture_internal_format(format);
 	if (texture->base.gl_texture) {
 		rtgl_execution_texture_delete(ctx, &texture->base);
@@ -180,8 +183,8 @@ struct rtgl_timepoint rtgl_texture_data(struct rtgl_context* ctx, struct rtgl_te
 	return timepoint;
 }
 
-struct rtgl_timepoint rtgl_texture_subdata(struct rtgl_context* ctx, struct rtgl_texture* texture, u32 mip, u32 offset_x, u32 offset_y, u32 offset_z, u32 width, u32 height, u32 depth, const void* data) {
-	struct rtgl_timepoint timepoint = { NULL, 0 };
+rt_timepoint rtgl_texture_subdata(struct rtgl_context* ctx, struct rtgl_texture* texture, u32 mip, u32 offset_x, u32 offset_y, u32 offset_z, u32 width, u32 height, u32 depth, const void* data) {
+	rt_timepoint timepoint = { 0 };
 	if (!texture || !texture->base.gl_texture) {
 		rtgl_throwf(RT_IMPROPER_USAGE, "rtTextureSubdata requires an initialized texture");
 		return timepoint;
@@ -215,7 +218,6 @@ void rtgl_texture_view_bind_image(struct rtgl_context* ctx, struct rtgl_texture_
 		return;
 	}
 	view->image = image;
-	view->parameters_applied = false;
 }
 
 void rtgl_texture_view_image_data(struct rtgl_context* ctx, struct rtgl_texture_view* view, enum rt_texture_type type, u32 mip, u32 width, u32 height, u32 depth, enum rt_format format, const void* data) {
@@ -248,31 +250,70 @@ void rtgl_texture_view_filter(struct rtgl_context* ctx, struct rtgl_texture_view
 	view->mag_filter = mag_filter;
 	view->min_filter = min_filter;
 	view->mip_filter = mip_filter;
-	view->parameters_applied = false;
 }
 
 void rtgl_texture_view_address(struct rtgl_context* ctx, struct rtgl_texture_view* view, enum rt_address_mode address_u, enum rt_address_mode address_v, enum rt_address_mode address_w) {
 	view->address_u = address_u;
 	view->address_v = address_v;
 	view->address_w = address_w;
-	view->parameters_applied = false;
 }
 
 void rtgl_texture_view_anisotropy(struct rtgl_context* ctx, struct rtgl_texture_view* view, u32 max_anisotropy) {
 	view->max_anisotropy = max_anisotropy;
-	view->parameters_applied = false;
 }
 
 void rtgl_texture_view_lod(struct rtgl_context* ctx, struct rtgl_texture_view* view, f32 min_lod, f32 max_lod, f32 lod_bias) {
 	view->min_lod = min_lod;
 	view->max_lod = max_lod;
 	view->lod_bias = lod_bias;
-	view->parameters_applied = false;
 }
 
 rt_extent_3d rtgl_texture_view_extent(struct rtgl_context* ctx, struct rtgl_texture_view* view) {
 	(void)ctx;
 	return view && view->image ? (rt_extent_3d){ view->image->width, view->image->height, view->image->depth } : (rt_extent_3d){ 0, 0, 0 };
+}
+
+GLenum rtgl_texture_view_sampler_filter(enum rt_filter filter, enum rt_mip_filter mip_filter) {
+	if (mip_filter == RT_MIP_FILTER_NONE) {
+		return filter == RT_FILTER_NEAREST ? GL_NEAREST : GL_LINEAR;
+	}
+	if (mip_filter == RT_MIP_FILTER_NEAREST) {
+		return filter == RT_FILTER_NEAREST ? GL_NEAREST_MIPMAP_NEAREST : GL_LINEAR_MIPMAP_NEAREST;
+	}
+	return filter == RT_FILTER_NEAREST ? GL_NEAREST_MIPMAP_LINEAR : GL_LINEAR_MIPMAP_LINEAR;
+}
+
+GLenum rtgl_texture_view_sampler_address(enum rt_address_mode mode) {
+	switch (mode) {
+	case RT_ADDRESS_CLAMP:
+		return GL_CLAMP_TO_EDGE;
+	case RT_ADDRESS_MIRROR:
+		return GL_MIRRORED_REPEAT;
+	case RT_ADDRESS_REPEAT:
+	default:
+		return GL_REPEAT;
+	}
+}
+
+void rtgl_texture_view_materialize(struct rtgl_context* ctx, struct rtgl_texture_view* view) {
+	(void)ctx;
+	if (!view || !view->image) {
+		return;
+	}
+	if (!view->gl_sampler) {
+		glCreateSamplers(1, &view->gl_sampler);
+	}
+	glSamplerParameteri(view->gl_sampler, GL_TEXTURE_MAG_FILTER, view->mag_filter == RT_FILTER_NEAREST ? GL_NEAREST : GL_LINEAR);
+	glSamplerParameteri(view->gl_sampler, GL_TEXTURE_MIN_FILTER, rtgl_texture_view_sampler_filter(view->min_filter, view->mip_filter));
+	glSamplerParameteri(view->gl_sampler, GL_TEXTURE_WRAP_S, rtgl_texture_view_sampler_address(view->address_u));
+	glSamplerParameteri(view->gl_sampler, GL_TEXTURE_WRAP_T, rtgl_texture_view_sampler_address(view->address_v));
+	glSamplerParameteri(view->gl_sampler, GL_TEXTURE_WRAP_R, rtgl_texture_view_sampler_address(view->address_w));
+	glSamplerParameterf(view->gl_sampler, GL_TEXTURE_MIN_LOD, view->min_lod);
+	glSamplerParameterf(view->gl_sampler, GL_TEXTURE_MAX_LOD, view->max_lod);
+	glSamplerParameterf(view->gl_sampler, GL_TEXTURE_LOD_BIAS, view->lod_bias);
+#if defined(GL_TEXTURE_MAX_ANISOTROPY)
+	glSamplerParameterf(view->gl_sampler, GL_TEXTURE_MAX_ANISOTROPY, (GLfloat)view->max_anisotropy);
+#endif
 }
 
 bool rtgl_texture_view_valid(struct rtgl_texture_view* view) {

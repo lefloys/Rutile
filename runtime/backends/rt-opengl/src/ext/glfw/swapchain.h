@@ -4,14 +4,13 @@
 #include "config.h"
 #include "glfw/glfw.h"
 #include "resource/swapchain.h"
-#define RT_NO_API_WRAPPERS
-#include "rt_ext_glfw.h"
-#undef RT_NO_API_WRAPPERS
-#include "types.h"
+#define RT_TYPES_ONLY
+#include "rutile.h"
+#undef RT_TYPES_ONLY
 
 RTGL_EXTERN_C_ENTER
 
-RTGL_API bool rtInit_RT_EXT_GLFW(void);
+RTGL_API bool rtInit_GLFW(void);
 RTGL_API void rtSwapchainBindWindowGLFW(rt_swapchain swapchain, GLFWwindow* window);
 
 RTGL_EXTERN_C_EXIT

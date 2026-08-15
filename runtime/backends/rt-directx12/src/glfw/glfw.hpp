@@ -1,10 +1,8 @@
 #pragma once
 
-#define RT_NO_API_WRAPPERS
-#include "rt_ext_glfw.h"
-#undef RT_NO_API_WRAPPERS
-
 #include <windows.h>
+
+struct GLFWwindow;
 
 void rtdx_init_glfw_platform();
 HWND rtdx_glfw_get_hwnd(GLFWwindow* window);

@@ -1,7 +1,9 @@
 #ifndef RTSL_SPIRV_H
 #define RTSL_SPIRV_H
 
-#include "types.h"
+#define RT_TYPES_ONLY
+#include "rutile.h"
+#undef RT_TYPES_ONLY
 
 typedef enum rtsl_spirv_status {
 	RTSL_SPIRV_SUCCESS,

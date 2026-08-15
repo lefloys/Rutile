@@ -1,20 +1,16 @@
 #ifndef RT_LAYER_VALIDATION_H
 #define RT_LAYER_VALIDATION_H
 
-#ifndef RUTILE_LOADER_ONLY
-#define RUTILE_LOADER_ONLY
+#define RT_TYPES_ONLY
 #include "rutile.h"
-#undef RUTILE_LOADER_ONLY
-#else
-#include "rutile.h"
-#endif
+#undef RT_TYPES_ONLY
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-RT_EXPORT const char* rtLayerGetName(void);
-RT_EXPORT void rtLayerSetNext(rt_proc_chain next);
+RT_API_PUBLIC const char* rtLayerGetName(void);
+RT_API_PUBLIC void rtLayerSetNext(rt_proc_chain next);
 
 #ifdef __cplusplus
 }

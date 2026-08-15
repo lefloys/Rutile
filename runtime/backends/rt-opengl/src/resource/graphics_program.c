@@ -29,12 +29,12 @@ void rtGraphicsProgramLayout(rt_graphics_program program, const rt_vertex_layout
 	);
 }
 
-void rtGraphicsProgramSource(rt_graphics_program program, u64 size, const void* data) {
+void rtGraphicsProgramSource(rt_graphics_program program, const void* data, usize size) {
 	rtgl_graphics_program_source(
 		rtgl_get_current_context(),
 		rtgl_graphics_program_from_handle(program),
-		size,
-		data
+		data,
+		size
 	);
 }
 
@@ -69,15 +69,8 @@ void rtGraphicsProgramFinalize(rt_graphics_program program) {
 	);
 }
 
-void rtGraphicsProgramReset(rt_graphics_program program) {
-	rtgl_graphics_program_reset(
-		rtgl_get_current_context(),
-		rtgl_graphics_program_from_handle(program)
-	);
-}
-
-rt_uniform_location rtGraphicsProgramUniformLocation(rt_graphics_program program, const char* name) {
-	return (rt_uniform_location)rtgl_graphics_program_uniform_location(rtgl_get_current_context(), rtgl_graphics_program_from_handle(program), name);
+rt_location rtGraphicsProgramLocation(rt_graphics_program program, const char* name) {
+	return (rt_location)rtgl_graphics_program_uniform_location(rtgl_get_current_context(), rtgl_graphics_program_from_handle(program), name);
 }
 
 /*===============================================================================================*/
@@ -105,17 +98,19 @@ void rtgl_graphics_program_layout(struct rtgl_context* ctx, struct rtgl_graphics
 		internal->vertex_layout = (rt_vertex_layout){ 0 };
 		return;
 	}
-	if (layout->attribute_count > RTGL_MAX_VERTEX_ATTRIBUTES) {
+	if (layout->attribute_count > RTGL_MAX_VERTEX_ATTRIBUTES || layout->stream_count > 16) {
 		rtgl_throwf(RT_IMPROPER_USAGE, "too many vertex attributes");
 		return;
 	}
 	memcpy(internal->vertex_attributes, layout->attributes, sizeof(layout->attributes[0]) * layout->attribute_count);
-	internal->vertex_layout.stride = layout->stride;
+	memcpy(internal->vertex_streams, layout->streams, sizeof(layout->streams[0]) * layout->stream_count);
+	internal->vertex_layout.streams = internal->vertex_streams;
 	internal->vertex_layout.attributes = internal->vertex_attributes;
+	internal->vertex_layout.stream_count = layout->stream_count;
 	internal->vertex_layout.attribute_count = layout->attribute_count;
 }
 
-void rtgl_graphics_program_source(struct rtgl_context* ctx, struct rtgl_graphics_program* internal, u64 size, const void* data) {
+void rtgl_graphics_program_source(struct rtgl_context* ctx, struct rtgl_graphics_program* internal, const void* data, usize size) {
 	free(internal->source_bytes);
 	internal->source_bytes = NULL;
 	internal->source_size = 0;
@@ -161,11 +156,27 @@ rtgl_uniform_location* rtgl_graphics_program_uniform_location(struct rtgl_contex
 			return &internal->uniform_locations[i];
 		}
 	}
+	for (u32 i = 0; i < internal->vertex_layout.attribute_count; i++) {
+		const rt_vertex_attribute* attribute = &internal->vertex_attributes[i];
+		if (strcmp(attribute->name, name) != 0 || internal->uniform_location_count == 16) {
+			continue;
+		}
+		rtgl_uniform_location* location = &internal->uniform_locations[internal->uniform_location_count++];
+		memset(location, 0, sizeof(*location));
+		location->program = internal;
+		strncpy(location->name, name, sizeof(location->name) - 1);
+		location->binding = (u32)attribute->stream;
+		location->gl_location = -1;
+		location->kind = RTGL_UNIFORM_LOCATION_VERTEX_STREAM;
+		return location;
+	}
 	return NULL;
 }
 
 void rtgl_graphics_program_finish(struct rtgl_graphics_program* program) {
-	rtgl_graphics_program_reset(program->base.ctx, program);
+	if (program->gl_program) {
+		rtgl_execution_graphics_program_destroy(program->base.ctx, program);
+	}
 	free(program->source_bytes);
 	program->source_bytes = NULL;
 	program->source_size = 0;
@@ -184,10 +195,4 @@ void rtgl_graphics_program_finalize(struct rtgl_context* ctx, struct rtgl_graphi
 		return;
 	}
 	rtgl_execution_graphics_program_finalize(ctx, program);
-}
-
-void rtgl_graphics_program_reset(struct rtgl_context* ctx, struct rtgl_graphics_program* program) {
-	if (program && program->gl_program) {
-		rtgl_execution_graphics_program_destroy(ctx, program);
-	}
 }

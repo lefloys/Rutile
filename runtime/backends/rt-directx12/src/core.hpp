@@ -8,7 +8,9 @@
 #include "resource/queue.hpp"
 #include "resource/swapchain.hpp"
 #include "resource/texture.hpp"
-#include "types.hpp"
+#define RT_TYPES_ONLY
+#include "rutile.h"
+#undef RT_TYPES_ONLY
 
 RTDX_API void rtInit(const char* const* features, u32 feature_count);
 RTDX_API void rtExit();

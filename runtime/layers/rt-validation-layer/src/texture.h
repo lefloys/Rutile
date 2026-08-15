@@ -21,8 +21,8 @@ rt_extent_3d rtval_texture_view_extent(struct rtval_texture_view* view);
 
 rt_timepoint rtval_texture_copy(struct rtval_texture* src, u32 src_mip, struct rtval_texture* dst, u32 dst_mip);
 rt_timepoint rtval_texture_data(struct rtval_texture* texture, enum rt_texture_type type, u32 mip, u32 width, u32 height, u32 depth, enum rt_format format, const void* data);
-rt_timepoint rtval_texture_subcopy(struct rtval_texture* src, u32 src_mip, u32 src_x, u32 src_y, u32 src_z, struct rtval_texture* dst, u32 dst_mip, u32 dst_x, u32 dst_y, u32 dst_z, u32 width, u32 height, u32 depth);
-rt_timepoint rtval_texture_subdata(struct rtval_texture* texture, u32 mip, u32 offset_x, u32 offset_y, u32 offset_z, u32 width, u32 height, u32 depth, const void* data);
+rt_timepoint rtval_texture_subcopy(struct rtval_texture* src, u32 src_mip, rt_extent_3d src_offset, struct rtval_texture* dst, u32 dst_mip, rt_extent_3d dst_offset, rt_extent_3d extent);
+rt_timepoint rtval_texture_subdata(struct rtval_texture* texture, u32 mip, rt_extent_3d offset, rt_extent_3d extent, const void* data);
 rt_timepoint rtval_texture_view_copy_to_buffer(struct rtval_texture_view* view, struct rtval_buffer* buffer);
 
 #endif

@@ -11,26 +11,16 @@
 #include "resource/texture.h"
 #include "rtsl_spirv.h"
 
-#include <stdio.h>
 #include <string.h>
 
 static GLenum rtgl_buffer_gl_usage(enum rt_buffer_mode mode) {
 	return mode == RT_BUFFER_STATIC ? GL_STATIC_DRAW : GL_DYNAMIC_DRAW;
 }
 
-static void rtgl_bind_texture_2d(GLuint texture) {
-	glBindTexture(GL_TEXTURE_2D, texture);
-}
-
 void rtgl_execution_buffer_create(struct rtgl_context* ctx, struct rtgl_buffer* buffer) {
-	rtgl_execution_submit_sync(ctx, [buffer](struct rtgl_context* exec_ctx) {
-		if (exec_ctx->execution.direct_state_access) {
-			glCreateBuffers(1, &buffer->gl_buffer);
-			glCreateTextures(GL_TEXTURE_BUFFER, 1, &buffer->gl_texture_buffer);
-		} else {
-			glGenBuffers(1, &buffer->gl_buffer);
-			glGenTextures(1, &buffer->gl_texture_buffer);
-		}
+	rtgl_execution_submit_sync(ctx, [buffer](struct rtgl_context*) {
+		glCreateBuffers(1, &buffer->gl_buffer);
+		glCreateTextures(GL_TEXTURE_BUFFER, 1, &buffer->gl_texture_buffer);
 	});
 }
 
@@ -49,48 +39,26 @@ void rtgl_execution_buffer_delete(struct rtgl_context* ctx, struct rtgl_buffer* 
 
 void rtgl_execution_buffer_data(struct rtgl_context* ctx, struct rtgl_buffer* buffer, enum rt_buffer_mode mode, enum rt_buffer_usage usage, u64 size, const u08* bytes) {
 	(void)usage;
-	rtgl_execution_submit_sync(ctx, [buffer, mode, size, bytes](struct rtgl_context* exec_ctx) {
-		if (exec_ctx->execution.direct_state_access) {
-			glNamedBufferData(buffer->gl_buffer, (GLsizeiptr)size, bytes, rtgl_buffer_gl_usage(mode));
-		} else {
-			glBindBuffer(GL_ARRAY_BUFFER, buffer->gl_buffer);
-			glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)size, bytes, rtgl_buffer_gl_usage(mode));
-			glBindBuffer(GL_ARRAY_BUFFER, 0);
-		}
+	rtgl_execution_submit_sync(ctx, [buffer, mode, size, bytes](struct rtgl_context*) {
+		glNamedBufferData(buffer->gl_buffer, (GLsizeiptr)size, bytes, rtgl_buffer_gl_usage(mode));
 	});
 }
 
 void rtgl_execution_buffer_subdata(struct rtgl_context* ctx, struct rtgl_buffer* buffer, u64 offset, u64 size, const u08* bytes) {
-	rtgl_execution_submit_sync(ctx, [buffer, offset, size, bytes](struct rtgl_context* exec_ctx) {
-		if (exec_ctx->execution.direct_state_access) {
-			glNamedBufferSubData(buffer->gl_buffer, (GLintptr)offset, (GLsizeiptr)size, bytes);
-		} else {
-			glBindBuffer(GL_ARRAY_BUFFER, buffer->gl_buffer);
-			glBufferSubData(GL_ARRAY_BUFFER, (GLintptr)offset, (GLsizeiptr)size, bytes);
-			glBindBuffer(GL_ARRAY_BUFFER, 0);
-		}
+	rtgl_execution_submit_sync(ctx, [buffer, offset, size, bytes](struct rtgl_context*) {
+		glNamedBufferSubData(buffer->gl_buffer, (GLintptr)offset, (GLsizeiptr)size, bytes);
 	});
 }
 
 void rtgl_execution_buffer_read(struct rtgl_context* ctx, struct rtgl_buffer* buffer, u64 offset, u64 size, u08* bytes) {
-	rtgl_execution_submit_sync(ctx, [buffer, offset, size, bytes](struct rtgl_context* exec_ctx) {
-		if (exec_ctx->execution.direct_state_access) {
-			glGetNamedBufferSubData(buffer->gl_buffer, (GLintptr)offset, (GLsizeiptr)size, bytes);
-		} else {
-			glBindBuffer(GL_COPY_READ_BUFFER, buffer->gl_buffer);
-			glGetBufferSubData(GL_COPY_READ_BUFFER, (GLintptr)offset, (GLsizeiptr)size, bytes);
-			glBindBuffer(GL_COPY_READ_BUFFER, 0);
-		}
+	rtgl_execution_submit_sync(ctx, [buffer, offset, size, bytes](struct rtgl_context*) {
+		glGetNamedBufferSubData(buffer->gl_buffer, (GLintptr)offset, (GLsizeiptr)size, bytes);
 	});
 }
 
 void rtgl_execution_framebuffer_create(struct rtgl_context* ctx, struct rtgl_framebuffer* framebuffer) {
-	rtgl_execution_submit_sync(ctx, [framebuffer](struct rtgl_context* exec_ctx) {
-		if (exec_ctx->execution.direct_state_access) {
-			glCreateFramebuffers(1, &framebuffer->gl_framebuffer);
-		} else {
-			glGenFramebuffers(1, &framebuffer->gl_framebuffer);
-		}
+	rtgl_execution_submit_sync(ctx, [framebuffer](struct rtgl_context*) {
+		glCreateFramebuffers(1, &framebuffer->gl_framebuffer);
 	});
 }
 
@@ -104,46 +72,29 @@ void rtgl_execution_framebuffer_delete(struct rtgl_context* ctx, struct rtgl_fra
 }
 
 void rtgl_execution_framebuffer_attach_color(struct rtgl_context* ctx, struct rtgl_framebuffer* framebuffer, u32 slot, struct rtgl_texture_view* view) {
-	rtgl_execution_submit_sync(ctx, [framebuffer, slot, view](struct rtgl_context* exec_ctx) {
+	rtgl_execution_submit_sync(ctx, [framebuffer, slot, view](struct rtgl_context*) {
 		GLuint texture = view && view->image ? view->image->gl_texture : 0;
 		GLenum draw_buffer = GL_COLOR_ATTACHMENT0;
-		if (exec_ctx->execution.direct_state_access) {
-			glNamedFramebufferTexture(framebuffer->gl_framebuffer, GL_COLOR_ATTACHMENT0 + slot, texture, 0);
-			glNamedFramebufferDrawBuffers(framebuffer->gl_framebuffer, 1, &draw_buffer);
-		} else {
-			glBindFramebuffer(GL_FRAMEBUFFER, framebuffer->gl_framebuffer);
-			glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + slot, GL_TEXTURE_2D, texture, 0);
-			glDrawBuffers(1, &draw_buffer);
-		}
+		glNamedFramebufferTexture(framebuffer->gl_framebuffer, GL_COLOR_ATTACHMENT0 + slot, texture, 0);
+		glNamedFramebufferDrawBuffers(framebuffer->gl_framebuffer, 1, &draw_buffer);
 		if (texture) {
-			GLenum status = exec_ctx->execution.direct_state_access ? glCheckNamedFramebufferStatus(framebuffer->gl_framebuffer, GL_FRAMEBUFFER) : glCheckFramebufferStatus(GL_FRAMEBUFFER);
+			GLenum status = glCheckNamedFramebufferStatus(framebuffer->gl_framebuffer, GL_FRAMEBUFFER);
 			if (status != GL_FRAMEBUFFER_COMPLETE) {
 				rtgl_throwf(RT_INITIALIZATION_FAILED, "OpenGL framebuffer is incomplete: 0x%04x", status);
 			}
-		}
-		if (!exec_ctx->execution.direct_state_access) {
-			glBindFramebuffer(GL_FRAMEBUFFER, 0);
 		}
 	});
 }
 
 void rtgl_execution_framebuffer_attach_depth(struct rtgl_context* ctx, struct rtgl_framebuffer* framebuffer, struct rtgl_texture_view* view) {
-	rtgl_execution_submit_sync(ctx, [framebuffer, view](struct rtgl_context* exec_ctx) {
+	rtgl_execution_submit_sync(ctx, [framebuffer, view](struct rtgl_context*) {
 		GLuint texture = view && view->image ? view->image->gl_texture : 0;
-		if (exec_ctx->execution.direct_state_access) {
-			glNamedFramebufferTexture(framebuffer->gl_framebuffer, GL_DEPTH_ATTACHMENT, texture, 0);
-		} else {
-			glBindFramebuffer(GL_FRAMEBUFFER, framebuffer->gl_framebuffer);
-			glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, texture, 0);
-		}
+		glNamedFramebufferTexture(framebuffer->gl_framebuffer, GL_DEPTH_ATTACHMENT, texture, 0);
 		if (framebuffer->color_texture_count && texture) {
-			GLenum status = exec_ctx->execution.direct_state_access ? glCheckNamedFramebufferStatus(framebuffer->gl_framebuffer, GL_FRAMEBUFFER) : glCheckFramebufferStatus(GL_FRAMEBUFFER);
+			GLenum status = glCheckNamedFramebufferStatus(framebuffer->gl_framebuffer, GL_FRAMEBUFFER);
 			if (status != GL_FRAMEBUFFER_COMPLETE) {
 				rtgl_throwf(RT_INITIALIZATION_FAILED, "OpenGL framebuffer with depth is incomplete: 0x%04x", status);
 			}
-		}
-		if (!exec_ctx->execution.direct_state_access) {
-			glBindFramebuffer(GL_FRAMEBUFFER, 0);
 		}
 	});
 }
@@ -201,10 +152,7 @@ static void rtgl_graphics_program_reflect_spirv(struct rtgl_graphics_program* pr
 }
 
 static bool rtgl_execution_graphics_program_finalize_spirv(struct rtgl_context* exec_ctx, struct rtgl_graphics_program* program) {
-	if (!exec_ctx->execution.spirv) {
-		rtgl_throwf(RT_UNSUPPORTED_FEATURE, "OpenGL backend requires GL 4.6 or ARB_gl_spirv");
-		return true;
-	}
+	(void)exec_ctx;
 	if (!program->source_bytes || program->source_size == 0) {
 		return false;
 	}
@@ -267,22 +215,12 @@ void rtgl_execution_graphics_program_finalize(struct rtgl_context* ctx, struct r
 				if (location->kind == RTGL_UNIFORM_LOCATION_TEXTURE) {
 					location->gl_location = glGetUniformLocation(program->gl_program, location->name);
 					if (location->gl_location >= 0) {
-						if (exec_ctx->execution.separate_shader_objects) {
-							glProgramUniform1i(program->gl_program, location->gl_location, (GLint)location->binding);
-						} else {
-							GLint previous_program = 0;
-							glGetIntegerv(GL_CURRENT_PROGRAM, &previous_program);
-							glUseProgram(program->gl_program);
-							glUniform1i(location->gl_location, (GLint)location->binding);
-							glUseProgram((GLuint)previous_program);
-						}
+						glProgramUniform1i(program->gl_program, location->gl_location, (GLint)location->binding);
 					}
 				} else if (location->kind == RTGL_UNIFORM_LOCATION_STORAGE_BUFFER) {
-					if (exec_ctx->execution.shader_storage_buffer) {
-						const GLuint block = glGetProgramResourceIndex(program->gl_program, GL_SHADER_STORAGE_BLOCK, location->name);
-						if (block != GL_INVALID_INDEX) {
-							glShaderStorageBlockBinding(program->gl_program, block, location->binding);
-						}
+					const GLuint block = glGetProgramResourceIndex(program->gl_program, GL_SHADER_STORAGE_BLOCK, location->name);
+					if (block != GL_INVALID_INDEX) {
+						glShaderStorageBlockBinding(program->gl_program, block, location->binding);
 					}
 				} else {
 					const GLuint block = glGetUniformBlockIndex(program->gl_program, location->name);
@@ -305,12 +243,8 @@ void rtgl_execution_graphics_program_destroy(struct rtgl_context* ctx, struct rt
 }
 
 void rtgl_execution_texture_create(struct rtgl_context* ctx, struct rtgl_image_base* image) {
-	rtgl_execution_submit_sync(ctx, [image](struct rtgl_context* exec_ctx) {
-		if (exec_ctx->execution.direct_state_access) {
-			glCreateTextures(image->gl_target, 1, &image->gl_texture);
-		} else {
-			glGenTextures(1, &image->gl_texture);
-		}
+	rtgl_execution_submit_sync(ctx, [image](struct rtgl_context*) {
+		glCreateTextures(image->gl_target, 1, &image->gl_texture);
 	});
 }
 
@@ -323,49 +257,36 @@ void rtgl_execution_texture_delete(struct rtgl_context* ctx, struct rtgl_image_b
 	});
 }
 
+void rtgl_execution_texture_view_delete_sampler(struct rtgl_context* ctx, struct rtgl_texture_view* view) {
+	rtgl_execution_submit_sync(ctx, [view](struct rtgl_context*) {
+		if (view->gl_sampler) {
+			glDeleteSamplers(1, &view->gl_sampler);
+			view->gl_sampler = 0;
+		}
+	});
+}
+
 void rtgl_execution_texture_data(struct rtgl_context* ctx, struct rtgl_image_base* image, const void* data) {
-	rtgl_execution_submit_sync(ctx, [image, data](struct rtgl_context* exec_ctx) {
-		if (exec_ctx->execution.direct_state_access) {
-			glTextureStorage2D(image->gl_texture, (GLsizei)image->mip_levels, image->gl_internal_format, (GLsizei)image->width, (GLsizei)image->height);
-			glTextureParameteri(image->gl_texture, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-			glTextureParameteri(image->gl_texture, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-			glTextureParameteri(image->gl_texture, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-			glTextureParameteri(image->gl_texture, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-			if (data) {
-				glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-				glTextureSubImage2D(
-					image->gl_texture,
-					0,
-					0,
-					0,
-					(GLsizei)image->width,
-					(GLsizei)image->height,
-					rtgl_texture_upload_format(image->format),
-					rtgl_texture_upload_type(image->format),
-					data
-				);
-				glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
-			}
-		} else {
-			rtgl_bind_texture_2d(image->gl_texture);
-			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	rtgl_execution_submit_sync(ctx, [image, data](struct rtgl_context*) {
+		glTextureStorage2D(image->gl_texture, (GLsizei)image->mip_levels, image->gl_internal_format, (GLsizei)image->width, (GLsizei)image->height);
+		glTextureParameteri(image->gl_texture, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTextureParameteri(image->gl_texture, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glTextureParameteri(image->gl_texture, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTextureParameteri(image->gl_texture, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		if (data) {
 			glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-			if (exec_ctx->execution.texture_storage) {
-				glTexStorage2D(GL_TEXTURE_2D, (GLsizei)image->mip_levels, image->gl_internal_format, (GLsizei)image->width, (GLsizei)image->height);
-				if (data) {
-					glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, (GLsizei)image->width, (GLsizei)image->height, rtgl_texture_upload_format(image->format), rtgl_texture_upload_type(image->format), data);
-				}
-			} else {
-				if (image->mip_levels > 1) {
-					rtgl_throwf(RT_UNSUPPORTED_FEATURE, "OpenGL texture mip storage requires GL 4.2 or ARB_texture_storage");
-				}
-				glTexImage2D(GL_TEXTURE_2D, 0, image->gl_internal_format, (GLsizei)image->width, (GLsizei)image->height, 0, rtgl_texture_upload_format(image->format), rtgl_texture_upload_type(image->format), data);
-			}
+			glTextureSubImage2D(
+				image->gl_texture,
+				0,
+				0,
+				0,
+				(GLsizei)image->width,
+				(GLsizei)image->height,
+				rtgl_texture_upload_format(image->format),
+				rtgl_texture_upload_type(image->format),
+				data
+			);
 			glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
-			glBindTexture(GL_TEXTURE_2D, 0);
 		}
 	});
 }
@@ -373,35 +294,19 @@ void rtgl_execution_texture_data(struct rtgl_context* ctx, struct rtgl_image_bas
 void rtgl_execution_texture_subdata(struct rtgl_context* ctx, struct rtgl_image_base* image, u32 mip, u32 offset_x, u32 offset_y, u32 offset_z, u32 width, u32 height, u32 depth, const void* data) {
 	(void)offset_z;
 	(void)depth;
-	rtgl_execution_submit_sync(ctx, [image, mip, offset_x, offset_y, width, height, data](struct rtgl_context* exec_ctx) {
+	rtgl_execution_submit_sync(ctx, [image, mip, offset_x, offset_y, width, height, data](struct rtgl_context*) {
 		glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-		if (exec_ctx->execution.direct_state_access) {
-			glTextureSubImage2D(
-				image->gl_texture,
-				(GLint)mip,
-				(GLint)offset_x,
-				(GLint)offset_y,
-				(GLsizei)width,
-				(GLsizei)height,
-				rtgl_texture_upload_format(image->format),
-				rtgl_texture_upload_type(image->format),
-				data
-			);
-		} else {
-			rtgl_bind_texture_2d(image->gl_texture);
-			glTexSubImage2D(
-				GL_TEXTURE_2D,
-				(GLint)mip,
-				(GLint)offset_x,
-				(GLint)offset_y,
-				(GLsizei)width,
-				(GLsizei)height,
-				rtgl_texture_upload_format(image->format),
-				rtgl_texture_upload_type(image->format),
-				data
-			);
-			glBindTexture(GL_TEXTURE_2D, 0);
-		}
+		glTextureSubImage2D(
+			image->gl_texture,
+			(GLint)mip,
+			(GLint)offset_x,
+			(GLint)offset_y,
+			(GLsizei)width,
+			(GLsizei)height,
+			rtgl_texture_upload_format(image->format),
+			rtgl_texture_upload_type(image->format),
+			data
+		);
 		glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
 	});
 }
@@ -447,15 +352,15 @@ static void rtgl_execution_present_now(struct rtgl_context* ctx, struct rtgl_que
 	rtgl_resource_release(RTGL_RESOURCE_BASE(swapchain));
 }
 
-struct rtgl_timepoint rtgl_execution_present(struct rtgl_context* ctx, struct rtgl_queue* queue, struct rtgl_swapchain* swapchain, struct rtgl_framebuffer* framebuffer) {
-	struct rtgl_timepoint done = rtgl_queue_signal(queue);
+rt_timepoint rtgl_execution_present(struct rtgl_context* ctx, struct rtgl_queue* queue, struct rtgl_swapchain* swapchain, struct rtgl_framebuffer* framebuffer) {
+	rt_timepoint done = rtgl_queue_signal(queue);
 
 	rtgl_retain_resource(swapchain);
 	rtgl_retain_resource(framebuffer);
-	if (!rtgl_execution_submit_async(ctx, [queue, swapchain, framebuffer, value = done.value](struct rtgl_context* exec_ctx) {
+	if (!rtgl_execution_submit_async(ctx, [queue, swapchain, framebuffer, value = rtgl_timepoint_queue_value(done)](struct rtgl_context* exec_ctx) {
 			rtgl_execution_present_now(exec_ctx, queue, swapchain, framebuffer, value);
 		})) {
-		struct rtgl_timepoint failed = { queue, queue->submitted_value };
+		rt_timepoint failed = { ((u64)queue->identifier << 56) | queue->submitted_value };
 		rtgl_release_resource(framebuffer);
 		rtgl_release_resource(swapchain);
 		return failed;

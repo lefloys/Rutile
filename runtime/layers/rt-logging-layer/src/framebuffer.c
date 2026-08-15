@@ -1,22 +1,22 @@
 #include "procs.h"
 
-RT_EXPORT rt_framebuffer rtFramebufferCreate(void) {
+RT_API_PUBLIC rt_framebuffer rtFramebufferCreate(void) {
 	return rtlog_rtFramebufferCreate();
 }
 
-RT_EXPORT void rtFramebufferDestroy(rt_framebuffer framebuffer) {
+RT_API_PUBLIC void rtFramebufferDestroy(rt_framebuffer framebuffer) {
 	rtlog_rtFramebufferDestroy(framebuffer);
 }
 
-RT_EXPORT rt_texture_view rtFramebufferColorView(rt_framebuffer framebuffer, u32 slot) {
+RT_API_PUBLIC rt_texture_view rtFramebufferColorView(rt_framebuffer framebuffer, u32 slot) {
 	return rtlog_rtFramebufferColorView(framebuffer, slot);
 }
 
-RT_EXPORT void rtFramebufferSetColorView(rt_framebuffer framebuffer, u32 slot, rt_texture_view view) {
+RT_API_PUBLIC void rtFramebufferSetColorView(rt_framebuffer framebuffer, u32 slot, rt_texture_view view) {
 	rtlog_rtFramebufferSetColorView(framebuffer, slot, view);
 }
 
-RT_EXPORT void rtFramebufferDepthView(rt_framebuffer framebuffer, rt_texture_view view) {
+RT_API_PUBLIC void rtFramebufferDepthView(rt_framebuffer framebuffer, rt_texture_view view) {
 	rtlog_rtFramebufferDepthView(framebuffer, view);
 }
 

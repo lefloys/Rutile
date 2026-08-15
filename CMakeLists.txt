@@ -18,9 +18,35 @@ include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/RutileTarget.cmake")
 include("${CMAKE_CURRENT_SOURCE_DIR}/RTSL/cmake/Rtsl.cmake")
 
 add_subdirectory("RTSL" EXCLUDE_FROM_ALL)
-add_subdirectory("bindings/c")
-add_subdirectory("bindings/cpp")
+
+add_library(rutile STATIC
+    "source/rutile.c"
+    "source/rt_ext_swapchain.c"
+    "source/rt_ext_glfw.c"
+)
+add_library(Rutile::rutile ALIAS rutile)
+
+target_include_directories(rutile
+    PUBLIC
+        "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
+        "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>"
+)
+
+add_library(rutile-cpp INTERFACE)
+add_library(Rutile::cpp ALIAS rutile-cpp)
+
+target_link_libraries(rutile-cpp INTERFACE Rutile::rutile)
+target_include_directories(rutile-cpp
+    INTERFACE
+        "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
+        "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>"
+)
+
+install(DIRECTORY include/ DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
+install(TARGETS rutile rutile-cpp EXPORT RutileTargets)
+
 add_subdirectory("runtime")
+add_subdirectory("examples")
 install(EXPORT RutileTargets
     NAMESPACE Rutile::
     DESTINATION "${RUTILE_INSTALL_CMAKEDIR}"

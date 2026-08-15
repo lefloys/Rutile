@@ -14,23 +14,27 @@
 #include <rtsl/program.hpp>
 #include <vector>
 
-constexpr const char* Layers[] = { "RT_VALIDATION_LAYER" };
+constexpr const char* Layers[] = { "rt-validation-layer" };
 constexpr const char* Features[] = { RT_FEATURE_PRESENTATION };
 
 extern "C" const rtsl::ProgramBytes terrain_rtslp;
 extern "C" const rtsl::ProgramBytes water_rtslp;
 
 constexpr rt_vertex_attribute VertexAttributes[] = {
-	{ "position", offsetof(Vertex, position), RT_RGB32_SFLOAT },
-	{ "color", offsetof(Vertex, color), RT_RGB32_SFLOAT },
-	{ "normal", offsetof(Vertex, normal), RT_RGB32_SFLOAT },
-	{ "ao", offsetof(Vertex, ao), RT_R32_SFLOAT },
-	{ "pixel_uv", offsetof(Vertex, pixel_uv), RT_RG32_SFLOAT },
-	{ "edge_mask", offsetof(Vertex, edge_mask), RT_R32_SFLOAT },
-	{ "corner_mask", offsetof(Vertex, corner_mask), RT_R32_SFLOAT },
+	{ "position", 0, offsetof(Vertex, position), RT_RGB32_SFLOAT },
+	{ "color", 0, offsetof(Vertex, color), RT_RGB32_SFLOAT },
+	{ "normal", 0, offsetof(Vertex, normal), RT_RGB32_SFLOAT },
+	{ "ao", 0, offsetof(Vertex, ao), RT_R32_SFLOAT },
+	{ "pixel_uv", 0, offsetof(Vertex, pixel_uv), RT_RG32_SFLOAT },
+	{ "edge_mask", 0, offsetof(Vertex, edge_mask), RT_R32_SFLOAT },
+	{ "corner_mask", 0, offsetof(Vertex, corner_mask), RT_R32_SFLOAT },
 };
 
-constexpr rt_vertex_layout VertexLayout = { sizeof(Vertex), VertexAttributes, 7 };
+constexpr rt_vertex_stream VertexStreams[] = {
+	{ sizeof(Vertex), RT_VERTEX_RATE_VERTEX },
+};
+
+constexpr rt_vertex_layout VertexLayout = { VertexStreams, VertexAttributes, 1, 7 };
 
 struct Camera {
 	glm::vec3 position = glm::vec3(0.0f, 13.0f, 18.0f);
@@ -116,7 +120,7 @@ void update_camera(GLFWwindow* window, Camera* camera, f32 dt) {
 
 int main(int argc, char** argv) {
 	const ExampleOptions options = parse_cli(argc, argv);
-	if (rtLoad(options.backend.c_str(), Layers, 1) != RT_SUCCESS) {
+	if (rtLoad("rt-vulkan", Layers, 1) != RT_SUCCESS) {
 		std::fprintf(stderr, "rtLoad failed\n");
 		return 1;
 	}
@@ -148,7 +152,7 @@ int main(int argc, char** argv) {
 	rt_swapchain swapchain = rtSwapchainCreate();
 	rtSwapchainBindWindowGLFW(swapchain, window);
 	Swapchain = swapchain;
-	rt_queue queue = rtQueueQuery(RT_QUEUE_GRAPHICS);
+	rt_queue queue = rtQueueCreate(RT_QUEUE_GRAPHICS);
 
 	std::vector<Vertex> vertices = build_world_mesh();
 	rt_buffer vertex_buffer = rtBufferCreate();
@@ -170,22 +174,34 @@ int main(int argc, char** argv) {
 
 	rt_graphics_program graphics_program = rtGraphicsProgramCreate();
 	rtGraphicsProgramLayout(graphics_program, &VertexLayout);
-	rtGraphicsProgramSource(graphics_program, terrain_rtslp.size, terrain_rtslp.data);
+	rtGraphicsProgramSource(graphics_program, terrain_rtslp.data, terrain_rtslp.size);
 	rtGraphicsProgramRasterState(graphics_program, RT_CULL_BACK, RT_FRONT_FACE_CCW, RT_FILL_SOLID);
 	rtGraphicsProgramFinalize(graphics_program);
-	rt_uniform_location transform_location = rtGraphicsProgramUniformLocation(graphics_program, "scene");
+	rt_location transform_location = rtGraphicsProgramLocation(graphics_program, "scene");
+	rt_location position_location = rtGraphicsProgramLocation(graphics_program, "position");
+	rt_location color_location = rtGraphicsProgramLocation(graphics_program, "color");
+	rt_location normal_location = rtGraphicsProgramLocation(graphics_program, "normal");
+	rt_location ao_location = rtGraphicsProgramLocation(graphics_program, "ao");
+	rt_location pixel_uv_location = rtGraphicsProgramLocation(graphics_program, "pixel_uv");
+	rt_location edge_mask_location = rtGraphicsProgramLocation(graphics_program, "edge_mask");
+	rt_location corner_mask_location = rtGraphicsProgramLocation(graphics_program, "corner_mask");
 
 	rt_graphics_program water_program = rtGraphicsProgramCreate();
 	rtGraphicsProgramLayout(water_program, &VertexLayout);
-	rtGraphicsProgramSource(water_program, water_rtslp.size, water_rtslp.data);
+	rtGraphicsProgramSource(water_program, water_rtslp.data, water_rtslp.size);
 	rtGraphicsProgramRasterState(water_program, RT_CULL_BACK, RT_FRONT_FACE_CCW, RT_FILL_SOLID);
 	rtGraphicsProgramBlendState(water_program, true, RT_BLEND_SRC_ALPHA, RT_BLEND_ONE_MINUS_SRC_ALPHA, RT_BLEND_OP_ADD, RT_BLEND_ONE, RT_BLEND_ONE_MINUS_SRC_ALPHA, RT_BLEND_OP_ADD);
 	rtGraphicsProgramFinalize(water_program);
-	rt_uniform_location water_transform_location = rtGraphicsProgramUniformLocation(water_program, "scene");
+	rt_location water_transform_location = rtGraphicsProgramLocation(water_program, "scene");
+	rt_location water_position_location = rtGraphicsProgramLocation(water_program, "position");
+	rt_location water_color_location = rtGraphicsProgramLocation(water_program, "color");
+	rt_location water_normal_location = rtGraphicsProgramLocation(water_program, "normal");
+	rt_location water_ao_location = rtGraphicsProgramLocation(water_program, "ao");
+	rt_location water_pixel_uv_location = rtGraphicsProgramLocation(water_program, "pixel_uv");
+	rt_location water_edge_mask_location = rtGraphicsProgramLocation(water_program, "edge_mask");
+	rt_location water_corner_mask_location = rtGraphicsProgramLocation(water_program, "corner_mask");
 
-	rt_command_context command_context = rtCommandContextCreate();
-	rtCommandContextBind(command_context, queue);
-	rt_command_buffer cmd = rtCommandContextAllocate(command_context);
+	rt_command_buffer cmd = rtCommandBufferCreate();
 	rt_texture depth_texture = rtTextureCreate();
 	rt_texture_view depth_view = rtTextureViewCreate();
 	u32 depth_width = FramebufferWidth;
@@ -242,24 +258,36 @@ int main(int argc, char** argv) {
 		rtBufferSubdata(water_transform_buffer, 0, sizeof(water_transform), &water_transform);
 
 		rtFramebufferDepthView(acquired.framebuffer, depth_view);
-		rtCommandContextBind(command_context, queue);
-		rtCommandContextBindFramebuffer(command_context, acquired.framebuffer);
-		rtCommandContextClearColor(command_context, 0, 0.54f, 0.72f, 0.94f, 1.0f);
-		rtCommandContextClearDepth(command_context, 1.0f);
+		rtCmdReset(cmd);
 		rtCmdBegin(cmd);
+		rtCmdWait(cmd, acquired.timepoint);
+		rtCmdBeginRendering(cmd, acquired.framebuffer);
+		rtCmdClearColor(cmd, 0, 0.54f, 0.72f, 0.94f, 1.0f);
+		rtCmdClearDepth(cmd, 1.0f);
 		rtCmdUseGraphicsProgram(cmd, graphics_program);
-		rtCmdBindVertexBuffer(cmd, vertex_buffer, 0);
-		rtCmdUniformBuffer(cmd, transform_location, transform_buffer, 0, sizeof(transform));
+		rtCmdBindBuffer(cmd, transform_location, transform_buffer, 0, sizeof(transform));
+		rtCmdVertexBuffer(cmd, position_location, vertex_buffer, 0);
+		rtCmdVertexBuffer(cmd, color_location, vertex_buffer, 0);
+		rtCmdVertexBuffer(cmd, normal_location, vertex_buffer, 0);
+		rtCmdVertexBuffer(cmd, ao_location, vertex_buffer, 0);
+		rtCmdVertexBuffer(cmd, pixel_uv_location, vertex_buffer, 0);
+		rtCmdVertexBuffer(cmd, edge_mask_location, vertex_buffer, 0);
+		rtCmdVertexBuffer(cmd, corner_mask_location, vertex_buffer, 0);
 		rtCmdDraw(cmd, (u32)vertices.size(), 0);
 		rtCmdUseGraphicsProgram(cmd, water_program);
-		rtCmdBindVertexBuffer(cmd, water_vertex_buffer, 0);
-		rtCmdUniformBuffer(cmd, water_transform_location, water_transform_buffer, 0, sizeof(water_transform));
+		rtCmdBindBuffer(cmd, water_transform_location, water_transform_buffer, 0, sizeof(water_transform));
+		rtCmdVertexBuffer(cmd, water_position_location, water_vertex_buffer, 0);
+		rtCmdVertexBuffer(cmd, water_color_location, water_vertex_buffer, 0);
+		rtCmdVertexBuffer(cmd, water_normal_location, water_vertex_buffer, 0);
+		rtCmdVertexBuffer(cmd, water_ao_location, water_vertex_buffer, 0);
+		rtCmdVertexBuffer(cmd, water_pixel_uv_location, water_vertex_buffer, 0);
+		rtCmdVertexBuffer(cmd, water_edge_mask_location, water_vertex_buffer, 0);
+		rtCmdVertexBuffer(cmd, water_corner_mask_location, water_vertex_buffer, 0);
 		rtCmdDraw(cmd, (u32)water_vertices.size(), 0);
+		rtCmdEndRendering(cmd);
 		rtCmdEnd(cmd);
-		rtCommandContextExecute(command_context, cmd);
-		rtCommandContextEndRendering(command_context);
 
-		rt_timepoint rendered = rtCommandContextSubmit(command_context);
+		rt_timepoint rendered = rtQueueSubmit(queue, cmd);
 		rtFramebufferDepthView(acquired.framebuffer, RT_NULL_HANDLE);
 		rtSwapchainPresent(swapchain, rendered);
 		rendered_frames++;
@@ -279,7 +307,7 @@ int main(int argc, char** argv) {
 
 	rtTimepointWait(rtQueueFlush(queue));
 	rtCommandBufferDestroy(cmd);
-	rtCommandContextDestroy(command_context);
+	rtQueueDestroy(queue);
 	rtGraphicsProgramDestroy(water_program);
 	rtGraphicsProgramDestroy(graphics_program);
 	rtBufferDestroy(water_transform_buffer);

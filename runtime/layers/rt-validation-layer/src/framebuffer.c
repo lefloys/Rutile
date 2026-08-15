@@ -8,19 +8,19 @@
 /*                                                                                               */
 /*===============================================================================================*/
 
-RT_EXPORT rt_framebuffer rtFramebufferCreate(void) {
+RT_API_PUBLIC rt_framebuffer rtFramebufferCreate(void) {
 	return rtval_framebuffer_to_handle(rtval_framebuffer_create());
 }
 
-RT_EXPORT void rtFramebufferDestroy(rt_framebuffer framebuffer) {
+RT_API_PUBLIC void rtFramebufferDestroy(rt_framebuffer framebuffer) {
 	rtval_framebuffer_destroy(rtval_framebuffer_from_handle(framebuffer));
 }
 
-RT_EXPORT rt_texture_view rtFramebufferColorView(rt_framebuffer framebuffer, u32 slot) {
+RT_API_PUBLIC rt_texture_view rtFramebufferColorView(rt_framebuffer framebuffer, u32 slot) {
 	return rtval_framebuffer_color_view(rtval_framebuffer_from_handle(framebuffer), slot);
 }
 
-RT_EXPORT void rtFramebufferSetColorView(rt_framebuffer framebuffer, u32 slot, rt_texture_view view) {
+RT_API_PUBLIC void rtFramebufferSetColorView(rt_framebuffer framebuffer, u32 slot, rt_texture_view view) {
 	rtval_framebuffer_set_color_view(
 		rtval_framebuffer_from_handle(framebuffer),
 		slot,
@@ -28,7 +28,7 @@ RT_EXPORT void rtFramebufferSetColorView(rt_framebuffer framebuffer, u32 slot, r
 	);
 }
 
-RT_EXPORT void rtFramebufferDepthView(rt_framebuffer framebuffer, rt_texture_view view) {
+RT_API_PUBLIC void rtFramebufferDepthView(rt_framebuffer framebuffer, rt_texture_view view) {
 	rtval_framebuffer_set_depth_view(
 		rtval_framebuffer_from_handle(framebuffer),
 		rtval_texture_view_from_handle(view)

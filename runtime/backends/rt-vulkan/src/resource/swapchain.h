@@ -57,8 +57,8 @@ struct rtvk_swapchain_frame {
 	VkSemaphore present_ready;
 	VkCommandPool present_command_pool;
 	VkCommandBuffer present_command_buffer;
-	struct rtvk_timepoint acquire_wait;
-	struct rtvk_timepoint present_done;
+	rt_timepoint acquire_wait;
+	rt_timepoint present_done;
 	u32 present_command_family_index;
 };
 
@@ -71,6 +71,6 @@ void rtvk_swapchain_init_from_surface(struct rtvk_context* ctx, struct rtvk_swap
 bool rtvk_swapchain_resize(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain, u32 width, u32 height);
 
 rt_swapchain_acquire_result rtvk_swapchain_acquire(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain);
-void rtvk_swapchain_present(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain, struct rtvk_timepoint rendered);
+void rtvk_swapchain_present(struct rtvk_context* ctx, struct rtvk_swapchain* swapchain, rt_timepoint rendered);
 
 #endif

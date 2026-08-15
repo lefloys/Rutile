@@ -8,36 +8,27 @@
 /*                                                                                               */
 /*===============================================================================================*/
 
-RT_EXPORT rt_swapchain rtSwapchainCreate(void) {
+RT_API_PUBLIC rt_swapchain rtSwapchainCreate(void) {
 	return rtval_swapchain_to_handle(rtval_swapchain_create());
 }
 
-RT_EXPORT void rtSwapchainDestroy(rt_swapchain swapchain) {
+RT_API_PUBLIC void rtSwapchainDestroy(rt_swapchain swapchain) {
 	rtval_swapchain_destroy(RTVAL_PAYLOAD(swapchain, struct rtval_swapchain));
 }
 
-RT_EXPORT void rtSwapchainResize(rt_swapchain swapchain, u32 width, u32 height) {
+RT_API_PUBLIC void rtSwapchainResize(rt_swapchain swapchain, u32 width, u32 height) {
 	rtval_swapchain_resize(RTVAL_PAYLOAD(swapchain, struct rtval_swapchain), width, height);
 }
 
-RT_EXPORT rt_swapchain_acquire_result rtSwapchainAcquire(rt_swapchain swapchain) {
+RT_API_PUBLIC rt_swapchain_acquire_result rtSwapchainAcquire(rt_swapchain swapchain) {
 	return rtval_swapchain_acquire(RTVAL_PAYLOAD(swapchain, struct rtval_swapchain));
 }
 
-RT_EXPORT void rtSwapchainPresent(rt_swapchain swapchain, rt_timepoint rendered) {
+RT_API_PUBLIC void rtSwapchainPresent(rt_swapchain swapchain, rt_timepoint rendered) {
 	rtval_swapchain_present(RTVAL_PAYLOAD(swapchain, struct rtval_swapchain), rendered);
 }
 
-RT_EXPORT bool rtInit_RT_EXT_GLFW(void) {
-	if (!rtval_next_rtInit_RT_EXT_GLFW) {
-		return true;
-	}
-	bool result = rtval_next_rtInit_RT_EXT_GLFW();
-	rtval_report_error("rtInit_RT_EXT_GLFW");
-	return result;
-}
-
-RT_EXPORT void rtSwapchainBindWindowGLFW(rt_swapchain swapchain, GLFWwindow* window) {
+RT_API_PUBLIC void rtSwapchainBindWindowGLFW(rt_swapchain swapchain, struct GLFWwindow* window) {
 	rtval_swapchain_bind_window_glfw(RTVAL_PAYLOAD(swapchain, struct rtval_swapchain), window);
 }
 
@@ -127,7 +118,7 @@ void rtval_swapchain_present(struct rtval_swapchain* swapchain, rt_timepoint ren
 		RTVAL_DROP("rtSwapchainPresent: NULL handle");
 		return;
 	}
-	if (!rendered.queue || rendered.value == 0) {
+	if (rendered.value == 0) {
 		RTVAL_DROP("rtSwapchainPresent: missing render timepoint");
 		return;
 	}
@@ -143,7 +134,7 @@ void rtval_swapchain_present(struct rtval_swapchain* swapchain, rt_timepoint ren
 	swapchain->has_current_framebuffer = false;
 }
 
-void rtval_swapchain_bind_window_glfw(struct rtval_swapchain* swapchain, GLFWwindow* window) {
+void rtval_swapchain_bind_window_glfw(struct rtval_swapchain* swapchain, struct GLFWwindow* window) {
 	if (!swapchain) {
 		RTVAL_DROP("rtSwapchainBindWindowGLFW: NULL handle");
 		return;

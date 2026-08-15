@@ -1,7 +1,9 @@
 #pragma once
 
 #include "config.hpp"
-#include "types.hpp"
+#define RT_TYPES_ONLY
+#include "rutile.h"
+#undef RT_TYPES_ONLY
 
 #include <dxgi.h>
 #include <stdarg.h>

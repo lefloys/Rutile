@@ -3,7 +3,9 @@
 
 #include "config.h"
 #include "error.h"
-#include "types.h"
+#define RT_TYPES_ONLY
+#include "rutile.h"
+#undef RT_TYPES_ONLY
 
 RTGL_EXTERN_C_ENTER
 
@@ -12,7 +14,6 @@ RTGL_API void rtExit(void);
 RTGL_API void rtSettingSet(const char* name, const char* value);
 RTGL_API const char* rtGetName(void);
 RTGL_API enum rt_format_usage rtQueryFormatCapabilities(enum rt_format format);
-bool rtgl_forced_context_version(u08* major, u08* minor);
 
 RTGL_EXTERN_C_EXIT
 

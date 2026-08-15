@@ -7,39 +7,35 @@
 /*                                                                                               */
 /*===============================================================================================*/
 
-RT_EXPORT rt_graphics_program rtGraphicsProgramCreate(void) {
+RT_API_PUBLIC rt_graphics_program rtGraphicsProgramCreate(void) {
 	return rtval_graphics_program_to_handle(rtval_graphics_program_create());
 }
 
-RT_EXPORT void rtGraphicsProgramDestroy(rt_graphics_program program) {
+RT_API_PUBLIC void rtGraphicsProgramDestroy(rt_graphics_program program) {
 	rtval_graphics_program_destroy(rtval_graphics_program_from_handle(program));
 }
 
-RT_EXPORT void rtGraphicsProgramLayout(rt_graphics_program program, const rt_vertex_layout* layout) {
+RT_API_PUBLIC void rtGraphicsProgramLayout(rt_graphics_program program, const rt_vertex_layout* layout) {
 	rtval_graphics_program_layout(rtval_graphics_program_from_handle(program), layout);
 }
-RT_EXPORT void rtGraphicsProgramSource(rt_graphics_program program, u64 size, const void* data) {
-	rtval_graphics_program_source(rtval_graphics_program_from_handle(program), size, data);
+RT_API_PUBLIC void rtGraphicsProgramSource(rt_graphics_program program, const void* data, usize size) {
+	rtval_graphics_program_source(rtval_graphics_program_from_handle(program), data, size);
 }
 
-RT_EXPORT void rtGraphicsProgramRasterState(rt_graphics_program program, enum rt_cull_mode cull_mode, enum rt_front_face front_face, enum rt_fill_mode fill_mode) {
+RT_API_PUBLIC void rtGraphicsProgramRasterState(rt_graphics_program program, enum rt_cull_mode cull_mode, enum rt_front_face front_face, enum rt_fill_mode fill_mode) {
 	rtval_graphics_program_raster_state(rtval_graphics_program_from_handle(program), cull_mode, front_face, fill_mode);
 }
 
-RT_EXPORT void rtGraphicsProgramBlendState(rt_graphics_program program, bool enabled, enum rt_blend_factor src_color, enum rt_blend_factor dst_color, enum rt_blend_op color_op, enum rt_blend_factor src_alpha, enum rt_blend_factor dst_alpha, enum rt_blend_op alpha_op) {
+RT_API_PUBLIC void rtGraphicsProgramBlendState(rt_graphics_program program, bool enabled, enum rt_blend_factor src_color, enum rt_blend_factor dst_color, enum rt_blend_op color_op, enum rt_blend_factor src_alpha, enum rt_blend_factor dst_alpha, enum rt_blend_op alpha_op) {
 	rtval_graphics_program_blend_state(rtval_graphics_program_from_handle(program), enabled, src_color, dst_color, color_op, src_alpha, dst_alpha, alpha_op);
 }
 
-RT_EXPORT void rtGraphicsProgramFinalize(rt_graphics_program program) {
+RT_API_PUBLIC void rtGraphicsProgramFinalize(rt_graphics_program program) {
 	rtval_graphics_program_finalize(rtval_graphics_program_from_handle(program));
 }
 
-RT_EXPORT void rtGraphicsProgramReset(rt_graphics_program program) {
-	rtval_graphics_program_reset(rtval_graphics_program_from_handle(program));
-}
-
-RT_EXPORT rt_uniform_location rtGraphicsProgramUniformLocation(rt_graphics_program program, const char* name) {
-	return rtval_graphics_program_uniform_location(rtval_graphics_program_from_handle(program), name);
+RT_API_PUBLIC rt_location rtGraphicsProgramLocation(rt_graphics_program program, const char* name) {
+	return rtval_graphics_program_location(rtval_graphics_program_from_handle(program), name);
 }
 
 /*===============================================================================================*/
@@ -91,7 +87,7 @@ void rtval_graphics_program_layout(struct rtval_graphics_program* program, const
 	rtval_report_error("rtGraphicsProgramLayout");
 }
 
-void rtval_graphics_program_source(struct rtval_graphics_program* program, u64 size, const void* data) {
+void rtval_graphics_program_source(struct rtval_graphics_program* program, const void* data, usize size) {
 	struct rtval_graphics_program* state = RTVAL_PAYLOAD(program, struct rtval_graphics_program);
 	if (!state) {
 		RTVAL_DROP("rtGraphicsProgramSource: null handle");
@@ -101,7 +97,7 @@ void rtval_graphics_program_source(struct rtval_graphics_program* program, u64 s
 		RTVAL_DROP("rtGraphicsProgramSource: empty source data");
 		return;
 	}
-	rtval_next_rtGraphicsProgramSource(state->backend, size, data);
+	rtval_next_rtGraphicsProgramSource(state->backend, data, size);
 	rtval_report_error("rtGraphicsProgramSource");
 }
 
@@ -147,30 +143,19 @@ void rtval_graphics_program_finalize(struct rtval_graphics_program* program) {
 	rtval_report_error("rtGraphicsProgramFinalize");
 }
 
-void rtval_graphics_program_reset(struct rtval_graphics_program* program) {
+rt_location rtval_graphics_program_location(struct rtval_graphics_program* program, const char* name) {
 	struct rtval_graphics_program* state = RTVAL_PAYLOAD(program, struct rtval_graphics_program);
 	if (!state) {
-		RTVAL_DROP("rtGraphicsProgramReset: null handle");
-		return;
-	}
-
-	rtval_next_rtGraphicsProgramReset(state->backend);
-	rtval_report_error("rtGraphicsProgramReset");
-}
-
-rt_uniform_location rtval_graphics_program_uniform_location(struct rtval_graphics_program* program, const char* name) {
-	struct rtval_graphics_program* state = RTVAL_PAYLOAD(program, struct rtval_graphics_program);
-	if (!state) {
-		RTVAL_DROP("rtGraphicsProgramUniformLocation: null handle");
+		RTVAL_DROP("rtGraphicsProgramLocation: null handle");
 		return RT_NULL_HANDLE;
 	}
 	if (!name) {
-		RTVAL_DROP("rtGraphicsProgramUniformLocation: NULL name");
+		RTVAL_DROP("rtGraphicsProgramLocation: NULL name");
 		return RT_NULL_HANDLE;
 	}
 
-	rt_uniform_location location = rtval_next_rtGraphicsProgramUniformLocation(state->backend, name);
-	rtval_report_error("rtGraphicsProgramUniformLocation");
+	rt_location location = rtval_next_rtGraphicsProgramLocation(state->backend, name);
+	rtval_report_error("rtGraphicsProgramLocation");
 	return location;
 }
 

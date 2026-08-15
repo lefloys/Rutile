@@ -4,7 +4,7 @@
 #include "error.h"
 #include "execution.h"
 
-bool rtInit_RT_EXT_GLFW(void) {
+bool rtInit_GLFW(void) {
 	rtgl_init_glfw_platform();
 	return rtgl_error() == RT_SUCCESS;
 }

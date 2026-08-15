@@ -23,14 +23,17 @@ static const Vertex Vertices[] = {
 };
 
 static const rt_vertex_attribute Attributes[] = {
-	{ "position", offsetof(Vertex, position), RT_RG32_SFLOAT },
-	{ "color", offsetof(Vertex, color), RT_RGB32_SFLOAT },
+	{ "position", 0, offsetof(Vertex, position), RT_RG32_SFLOAT },
+	{ "color", 0, offsetof(Vertex, color), RT_RGB32_SFLOAT },
 };
-static const rt_vertex_layout Layout = { sizeof(Vertex), Attributes, 2 };
+static const rt_vertex_stream Streams[] = {
+	{ sizeof(Vertex), RT_VERTEX_RATE_VERTEX },
+};
+static const rt_vertex_layout Layout = { Streams, Attributes, 1, 2 };
 
 int main(int argc, char* argv[]) {
 	const ExampleOptions options = parse_cli(argc, argv);
-	if (rtLoad(options.backend.c_str(), nullptr, 0) != RT_SUCCESS) {
+	if (rtLoad("rt-vulkan", nullptr, 0) != RT_SUCCESS) {
 		std::fprintf(stderr, "rtLoad failed\n");
 		return 1;
 	}
@@ -40,7 +43,7 @@ int main(int argc, char* argv[]) {
 	rtLoad_RT_EXT_GLFW();
 
 	rt_graphics_program program = rtGraphicsProgramCreate();
-	rtGraphicsProgramSource(program, triangle_rtslp.size, triangle_rtslp.data);
+	rtGraphicsProgramSource(program, triangle_rtslp.data, triangle_rtslp.size);
 	rtGraphicsProgramLayout(program, &Layout);
 	rtGraphicsProgramFinalize(program);
 
@@ -51,14 +54,13 @@ int main(int argc, char* argv[]) {
 	rt_swapchain swapchain = rtSwapchainCreate();
 	rtSwapchainBindWindowGLFW(swapchain, window);
 
-	rt_queue queue = rtQueueQuery(RT_QUEUE_GRAPHICS);
-	rt_command_context command_context = rtCommandContextCreate();
-	rtCommandContextBind(command_context, queue);
-
+	rt_queue queue = rtQueueCreate(RT_QUEUE_GRAPHICS);
 	rt_buffer vbo = rtBufferCreate();
 	rtBufferData(vbo, RT_BUFFER_STATIC, RT_BUFFER_USAGE_VERTEX, sizeof(Vertices), Vertices);
 
-	rt_command_buffer cmd = rtCommandContextAllocate(command_context);
+	rt_location position_location = rtGraphicsProgramLocation(program, "position");
+	rt_location color_location = rtGraphicsProgramLocation(program, "color");
+	rt_command_buffer cmd = rtCommandBufferCreate();
 	u32 rendered_frames = 0;
 
 	while (!glfwWindowShouldClose(window) && (!options.frames || rendered_frames < options.frames)) {
@@ -69,25 +71,25 @@ int main(int argc, char* argv[]) {
 			continue;
 		}
 
-		rtQueueWait(queue, acquired.timepoint);
-		rtCommandContextBind(command_context, queue);
-		rtCommandContextBindFramebuffer(command_context, acquired.framebuffer);
-		rtCommandContextClearColor(command_context, 0, 0.08f, 0.09f, 0.12f, 1.0f);
+		rtCmdReset(cmd);
 		rtCmdBegin(cmd);
+		rtCmdWait(cmd, acquired.timepoint);
+		rtCmdBeginRendering(cmd, acquired.framebuffer);
+		rtCmdClearColor(cmd, 0, 0.08f, 0.09f, 0.12f, 1.0f);
 		rtCmdUseGraphicsProgram(cmd, program);
-		rtCmdBindVertexBuffer(cmd, vbo, 0);
+		rtCmdVertexBuffer(cmd, position_location, vbo, 0);
+		rtCmdVertexBuffer(cmd, color_location, vbo, 0);
 		rtCmdDraw(cmd, 3, 0);
+		rtCmdEndRendering(cmd);
 		rtCmdEnd(cmd);
-		rtCommandContextExecute(command_context, cmd);
-		rtCommandContextEndRendering(command_context);
 
-		rtSwapchainPresent(swapchain, rtCommandContextSubmit(command_context));
+		rtSwapchainPresent(swapchain, rtQueueSubmit(queue, cmd));
 		rendered_frames++;
 	}
 
 	rtTimepointWait(rtQueueFlush(queue));
 	rtCommandBufferDestroy(cmd);
-	rtCommandContextDestroy(command_context);
+	rtQueueDestroy(queue);
 	rtGraphicsProgramDestroy(program);
 	rtBufferDestroy(vbo);
 	rtSwapchainDestroy(swapchain);

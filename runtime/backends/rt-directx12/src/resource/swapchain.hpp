@@ -16,13 +16,10 @@ RTDX_API rt_swapchain_acquire_result rtSwapchainAcquire(rt_swapchain swapchain);
 RTDX_API void rtSwapchainPresent(rt_swapchain swapchain, rt_timepoint rendered);
 
 struct rtdx_swapchain_frame {
-	rtdx_queue* present_queue;
-
 	ID3D12CommandAllocator* present_allocator;
 	ID3D12GraphicsCommandList* present_command_list;
 
-	u64 present_value;
-	bool has_present_timepoint;
+	rt_timepoint present_timepoint;
 };
 
 struct rtdx_swapchain {
@@ -58,5 +55,5 @@ bool rtdx_swapchain_create_for_dxgi_swapchain(rtdx_context* ctx, rtdx_swapchain*
 bool rtdx_swapchain_create_framebuffers(rtdx_context* ctx, rtdx_swapchain* swapchain);
 bool rtdx_swapchain_resize(rtdx_context* ctx, rtdx_swapchain* swapchain, u32 width, u32 height);
 rt_swapchain_acquire_result rtdx_swapchain_acquire(rtdx_context* ctx, rtdx_swapchain* swapchain);
-void rtdx_swapchain_present(rtdx_context* ctx, rtdx_swapchain* swapchain, rtdx_timepoint rendered);
+void rtdx_swapchain_present(rtdx_context* ctx, rtdx_swapchain* swapchain, rt_timepoint rendered);
 void rtdx_swapchain_wait_frame(rtdx_context* ctx, rtdx_swapchain_frame* frame);

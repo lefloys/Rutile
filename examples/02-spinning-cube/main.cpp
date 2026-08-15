@@ -42,12 +42,16 @@ f32 MouseDx = 0.0f;
 f32 MouseDy = 0.0f;
 
 constexpr rt_vertex_attribute Attributes[] = {
-	{ "position", offsetof(Vertex, position), RT_RGB32_SFLOAT },
-	{ "color", offsetof(Vertex, color), RT_RGB32_SFLOAT },
-	{ "normal", offsetof(Vertex, normal), RT_RGB32_SFLOAT },
+	{ "position", 0, offsetof(Vertex, position), RT_RGB32_SFLOAT },
+	{ "color", 0, offsetof(Vertex, color), RT_RGB32_SFLOAT },
+	{ "normal", 0, offsetof(Vertex, normal), RT_RGB32_SFLOAT },
 };
 
-constexpr rt_vertex_layout Layout = { sizeof(Vertex), Attributes, 3 };
+constexpr rt_vertex_stream Streams[] = {
+	{ sizeof(Vertex), RT_VERTEX_RATE_VERTEX },
+};
+
+constexpr rt_vertex_layout Layout = { Streams, Attributes, 1, 3 };
 
 std::vector<Vertex> make_cube() {
 	struct Face {
@@ -134,7 +138,7 @@ void update_camera(GLFWwindow* window, Camera& camera, f32 delta) {
 
 int main(int argc, char** argv) {
 	const ExampleOptions options = parse_cli(argc, argv);
-	if (rtLoad(options.backend.c_str(), nullptr, 0) != RT_SUCCESS) {
+	if (rtLoad("rt-opengl", nullptr, 0) != RT_SUCCESS) {
 		std::fprintf(stderr, "rtLoad failed\n");
 		return 1;
 	}
@@ -150,10 +154,10 @@ int main(int argc, char** argv) {
 	glfwSetCursorPosCallback(window, cursor_moved);
 	glfwSetFramebufferSizeCallback(window, framebuffer_resized);
 
-	rt_swapchain swapchain = rtSwapchainCreate();
-	rtSwapchainBindWindowGLFW(swapchain, window);
-	Swapchain = swapchain;
-	rt_queue queue = rtQueueQuery(RT_QUEUE_GRAPHICS);
+	Swapchain = rtSwapchainCreate();
+	rtSwapchainBindWindowGLFW(Swapchain, window);
+
+	rt_queue queue = rtQueueCreate(RT_QUEUE_GRAPHICS);
 
 	const std::vector<Vertex> vertices = make_cube();
 	rt_buffer vertex_buffer = rtBufferCreate();
@@ -163,11 +167,14 @@ int main(int argc, char** argv) {
 	rt_buffer scene_buffer = rtBufferCreate();
 	rtBufferData(scene_buffer, RT_BUFFER_DYNAMIC, RT_BUFFER_USAGE_UNIFORM, sizeof(scene), &scene);
 	rt_graphics_program program = rtGraphicsProgramCreate();
-	rtGraphicsProgramSource(program, cube_rtslp.size, cube_rtslp.data);
+	rtGraphicsProgramSource(program, cube_rtslp.data, cube_rtslp.size);
 	rtGraphicsProgramLayout(program, &Layout);
 	rtGraphicsProgramRasterState(program, RT_CULL_NONE, RT_FRONT_FACE_CCW, RT_FILL_SOLID);
 	rtGraphicsProgramFinalize(program);
-	rt_uniform_location scene_location = rtGraphicsProgramUniformLocation(program, "scene");
+	rt_location scene_location = rtGraphicsProgramLocation(program, "scene");
+	rt_location position_location = rtGraphicsProgramLocation(program, "position");
+	rt_location color_location = rtGraphicsProgramLocation(program, "color");
+	rt_location normal_location = rtGraphicsProgramLocation(program, "normal");
 
 	rt_texture depth = rtTextureCreate();
 	rtTextureData(depth, RT_TEXTURE_2D, 0, 1280, 720, 1, RT_D32_SFLOAT, nullptr);
@@ -175,9 +182,7 @@ int main(int argc, char** argv) {
 	rtTextureViewBind(depth_view, depth);
 	u32 depth_width = 1280;
 	u32 depth_height = 720;
-	rt_command_context command_context = rtCommandContextCreate();
-	rtCommandContextBind(command_context, queue);
-	rt_command_buffer command_buffer = rtCommandContextAllocate(command_context);
+	rt_command_buffer command_buffer = rtCommandBufferCreate();
 	Camera camera;
 	const auto start = std::chrono::steady_clock::now();
 	auto previous = start;
@@ -205,39 +210,42 @@ int main(int argc, char** argv) {
 		std::memcpy(scene.transform, glm::value_ptr(transform), sizeof(scene.transform));
 		rtBufferSubdata(scene_buffer, 0, sizeof(scene), &scene);
 
-		rt_swapchain_acquire_result acquired = rtSwapchainAcquire(swapchain);
+		rt_swapchain_acquire_result acquired = rtSwapchainAcquire(Swapchain);
 		if (!acquired.framebuffer) {
 			continue;
 		}
-		rtQueueWait(queue, acquired.timepoint);
 		rtFramebufferDepthView(acquired.framebuffer, depth_view);
-		rtCommandContextBind(command_context, queue);
-		rtCommandContextBindFramebuffer(command_context, acquired.framebuffer);
-		rtCommandContextClearColor(command_context, 0, 0.035f, 0.045f, 0.075f, 1.0f);
-		rtCommandContextClearDepth(command_context, 1.0f);
+		rtCmdReset(command_buffer);
 		rtCmdBegin(command_buffer);
+		rtCmdWait(command_buffer, acquired.timepoint);
+		rtCmdBeginRendering(command_buffer, acquired.framebuffer);
+		rtCmdClearColor(command_buffer, 0, 0.035f, 0.045f, 0.075f, 1.0f);
+		rtCmdClearDepth(command_buffer, 1.0f);
+		rtCmdSetViewport(command_buffer, 0, 0, width, height, 0.0f, 1.0f);
+		rtCmdSetScissor(command_buffer, 0, 0, width, height);
 		rtCmdUseGraphicsProgram(command_buffer, program);
-		rtCmdUniformBuffer(command_buffer, scene_location, scene_buffer, 0, sizeof(scene));
-		rtCmdBindVertexBuffer(command_buffer, vertex_buffer, 0);
+		rtCmdBindBuffer(command_buffer, scene_location, scene_buffer, 0, sizeof(scene));
+		rtCmdVertexBuffer(command_buffer, position_location, vertex_buffer, 0);
+		rtCmdVertexBuffer(command_buffer, color_location, vertex_buffer, 0);
+		rtCmdVertexBuffer(command_buffer, normal_location, vertex_buffer, 0);
 		rtCmdDraw(command_buffer, static_cast<u32>(vertices.size()), 0);
+		rtCmdEndRendering(command_buffer);
 		rtCmdEnd(command_buffer);
-		rtCommandContextExecute(command_context, command_buffer);
-		rtCommandContextEndRendering(command_context);
-		rt_timepoint rendered = rtCommandContextSubmit(command_context);
+		rt_timepoint rendered = rtQueueSubmit(queue, command_buffer);
 		rtFramebufferDepthView(acquired.framebuffer, RT_NULL_HANDLE);
-		rtSwapchainPresent(swapchain, rendered);
+		rtSwapchainPresent(Swapchain, rendered);
 		rendered_frames++;
 	}
 
 	rtTimepointWait(rtQueueFlush(queue));
 	rtCommandBufferDestroy(command_buffer);
-	rtCommandContextDestroy(command_context);
+	rtQueueDestroy(queue);
 	rtTextureViewDestroy(depth_view);
 	rtTextureDestroy(depth);
 	rtGraphicsProgramDestroy(program);
 	rtBufferDestroy(scene_buffer);
 	rtBufferDestroy(vertex_buffer);
-	rtSwapchainDestroy(swapchain);
+	rtSwapchainDestroy(Swapchain);
 	glfwDestroyWindow(window);
 	glfwTerminate();
 	rtExit();

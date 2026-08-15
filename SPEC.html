@@ -1109,12 +1109,8 @@
                     <p class="stacked-detail">a linked GPU executable composed from a vertex stage and a fragment stage, each provided as RSIR bytecode</p>
                 </div>
                 <div class="stack-item">
-                    <strong class="stack-term">command_context</strong>
-                    <p class="stacked-detail">a queue-bound, single-fire ordered submission that owns its allocated child command buffers and its optional framebuffer scope</p>
-                </div>
-                <div class="stack-item">
                     <strong class="stack-term">command_buffer</strong>
-                    <p class="stacked-detail">a resettable child packet owned by one command context; the context executes it in that context's ordered submission</p>
+                    <p class="stacked-detail">a resettable Rutile intermediate-representation recording submitted through a queue</p>
                 </div>
                 <div class="stack-item">
                     <strong class="stack-term">swapchain</strong>
@@ -1634,27 +1630,21 @@
             <div class="api-entry">
                 <h4 class="api-signature">
                     <code>rt_timepoint rtTextureSubdata(
-    queue_h queue,
-    texture_h tex,
-    u32 level,
-    u32 x,
-    u32 y,
-    u32 z,
-    u32 width,
-    u32 height,
-    u32 depth,
+    rt_texture texture,
+    u32 mip,
+    rt_extent_3d offset,
+    rt_extent_3d extent,
     const void* data
 )</code>
                 </h4>
-                <p>Updates a subregion of a defined texture mip level. The origin <code>(x, y, z)</code> and extent <code>(width, height, depth)</code> address the subregion. For <code>RT_TEXTURE_3D</code>, <code>z</code> and <code>depth</code> address volume slices. For array textures, <code>z</code> and <code>depth</code> address layers. For non-layered non-volumetric textures, <code>z</code> must be <code>0</code> and <code>depth</code> must be <code>1</code>.</p>
+                <p>Updates a subregion of a defined texture mip level. <code>offset</code> and <code>extent</code> address the subregion. For <code>RT_TEXTURE_3D</code>, their <code>depth</code> members address volume slices. For array textures, they address layers. For non-layered non-volumetric textures, <code>offset.depth</code> must be <code>0</code> and <code>extent.depth</code> must be <code>1</code>.</p>
                 <p class="api-meta"><strong>Requirements:</strong> None</p>
                 <p class="api-meta"><strong>Pre-conditions:</strong></p>
                 <ul class="api-cond-list">
-                    <li><code>queue</code><p>must be valid</p></li>
-                    <li><code>tex</code><p>must be valid and have defined storage</p></li>
-                    <li><code>level</code><p>must name an existing mip level of <code>tex</code></p></li>
+                    <li><code>texture</code><p>must be valid and have defined storage</p></li>
+                    <li><code>mip</code><p>must name an existing mip level of <code>texture</code></p></li>
                     <li><code>data</code><p>must not be <code>null</code></p></li>
-                    <li><code>x</code>, <code>y</code>, <code>z</code>, <code>width</code>, <code>height</code>, <code>depth</code><p>the addressed box must lie entirely within the bounds of mip level <code>level</code></p></li>
+                    <li><code>offset</code>, <code>extent</code><p>the addressed box must lie entirely within the bounds of mip level <code>mip</code></p></li>
                 </ul>
                 <p class="api-meta"><strong>Post-conditions:</strong></p>
                 <ul>
@@ -1663,7 +1653,7 @@
                 </ul>
                 <p class="api-meta"><strong>Errors:</strong> <a href="#rt-out-of-host-memory"><code>RT_OUT_OF_HOST_MEMORY</code></a>, <a href="#rt-out-of-device-memory"><code>RT_OUT_OF_DEVICE_MEMORY</code></a>, <a href="#rt-platform-failure"><code>RT_PLATFORM_FAILURE</code></a>, <a href="#rt-device-lost"><code>RT_DEVICE_LOST</code></a></p>
                 <p class="api-meta"><strong>Default:</strong> <code>rt_timepoint{ null, 0 }</code></p>
-                <p class="api-meta"><strong>Notes:</strong> Returns an <code>rt_timepoint</code> representing the completion of this upload on <code>queue</code>. See <a href="#synchronization">section 11</a>.</p>
+                <p class="api-meta"><strong>Notes:</strong> Returns an <code>rt_timepoint</code> representing completion of this upload.</p>
             </div>
 
             <p>
@@ -1677,9 +1667,8 @@
             <div class="api-entry">
                 <h4 class="api-signature">
                     <code>rt_timepoint rtTextureCopy(
-    queue_h queue,
-    texture_h src,
-    u32 src_level,
+    rt_texture src_texture,
+    u32 src_mip,
     texture_h dst,
     u32 dst_level
 )</code>
@@ -1716,43 +1705,35 @@
             <div class="api-entry">
                 <h4 class="api-signature">
                     <code>rt_timepoint rtTextureSubcopy(
-    queue_h queue,
-    texture_h src,
-    u32 src_level,
-    u32 src_x,
-    u32 src_y,
-    u32 src_z,
-    texture_h dst,
-    u32 dst_level,
-    u32 dst_x,
-    u32 dst_y,
-    u32 dst_z,
-    u32 width,
-    u32 height,
-    u32 depth
+    rt_texture src_texture,
+    u32 src_mip,
+    rt_extent_3d src_offset,
+    rt_texture dst_texture,
+    u32 dst_mip,
+    rt_extent_3d dst_offset,
+    rt_extent_3d extent
 )</code>
                 </h4>
-                <p>Copies a subregion of a source mip level into a subregion of a destination mip level. The <code>z</code> and <code>depth</code> parameters follow the same coordinate semantics as <code>rtTextureSubdata</code>.</p>
+                <p>Copies a subregion of a source mip level into a subregion of a destination mip level. The <code>depth</code> members of the offsets and extent follow the same coordinate semantics as <code>rtTextureSubdata</code>.</p>
                 <p class="api-meta"><strong>Requirements:</strong> None</p>
                 <p class="api-meta"><strong>Pre-conditions:</strong></p>
                 <ul class="api-cond-list">
-                    <li><code>queue</code><p>must be valid</p></li>
-                    <li><code>src</code><p>must be valid and have defined storage</p></li>
-                    <li><code>src_level</code><p>must name an existing mip level of <code>src</code></p></li>
-                    <li><code>src_x</code>, <code>src_y</code>, <code>src_z</code>, <code>width</code>, <code>height</code>, <code>depth</code><p>the source box must lie entirely within the bounds of <code>src_level</code></p></li>
-                    <li><code>dst</code><p>must be valid and have defined storage</p></li>
-                    <li><code>dst_level</code><p>must name an existing mip level of <code>dst</code></p></li>
-                    <li><code>dst_x</code>, <code>dst_y</code>, <code>dst_z</code>, <code>width</code>, <code>height</code>, <code>depth</code><p>the destination box must lie entirely within the bounds of <code>dst_level</code></p></li>
-                    <li><code>src</code>, <code>dst</code><p>the internal formats of <code>src</code> and <code>dst</code> must be equal</p></li>
+                    <li><code>src_texture</code><p>must be valid and have defined storage</p></li>
+                    <li><code>src_mip</code><p>must name an existing mip level of <code>src_texture</code></p></li>
+                    <li><code>src_offset</code>, <code>extent</code><p>the source box must lie entirely within the bounds of <code>src_mip</code></p></li>
+                    <li><code>dst_texture</code><p>must be valid and have defined storage</p></li>
+                    <li><code>dst_mip</code><p>must name an existing mip level of <code>dst_texture</code></p></li>
+                    <li><code>dst_offset</code>, <code>extent</code><p>the destination box must lie entirely within the bounds of <code>dst_mip</code></p></li>
+                    <li><code>src_texture</code>, <code>dst_texture</code><p>the internal formats of the source and destination must be equal</p></li>
                 </ul>
                 <p class="api-meta"><strong>Post-conditions:</strong></p>
                 <ul>
                     <li>Only the addressed destination subregion is modified.</li>
-                    <li>The storage definitions of <code>src</code> and <code>dst</code> are unchanged.</li>
+                    <li>The storage definitions of <code>src_texture</code> and <code>dst_texture</code> are unchanged.</li>
                 </ul>
                 <p class="api-meta"><strong>Errors:</strong> <a href="#rt-out-of-host-memory"><code>RT_OUT_OF_HOST_MEMORY</code></a>, <a href="#rt-platform-failure"><code>RT_PLATFORM_FAILURE</code></a>, <a href="#rt-device-lost"><code>RT_DEVICE_LOST</code></a></p>
                 <p class="api-meta"><strong>Default:</strong> <code>rt_timepoint{ null, 0 }</code></p>
-                <p class="api-meta"><strong>Notes:</strong> Returns an <code>rt_timepoint</code> representing the completion of this copy on <code>queue</code>. See <a href="#synchronization">section 11</a>.</p>
+                <p class="api-meta"><strong>Notes:</strong> Returns an <code>rt_timepoint</code> representing completion of this copy.</p>
             </div>
         </section>
 
@@ -2292,128 +2273,140 @@
                 <p class="api-meta"><strong>Default:</strong> <code>false</code></p>
             </div>
         </section>
-        <!-- ══════════════════════════════════════════════ §12 Command buffers -->
+<!-- ══════════════════════════════════════════════ §12 Command buffers -->
         <section id="command-buffers">
             <h2>12. Command buffers</h2>
             <p>
-                A command context is one queue-bound, single-fire ordered submission. It owns
-                resettable child command buffers. The current graphics command set records
-                repeatable draw work in its active framebuffer scope. The pre-framebuffer
-                position is reserved for a future generic-work command set.
+                A command buffer records Rutile intermediate representation. It has no queue binding.
+                A queue lowers the recorded intermediate representation only when
+                <code>rtQueueSubmit</code> submits the completed command buffer.
             </p>
             <p>
-                The command-context endpoints are mandatory core functions. During the
-                sequential backend and layer transition, a strict load of an implementation
-                that does not export them fails; they are not optional entry points.
+                Each recorded command is an aligned concrete record. A backend submission decoder
+                views that record directly and advances by its concrete record size; recorded
+                commands have no separate size field and are not copied into local decode objects.
+            </p>
+            <p>
+                The command-buffer endpoints are mandatory core functions. During the sequential
+                backend and layer transition, a strict load of an implementation that does not
+                export them fails; they are not optional entry points.
             </p>
 
             <h3 id="command_buffer-lifecycle">12.1 Lifecycle</h3>
-            <p>A context is bound to a queue, declares at most one framebuffer scope, executes ended draw packets in that scope, and submits once. A child buffer is reset, recorded, ended, and may execute repeatedly until reset, destruction, context rebind, or context destruction.</p>
+            <p>A command buffer is reset, recorded, ended, and submitted. A completed buffer may be submitted repeatedly; reset it before recording different commands.</p>
             <div class="stack">
                 <div class="stack-item">
                     <strong class="stack-term">Initial</strong>
-                    <p class="stacked-detail">A child buffer has no recorded commands. <code>rtCmdBegin</code> requires its owning context to be queue-bound with an active framebuffer scope; it records draw work for that scope.</p>
+                    <p class="stacked-detail">The command buffer has no recorded commands. <code>rtCmdBegin</code> starts a new recording.</p>
                 </div>
                 <div class="stack-item">
                     <strong class="stack-term">Recording</strong>
-                    <p class="stacked-detail">Repeated commands for one context domain are being recorded. <code>rtCmdEnd</code> transitions to Executable.</p>
+                    <p class="stacked-detail">Rutile intermediate-representation commands are being recorded. <code>rtCmdEnd</code> transitions to Executable.</p>
                 </div>
                 <div class="stack-item">
                     <strong class="stack-term">Executable</strong>
-                    <p class="stacked-detail">Recording is complete. The buffer is ready for <code>rtCommandContextExecute</code>; it remains executable until reset or invalidation.</p>
+                    <p class="stacked-detail">Recording is complete. The buffer is ready for <code>rtQueueSubmit</code> and remains executable until reset or destruction.</p>
                 </div>
             </div>
-            <p>
-                <code>rtCommandContextBind</code> always discards the context work and every
-                child-buffer recording, including when rebinding the same queue. Each affected
-                child handle remains owned by the context but returns to Initial and must be
-                recorded again. Context destruction invalidates every remaining child handle.
-            </p>
-            <p>
-                Queue binding, framebuffer declaration, load clears, viewport/scissor state,
-                execution, and submission belong to the context. A child owns reusable command
-                state and commands. The current public command set exposes graphics draw packets
-                whose compatibility is fixed by the active scope. Future generic work commands
-                use the reserved pre-scope domain rather than adding a user-selected buffer mode.
-            </p>
 
-            <h3 id="command_buffer-recording">12.2 Recording and submission</h3>
+            <h3 id="command_buffer-recording">12.2 Recording and rendering</h3>
 
             <div class="api-entry">
-                <h4 class="api-signature"><code>rt_command_context rtCommandContextCreate()</code></h4>
+                <h4 class="api-signature"><code>rt_command_buffer rtCommandBufferCreate()</code></h4>
+                <p>Creates a standalone command buffer in the Initial state.</p>
                 <p class="api-meta"><strong>Requirements:</strong> As stated in <a href="#generic-create">7.4.1</a>.</p>
-                <p class="api-meta"><strong>Pre-conditions:</strong> None</p>
-                <p class="api-meta"><strong>Post-conditions:</strong></p>
-                <ul><li>The returned context has no queue binding or rendering scope.</li></ul>
-                <p class="api-meta"><strong>Errors:</strong> <a href="#rt-out-of-host-memory"><code>RT_OUT_OF_HOST_MEMORY</code></a>, <a href="#rt-platform-failure"><code>RT_PLATFORM_FAILURE</code></a></p>
-                <p class="api-meta"><strong>Default:</strong> <code>null</code></p>
-            </div>
-
-            <div class="api-entry">
-                <h4 class="api-signature"><code>void rtCommandContextDestroy(
-    rt_command_context command_context
-)</code></h4>
-                <p>Destroys a context and invalidates every remaining child handle. Submitted native work remains valid until completion; the implementation defers its reclamation safely.</p>
-                <p class="api-meta"><strong>Pre-conditions:</strong> <code>command_context</code> may be valid or null.</p>
-            </div>
-
-            <div class="api-entry">
-                <h4 class="api-signature"><code>void rtCommandContextBind(
-    rt_command_context command_context,
-    rt_queue queue
-)</code></h4>
-                <p>Binds a queue and begins a fresh single-fire context lifetime. A rebind, including to the same queue, discards every recorded context and child-buffer command.</p>
-                <p class="api-meta"><strong>Pre-conditions:</strong> <code>command_context</code> and <code>queue</code> must be valid.</p>
-            </div>
-
-            <div class="api-entry">
-                <h4 class="api-signature"><code>rt_command_buffer rtCommandContextAllocate(
-    rt_command_context command_context
-)</code></h4>
-                <p>Allocates a resettable child command buffer owned by <code>command_context</code>. Allocation requires the current queue binding and is allowed before or after the framebuffer scope is declared. Destroying the context invalidates this handle.</p>
-                <p class="api-meta"><strong>Pre-conditions:</strong> <code>command_context</code> must be valid, queue-bound, and not submitted.</p>
             </div>
 
             <div class="api-entry">
                 <h4 class="api-signature"><code>void rtCommandBufferDestroy(
     rt_command_buffer command_buffer
 )</code></h4>
-                <p class="api-meta"><strong>Requirements:</strong> As stated in <a href="#generic-destroy">7.4.2</a>.</p>
-                <p class="api-meta"><strong>Pre-conditions:</strong></p>
-                <ul class="api-cond-list">
-                    <li><code>command_buffer</code><p>may be valid or null, but must not have been executed by an unsubmitted owning context</p></li>
-                </ul>
-                <p class="api-meta"><strong>Post-conditions:</strong></p>
-                <ul><li><code>command_buffer</code> is immediately invalid.</li></ul>
-                <p class="api-meta"><strong>Errors:</strong> None</p>
-                <p class="api-meta"><strong>Default:</strong> None</p>
+                <p>Destroys a command buffer.</p>
+                <p class="api-meta"><strong>Pre-conditions:</strong> <code>command_buffer</code> may be valid or null.</p>
             </div>
 
             <div class="api-entry">
                 <h4 class="api-signature"><code>void rtCmdReset(
     rt_command_buffer command_buffer
 )</code></h4>
-                <p>Discards only this child buffer's recorded contents and preserves its context ownership. It may be called after an executable buffer has been submitted; native storage is reclaimed only when safe.</p>
-                <p class="api-meta"><strong>Pre-conditions:</strong> <code>command_buffer</code> must be valid, not Recording, and not executed by an unsubmitted owning context.</p>
+                <p>Discards the command buffer's recorded intermediate representation.</p>
+                <p class="api-meta"><strong>Pre-conditions:</strong> <code>command_buffer</code> must be valid and not Recording.</p>
             </div>
 
             <div class="api-entry">
                 <h4 class="api-signature"><code>void rtCmdBegin(
     rt_command_buffer command_buffer
 )</code></h4>
-                <p>Transitions an Initial child buffer to Recording. An Executable child must be reset before it may begin again.</p>
-                <p class="api-meta"><strong>Requirements:</strong> None</p>
-                <p class="api-meta"><strong>Pre-conditions:</strong></p>
-                <ul class="api-cond-list">
-                    <li><code>command_buffer</code><p>must be valid</p></li>
-                    <li><code>command_buffer</code><p>must belong to a live, queue-bound context</p></li>
-                    <li><code>command_buffer</code><p>must belong to a context with an active framebuffer scope</p></li>
-                    <li><code>command_buffer</code><p>must be in the Initial state</p></li>
-                </ul>
-                <p class="api-meta"><strong>Post-conditions:</strong></p>
-                <ul><li>The command buffer is in the Recording state and contains no commands. The current public graphics commands record draw work in its active framebuffer scope.</li></ul>
-                <p class="api-meta"><strong>Errors:</strong> <a href="#rt-improper-usage"><code>RT_IMPROPER_USAGE</code></a>, <a href="#rt-out-of-host-memory"><code>RT_OUT_OF_HOST_MEMORY</code></a></p>
-                <p class="api-meta"><strong>Default:</strong> None</p>
+                <p>Transitions an Initial command buffer to Recording.</p>
+                <p class="api-meta"><strong>Pre-conditions:</strong> <code>command_buffer</code> must be valid and Initial.</p>
+            </div>
+
+            <div class="api-entry">
+                <h4 class="api-signature"><code>void rtCmdBeginRendering(
+    rt_command_buffer command_buffer,
+    rt_framebuffer framebuffer
+)</code></h4>
+                <p>Records the start of a rendering scope for <code>framebuffer</code>.</p>
+                <p class="api-meta"><strong>Pre-conditions:</strong> <code>command_buffer</code> must be Recording and <code>framebuffer</code> valid.</p>
+            </div>
+
+            <div class="api-entry">
+                <h4 class="api-signature"><code>void rtCmdClearColor(
+    rt_command_buffer command_buffer,
+    u32 color_index,
+    f32 r,
+    f32 g,
+    f32 b,
+    f32 a
+)</code></h4>
+                <p>Records a color-attachment clear in the current rendering scope.</p>
+            </div>
+
+            <div class="api-entry">
+                <h4 class="api-signature"><code>void rtCmdClearDepth(
+    rt_command_buffer command_buffer,
+    f32 depth
+)</code></h4>
+                <p>Records a depth-attachment clear in the current rendering scope.</p>
+            </div>
+
+            <div class="api-entry">
+                <h4 class="api-signature"><code>void rtCmdClearStencil(
+    rt_command_buffer command_buffer,
+    u32 stencil
+)</code></h4>
+                <p>Records a stencil-attachment clear in the current rendering scope.</p>
+            </div>
+
+            <div class="api-entry">
+                <h4 class="api-signature"><code>void rtCmdSetViewport(
+    rt_command_buffer command_buffer,
+    u32 x,
+    u32 y,
+    u32 width,
+    u32 height,
+    f32 min_depth,
+    f32 max_depth
+)</code></h4>
+                <p>Records the current rendering scope's viewport.</p>
+            </div>
+
+            <div class="api-entry">
+                <h4 class="api-signature"><code>void rtCmdSetScissor(
+    rt_command_buffer command_buffer,
+    u32 x,
+    u32 y,
+    u32 width,
+    u32 height
+)</code></h4>
+                <p>Records the current rendering scope's scissor.</p>
+            </div>
+
+            <div class="api-entry">
+                <h4 class="api-signature"><code>void rtCmdEndRendering(
+    rt_command_buffer command_buffer
+)</code></h4>
+                <p>Records the end of the current rendering scope.</p>
             </div>
 
             <div class="api-entry">
@@ -2421,100 +2414,66 @@
     rt_command_buffer command_buffer
 )</code></h4>
                 <p>Transitions the command buffer from Recording to Executable.</p>
-                <p class="api-meta"><strong>Requirements:</strong> None</p>
-                <p class="api-meta"><strong>Pre-conditions:</strong></p>
-                <ul class="api-cond-list">
-                    <li><code>command_buffer</code><p>must be valid</p></li>
-                    <li><code>command_buffer</code><p>must be in the Recording state</p></li>
-                </ul>
-                <p class="api-meta"><strong>Post-conditions:</strong></p>
-                <ul><li>The command buffer is in the Executable state.</li></ul>
-                <p class="api-meta"><strong>Errors:</strong> <a href="#rt-improper-usage"><code>RT_IMPROPER_USAGE</code></a></p>
-                <p class="api-meta"><strong>Default:</strong> None</p>
             </div>
 
-            <h3 id="command_buffer-state">12.3 Child graphics commands</h3>
-            <p>Every command in this section requires a Recording child draw packet whose owning context has an active framebuffer scope. Framebuffer load actions and dynamic viewport/scissor state belong to the context.</p>
+            <h3 id="command_buffer-state">12.3 Program locations and graphics commands</h3>
+            <p>Every command in this section requires a Recording command buffer with an active rendering scope. A location is a program-owned typed shader-interface handle. The command used with it must match that input kind.</p>
+            <p>Each vertex-layout attribute declares <code>RT_VERTEX_RATE_VERTEX</code> or <code>RT_VERTEX_RATE_INSTANCE</code>. Instance-rate attributes advance once per instance; divisors other than one are not part of this contract.</p>
+
+            <div class="api-entry">
+                <h4 class="api-signature"><code>rt_location rtGraphicsProgramLocation(
+    rt_graphics_program program,
+    const char* name
+)</code></h4>
+                <p>Returns the named location from a finalized graphics program. A location may identify a vertex attribute, buffer resource, or combined texture/sampler resource. Address inputs are unavailable until RTSL and shader reflection define that input kind.</p>
+            </div>
 
             <div class="api-entry">
                 <h4 class="api-signature"><code>void rtCmdUseGraphicsProgram(
     rt_command_buffer command_buffer,
     rt_graphics_program program
 )</code></h4>
-                <p>Binds a linked graphics program for following draw calls.</p>
-                <p class="api-meta"><strong>Pre-conditions:</strong></p>
-                <ul class="api-cond-list">
-                    <li><code>command_buffer</code><p>must be recording as a draw packet while its owning context has an active framebuffer scope</p></li>
-                    <li><code>program</code><p>must be valid and linked</p></li>
-                </ul>
-                <p class="api-meta"><strong>Errors:</strong> None</p>
+                <p>Records the graphics program used by following draw commands.</p>
             </div>
 
             <div class="api-entry">
-                <h4 class="api-signature"><code>void rtCmdUniformBuffer(
+                <h4 class="api-signature"><code>void rtCmdBindBuffer(
     rt_command_buffer command_buffer,
-    rt_uniform_location location,
+    rt_location location,
     rt_buffer buffer,
-    u64 offset,
-    u64 size
+    usize offset,
+    usize size
 )</code></h4>
-                <p>Binds a buffer range to a buffer uniform declared by the active graphics program.</p>
-                <p class="api-meta"><strong>Pre-conditions:</strong></p>
-                <ul class="api-cond-list">
-                    <li><code>command_buffer</code><p>must be recording as a draw packet while its owning context has an active framebuffer scope</p></li>
-                    <li><code>location</code><p>must belong to the active graphics program and identify a buffer binding</p></li>
-                    <li><code>buffer</code><p>must have storage compatible with uniform binding</p></li>
-                </ul>
-                <p class="api-meta"><strong>Errors:</strong> None</p>
+                <p>Records a buffer resource range at <code>location</code>. The location's reflected kind determines whether it is uniform or storage.</p>
             </div>
 
             <div class="api-entry">
-                <h4 class="api-signature"><code>void rtCmdUniformTexture(
+                <h4 class="api-signature"><code>void rtCmdBindTexture(
     rt_command_buffer command_buffer,
-    rt_uniform_location location,
+    rt_location location,
     rt_texture_view texture_view
 )</code></h4>
-                <p>Binds a texture view to a sampled texture uniform declared by the active graphics program.</p>
-                <p class="api-meta"><strong>Pre-conditions:</strong></p>
-                <ul class="api-cond-list">
-                    <li><code>command_buffer</code><p>must be recording as a draw packet while its owning context has an active framebuffer scope</p></li>
-                    <li><code>location</code><p>must belong to the active graphics program and identify a texture binding</p></li>
-                    <li><code>texture_view</code><p>must be valid and backed by defined texture storage</p></li>
-                </ul>
-                <p class="api-meta"><strong>Errors:</strong> None</p>
+                <p>Records the combined texture/sampler view at <code>location</code>.</p>
             </div>
 
             <div class="api-entry">
-                <h4 class="api-signature"><code>void rtCmdStorageBuffer(
+                <h4 class="api-signature"><code>void rtCmdVertexBuffer(
     rt_command_buffer command_buffer,
-    rt_uniform_location location,
+    rt_location location,
     rt_buffer buffer,
-    u64 offset,
-    u64 size
+    usize offset
 )</code></h4>
-                <p>Binds a storage-buffer range to a uniform declared by the active graphics program.</p>
-                <p class="api-meta"><strong>Pre-conditions:</strong></p>
-                <ul class="api-cond-list">
-                    <li><code>command_buffer</code><p>must be recording as a draw packet while its owning context has an active framebuffer scope</p></li>
-                    <li><code>location</code><p>must belong to the active graphics program and identify a storage-buffer binding</p></li>
-                    <li><code>buffer</code><p>must have storage compatible with the binding</p></li>
-                </ul>
-                <p class="api-meta"><strong>Errors:</strong> None</p>
+                <p>Records the source buffer for exactly one vertex-attribute location. Several locations may use one interleaved buffer with distinct offsets.</p>
             </div>
 
             <div class="api-entry">
-                <h4 class="api-signature"><code>void rtCmdBindVertexBuffer(
+                <h4 class="api-signature"><code>void rtCmdIndexBuffer(
     rt_command_buffer command_buffer,
     rt_buffer buffer,
-    u64 offset
+    usize offset,
+    enum rt_index_format format
 )</code></h4>
-                <p>Binds the vertex buffer used by following draw calls.</p>
-                <p class="api-meta"><strong>Pre-conditions:</strong></p>
-                <ul class="api-cond-list">
-                    <li><code>command_buffer</code><p>must be recording as a draw packet while its owning context has an active framebuffer scope</p></li>
-                    <li><code>buffer</code><p>must have storage compatible with vertex binding</p></li>
-                </ul>
-                <p class="api-meta"><strong>Errors:</strong> None</p>
+                <p>Records the index stream used by following indexed draws.</p>
             </div>
 
             <div class="api-entry">
@@ -2523,108 +2482,52 @@
     u32 vertex_count,
     u32 first_vertex
 )</code></h4>
-                <p>Issues a non-indexed draw.</p>
-                <p class="api-meta"><strong>Pre-conditions:</strong></p>
-                <ul class="api-cond-list">
-                    <li><code>command_buffer</code><p>must be recording as a draw packet while its owning context has an active framebuffer scope</p></li>
-                    <li><p>a graphics program must be bound</p></li>
-                    <li><code>vertex_count</code><p>must not be <code>0</code></p></li>
-                </ul>
-                <p class="api-meta"><strong>Errors:</strong> None</p>
+                <p>Records a non-indexed draw.</p>
             </div>
 
-            <h3 id="command_buffer-rendering">12.4 Context rendering and submission</h3>
-
             <div class="api-entry">
-                <h4 class="api-signature"><code>void rtCommandContextBindFramebuffer(
-    rt_command_context command_context,
-    rt_framebuffer framebuffer
+                <h4 class="api-signature"><code>void rtCmdDrawInstanced(
+    rt_command_buffer command_buffer,
+    u32 vertex_count,
+    u32 instance_count,
+    u32 first_vertex,
+    u32 first_instance
 )</code></h4>
-                <p>Declares and opens the context's one dynamic-rendering scope. The pre-scope position is reserved for future generic work. The framebuffer compatibility is fixed for every draw packet subsequently recorded by this context.</p>
-                <p class="api-meta"><strong>Pre-conditions:</strong> The context must be queue-bound, not submitted, and have no prior framebuffer scope. <code>framebuffer</code> must be valid.</p>
+                <p>Records an instanced non-indexed draw.</p>
             </div>
 
             <div class="api-entry">
-                <h4 class="api-signature"><code>void rtCommandContextClearColor(
-    rt_command_context command_context,
-    u32 color_index,
-    f32 r,
-    f32 g,
-    f32 b,
-    f32 a
+                <h4 class="api-signature"><code>void rtCmdDrawIndexed(
+    rt_command_buffer command_buffer,
+    u32 index_count,
+    u32 first_index,
+    i32 vertex_offset
 )</code></h4>
-                <p>Declares a color load clear for the active framebuffer scope. It is consumed when the backend opens rendering; it is not a command inside a child packet or an already-open native rendering pass.</p>
-                <p class="api-meta"><strong>Pre-conditions:</strong> The context must have an active framebuffer scope and no child packet begun in that scope.</p>
+                <p>Records an indexed draw.</p>
             </div>
 
             <div class="api-entry">
-                <h4 class="api-signature"><code>void rtCommandContextClearDepth(
-    rt_command_context command_context,
-    f32 depth
+                <h4 class="api-signature"><code>void rtCmdDrawIndexedInstanced(
+    rt_command_buffer command_buffer,
+    u32 index_count,
+    u32 instance_count,
+    u32 first_index,
+    i32 vertex_offset,
+    u32 first_instance
 )</code></h4>
-                <p>Declares a depth load clear for the active framebuffer scope before any child packet begins.</p>
-                <p class="api-meta"><strong>Pre-conditions:</strong> The context must have an active framebuffer scope and no child packet begun in that scope.</p>
+                <p>Records an indexed instanced draw.</p>
             </div>
 
-            <div class="api-entry">
-                <h4 class="api-signature"><code>void rtCommandContextClearStencil(
-    rt_command_context command_context,
-    u32 stencil
-)</code></h4>
-                <p>Declares a stencil load clear for the active framebuffer scope before any child packet begins.</p>
-                <p class="api-meta"><strong>Pre-conditions:</strong> The context must have an active framebuffer scope with a stencil-capable attachment and no child packet begun in that scope.</p>
-            </div>
+            <h3 id="command_buffer-submission">12.4 Submission</h3>
 
             <div class="api-entry">
-                <h4 class="api-signature"><code>void rtCommandContextSetViewport(
-    rt_command_context command_context,
-    u32 x,
-    u32 y,
-    u32 width,
-    u32 height,
-    f32 min_depth,
-    f32 max_depth
-)</code></h4>
-                <p>Declares the dynamic viewport for every draw packet in the active framebuffer scope.</p>
-                <p class="api-meta"><strong>Pre-conditions:</strong> The context must have an active framebuffer scope and no child packet begun in that scope.</p>
-            </div>
-
-            <div class="api-entry">
-                <h4 class="api-signature"><code>void rtCommandContextSetScissor(
-    rt_command_context command_context,
-    u32 x,
-    u32 y,
-    u32 width,
-    u32 height
-)</code></h4>
-                <p>Declares the dynamic scissor for every draw packet in the active framebuffer scope.</p>
-                <p class="api-meta"><strong>Pre-conditions:</strong> The context must have an active framebuffer scope and no child packet begun in that scope.</p>
-            </div>
-
-            <div class="api-entry">
-                <h4 class="api-signature"><code>void rtCommandContextExecute(
-    rt_command_context command_context,
+                <h4 class="api-signature"><code>rt_timepoint rtQueueSubmit(
+    rt_queue queue,
     rt_command_buffer command_buffer
 )</code></h4>
-                <p>Appends an ended child draw packet to the context's ordered submission in its active framebuffer scope. The pre-framebuffer position is reserved for future generic work.</p>
-                <p class="api-meta"><strong>Pre-conditions:</strong> <code>command_context</code> and <code>command_buffer</code> must be valid; the context must be queue-bound and unsubmitted; the child must belong to that context, be Executable, and match the context's current position.</p>
-            </div>
-
-            <div class="api-entry">
-                <h4 class="api-signature"><code>void rtCommandContextEndRendering(
-    rt_command_context command_context
-)</code></h4>
-                <p>Closes the context's dynamic-rendering scope. Only Recording child buffers prevent this call; Executable children may remain until the scope closes and execute only while it is open.</p>
-                <p class="api-meta"><strong>Pre-conditions:</strong> <code>command_context</code> must have an active rendering scope and no Recording child buffers.</p>
-            </div>
-
-            <div class="api-entry">
-                <h4 class="api-signature"><code>rt_timepoint rtCommandContextSubmit(
-    rt_command_context command_context
-)</code></h4>
-                <p>Submits the completed single-fire context. Returns a timepoint that is reached when its work has completed.</p>
-                <p class="api-meta"><strong>Pre-conditions:</strong> <code>command_context</code> must have a bound queue, no active framebuffer scope, no Recording child buffers, and no submission since its latest bind.</p>
-                <p class="api-meta"><strong>Post-conditions:</strong> The context cannot record or submit again until rebound. The returned timepoint is reached when the context and every executed child have completed.</p>
+                <p>Submits a completed command buffer to <code>queue</code>. Submission is the sole point where the backend lowers Rutile intermediate representation to native commands.</p>
+                <p class="api-meta"><strong>Pre-conditions:</strong> <code>queue</code> must be valid and <code>command_buffer</code> Executable.</p>
+                <p class="api-meta"><strong>Post-conditions:</strong> The command buffer remains Executable and may be submitted again or reset.</p>
                 <p class="api-meta"><strong>Errors:</strong> <a href="#rt-improper-usage"><code>RT_IMPROPER_USAGE</code></a>, <a href="#rt-out-of-host-memory"><code>RT_OUT_OF_HOST_MEMORY</code></a>, <a href="#rt-platform-failure"><code>RT_PLATFORM_FAILURE</code></a>, <a href="#rt-device-lost"><code>RT_DEVICE_LOST</code></a></p>
                 <p class="api-meta"><strong>Default:</strong> <code>rt_timepoint{ null, 0 }</code></p>
             </div>

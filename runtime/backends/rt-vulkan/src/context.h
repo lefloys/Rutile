@@ -1,7 +1,9 @@
 #ifndef RTVK_CONTEXT_H
 #define RTVK_CONTEXT_H
 
-#include "types.h"
+#define RT_TYPES_ONLY
+#include "rutile.h"
+#undef RT_TYPES_ONLY
 
 #include <vk_mem_alloc.h>
 #include <volk.h>

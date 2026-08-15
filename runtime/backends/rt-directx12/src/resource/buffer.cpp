@@ -30,11 +30,11 @@ static bool rtdx_buffer_uses_host_storage(enum rt_buffer_mode mode, enum rt_buff
 }
 
 static struct rtdx_queue* rtdx_buffer_upload_queue(struct rtdx_context* ctx) {
-	struct rtdx_queue* queue = rtdx_queue_query(ctx, RT_QUEUE_TRANSFER);
+	struct rtdx_queue* queue = rtdx_context_queue(ctx, RT_QUEUE_TRANSFER);
 	if (queue) {
 		return queue;
 	}
-	return rtdx_queue_query(ctx, RT_QUEUE_GRAPHICS);
+	return rtdx_context_queue(ctx, RT_QUEUE_GRAPHICS);
 }
 
 static D3D12_RESOURCE_STATES rtdx_buffer_gpu_state(enum rt_buffer_usage usage) {
@@ -81,26 +81,11 @@ void rtBufferDestroy(rt_buffer buffer) {
 }
 
 rt_timepoint rtBufferData(rt_buffer buffer, enum rt_buffer_mode mode, enum rt_buffer_usage usage, u64 size, const void* data) {
-	struct rtdx_timepoint timepoint = rtdx_buffer_data(
-		rtdx_get_current_context(),
-		rtdx_buffer_from_handle(buffer),
-		mode,
-		usage,
-		size,
-		data
-	);
-	return rtdx_timepoint_to_public(timepoint);
+	return rtdx_buffer_data(rtdx_get_current_context(), rtdx_buffer_from_handle(buffer), mode, usage, size, data);
 }
 
 rt_timepoint rtBufferSubdata(rt_buffer buffer, u64 offset, u64 size, const void* data) {
-	struct rtdx_timepoint timepoint = rtdx_buffer_subdata(
-		rtdx_get_current_context(),
-		rtdx_buffer_from_handle(buffer),
-		offset,
-		size,
-		data
-	);
-	return rtdx_timepoint_to_public(timepoint);
+	return rtdx_buffer_subdata(rtdx_get_current_context(), rtdx_buffer_from_handle(buffer), offset, size, data);
 }
 
 void rtBufferRead(rt_buffer buffer, u64 offset, u64 size, void* data) {
@@ -142,6 +127,10 @@ static struct rtdx_buffer_storage* rtdx_buffer_storage_create(
 	storage->size = size;
 	storage->mode = mode;
 	storage->usage = usage;
+	u64 allocation_size = size;
+	if (usage & RT_BUFFER_USAGE_UNIFORM) {
+		allocation_size = (size + 255) & ~UINT64_C(255);
+	}
 
 	D3D12_HEAP_PROPERTIES heap = {};
 	heap.Type = rtdx_buffer_uses_host_storage(mode, usage) ? D3D12_HEAP_TYPE_UPLOAD : D3D12_HEAP_TYPE_DEFAULT;
@@ -153,7 +142,7 @@ static struct rtdx_buffer_storage* rtdx_buffer_storage_create(
 	D3D12_RESOURCE_DESC desc = {};
 	desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
 	desc.Alignment = 0;
-	desc.Width = size;
+	desc.Width = allocation_size;
 	desc.Height = 1;
 	desc.DepthOrArraySize = 1;
 	desc.MipLevels = 1;
@@ -277,12 +266,12 @@ static void rtdx_buffer_storage_copy(struct rtdx_buffer_storage* dst, struct rtd
 
 static bool rtdx_buffer_upload_staging(struct rtdx_context* ctx, struct rtdx_queue* queue, u64 size) {
 	if (queue->upload_buffer && queue->upload_buffer_size >= size) {
-		rtdx_timepoint_wait(ctx, { queue, queue->upload_fence_value });
+		rtdx_wait_for_timepoint(ctx, rtdx_queue_timepoint(queue, queue->upload_fence_value));
 		queue->upload_fence_value = 0;
 		return true;
 	}
 
-	rtdx_timepoint_wait(ctx, { queue, queue->upload_fence_value });
+	rtdx_wait_for_timepoint(ctx, rtdx_queue_timepoint(queue, queue->upload_fence_value));
 	queue->upload_fence_value = 0;
 	rtdx_release(&queue->upload_buffer);
 	queue->upload_buffer_size = 0;
@@ -317,7 +306,7 @@ static bool rtdx_buffer_upload_staging(struct rtdx_context* ctx, struct rtdx_que
 	return true;
 }
 
-static struct rtdx_timepoint rtdx_buffer_upload_static(
+static rt_timepoint rtdx_buffer_upload_static(
 	struct rtdx_context* ctx,
 	struct rtdx_queue* queue,
 	struct rtdx_buffer_storage* storage,
@@ -325,7 +314,7 @@ static struct rtdx_timepoint rtdx_buffer_upload_static(
 	u64 size,
 	const void* data
 ) {
-	struct rtdx_timepoint timepoint = { queue, 0 };
+	rt_timepoint timepoint = {};
 	if (!size) {
 		return timepoint;
 	}
@@ -334,11 +323,13 @@ static struct rtdx_timepoint rtdx_buffer_upload_static(
 		return timepoint;
 	}
 
-	rtdx_queue_collect(ctx, queue);
+	rtdx_queue_upload_scope upload_scope(queue);
 
 	if (!rtdx_buffer_upload_staging(ctx, queue, size)) {
 		return timepoint;
 	}
+
+	rtdx_queue_collect(ctx, queue);
 
 	void* mapped_data = NULL;
 	HRESULT result = queue->upload_buffer->Map(0, NULL, &mapped_data);
@@ -349,6 +340,7 @@ static struct rtdx_timepoint rtdx_buffer_upload_static(
 	memcpy(mapped_data, data, (usize)size);
 	queue->upload_buffer->Unmap(0, NULL);
 
+	rtdx_physical_queue_scope physical_queue(ctx);
 	if (!rtdx_queue_acquire_upload_command(ctx, queue)) {
 		return timepoint;
 	}
@@ -387,7 +379,7 @@ static struct rtdx_timepoint rtdx_buffer_upload_static(
 	ID3D12CommandList* lists[] = { command_list };
 	queue->d3d_queue->ExecuteCommandLists(1, lists);
 
-	u64 signal_value = queue->fence_value + 1;
+	u64 signal_value = ++ctx->next_fence_value;
 	result = queue->d3d_queue->Signal(queue->d3d_fence, signal_value);
 	if (FAILED(result)) {
 		rtdx_throwf(rtdx_error_from_hresult(result), "ID3D12CommandQueue::Signal failed: 0x%08x", (u32)result);
@@ -395,7 +387,7 @@ static struct rtdx_timepoint rtdx_buffer_upload_static(
 	}
 
 	queue->fence_value = signal_value;
-	timepoint.value = signal_value;
+	timepoint = rtdx_queue_timepoint(queue, signal_value);
 	storage->state = next_state;
 	queue->upload_fence_value = signal_value;
 	return timepoint;
@@ -447,8 +439,8 @@ void rtdx_buffer_finish(struct rtdx_context* ctx, struct rtdx_buffer* buffer) {
 	rtdx_finish_resource_base(ctx, RTDX_RESOURCE_BASE(buffer));
 }
 
-struct rtdx_timepoint rtdx_buffer_data(struct rtdx_context* ctx, struct rtdx_buffer* buffer, enum rt_buffer_mode mode, enum rt_buffer_usage usage, u64 size, const void* data) {
-	struct rtdx_timepoint timepoint = { NULL, 0 };
+rt_timepoint rtdx_buffer_data(struct rtdx_context* ctx, struct rtdx_buffer* buffer, enum rt_buffer_mode mode, enum rt_buffer_usage usage, u64 size, const void* data) {
+	rt_timepoint timepoint = {};
 	if (!buffer) {
 		rtdx_throwf(RT_IMPROPER_USAGE, "buffer is NULL");
 		return timepoint;
@@ -504,8 +496,8 @@ struct rtdx_timepoint rtdx_buffer_data(struct rtdx_context* ctx, struct rtdx_buf
 	return timepoint;
 }
 
-struct rtdx_timepoint rtdx_buffer_subdata(struct rtdx_context* ctx, struct rtdx_buffer* buffer, u64 offset, u64 size, const void* data) {
-	struct rtdx_timepoint timepoint = { NULL, 0 };
+rt_timepoint rtdx_buffer_subdata(struct rtdx_context* ctx, struct rtdx_buffer* buffer, u64 offset, u64 size, const void* data) {
+	rt_timepoint timepoint = {};
 	if (!buffer || !buffer->storage) {
 		rtdx_throwf(RT_IMPROPER_USAGE, "buffer has no storage");
 		return timepoint;
