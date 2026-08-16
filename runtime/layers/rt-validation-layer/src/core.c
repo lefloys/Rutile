@@ -13,7 +13,7 @@ RT_API_PUBLIC const char* rtErrorMessage(void) { return rtval_rtErrorMessage(); 
 RT_API_PUBLIC void rtClearError(void) { rtval_rtClearError(); }
 RT_API_PUBLIC const char* rtGetName(void) { return rtval_rtGetName(); }
 RT_API_PUBLIC enum rt_format_usage rtQueryFormatCapabilities(enum rt_format format) { return rtval_rtQueryFormatCapabilities(format); }
-RT_API_PUBLIC void rtSetOutput(PFN_rtOutput output, void* user_data) { rtval_rtSetOutput(output, user_data); }
+RT_API_PUBLIC void rtSetOutput(rt_output output, void* user_data) { rtval_rtSetOutput(output, user_data); }
 
 /*===============================================================================================*/
 /*                                                                                               */
@@ -53,7 +53,7 @@ enum rt_format_usage rtval_rtQueryFormatCapabilities(enum rt_format format) {
 	return usage;
 }
 
-void rtval_rtSetOutput(PFN_rtOutput output, void* user_data) {
+void rtval_rtSetOutput(rt_output output, void* user_data) {
 	rtvalSetOutput(output, user_data);
 	rtval_next_rtSetOutput(output, user_data);
 }

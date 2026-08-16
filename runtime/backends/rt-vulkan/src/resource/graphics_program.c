@@ -24,7 +24,7 @@ void rtGraphicsProgramDestroy(rt_graphics_program program) {
 	);
 }
 
-void rtGraphicsProgramLayout(rt_graphics_program program, const rt_vertex_layout* layout) {
+void rtGraphicsProgramSetLayout(rt_graphics_program program, const rt_vertex_layout* layout) {
 	rtvk_graphics_program_layout(
 		rtvk_get_current_context(),
 		rtvk_graphics_program_from_handle(program),
@@ -32,7 +32,7 @@ void rtGraphicsProgramLayout(rt_graphics_program program, const rt_vertex_layout
 	);
 }
 
-void rtGraphicsProgramSource(rt_graphics_program program, const void* data, usize size) {
+void rtGraphicsProgramSetSource(rt_graphics_program program, const u08* data, usize size) {
 	rtvk_graphics_program_source(
 		rtvk_get_current_context(),
 		rtvk_graphics_program_from_handle(program),
@@ -41,11 +41,11 @@ void rtGraphicsProgramSource(rt_graphics_program program, const void* data, usiz
 	);
 }
 
-void rtGraphicsProgramRasterState(rt_graphics_program program, enum rt_cull_mode cull_mode, enum rt_front_face front_face, enum rt_fill_mode fill_mode) {
+void rtGraphicsProgramSetRasterState(rt_graphics_program program, enum rt_cull_mode cull_mode, enum rt_front_face front_face, enum rt_fill_mode fill_mode) {
 	rtvk_graphics_program_raster_state(rtvk_get_current_context(), rtvk_graphics_program_from_handle(program), cull_mode, front_face, fill_mode);
 }
 
-void rtGraphicsProgramBlendState(rt_graphics_program program, bool enabled, enum rt_blend_factor src_color, enum rt_blend_factor dst_color, enum rt_blend_op color_op, enum rt_blend_factor src_alpha, enum rt_blend_factor dst_alpha, enum rt_blend_op alpha_op) {
+void rtGraphicsProgramSetBlendState(rt_graphics_program program, bool enabled, enum rt_blend_factor src_color, enum rt_blend_factor dst_color, enum rt_blend_op color_op, enum rt_blend_factor src_alpha, enum rt_blend_factor dst_alpha, enum rt_blend_op alpha_op) {
 	rtvk_graphics_program_blend_state(
 		rtvk_get_current_context(),
 		rtvk_graphics_program_from_handle(program),
@@ -66,8 +66,16 @@ void rtGraphicsProgramFinalize(rt_graphics_program program) {
 	);
 }
 
-rt_location rtGraphicsProgramLocation(rt_graphics_program program, const char* name) {
-	return rtvk_graphics_program_location(rtvk_get_current_context(), rtvk_graphics_program_from_handle(program), name);
+rt_location rtGraphicsProgramUniformLocation(rt_graphics_program program, const char* name) {
+	return rtvk_graphics_program_uniform_location(rtvk_get_current_context(), rtvk_graphics_program_from_handle(program), name);
+}
+
+rt_location rtGraphicsProgramInputLocation(rt_graphics_program program, const rt_vertex_attribute* attributes, usize attribute_count) {
+	return rtvk_graphics_program_input_location(rtvk_get_current_context(), rtvk_graphics_program_from_handle(program), attributes, attribute_count);
+}
+
+rt_location rtGraphicsProgramOutputLocation(rt_graphics_program program, const char* name) {
+	return rtvk_graphics_program_output_location(rtvk_get_current_context(), rtvk_graphics_program_from_handle(program), name);
 }
 
 /*===============================================================================================*/
@@ -75,19 +83,6 @@ rt_location rtGraphicsProgramLocation(rt_graphics_program program, const char* n
 /*===============================================================================================*/
 
 RTVK_DEFINE_RESOURCE_PRIVATE(graphics_program)
-
-void rtvk_graphics_program_destroy_shader(struct rtvk_context* ctx, VkShaderModule* shader) {
-	if (*shader) {
-		vkDestroyShaderModule(ctx->vk_device, *shader, VK_ALLOCATOR);
-		*shader = VK_NULL_HANDLE;
-	}
-}
-
-void rtvk_graphics_program_destroy_shader_source(char** source, u64* size) {
-	free(*source);
-	*source = NULL;
-	*size = 0;
-}
 
 void rtvk_graphics_program_init(struct rtvk_context* ctx, struct rtvk_graphics_program* program) {
 	rtvk_init_resource_base(ctx, RTVK_RESOURCE_BASE(program), RT_RESOURCE_GRAPHICS_PROGRAM);
@@ -133,12 +128,6 @@ void rtvk_graphics_program_destroy_pipeline_layout(struct rtvk_context* ctx, str
 	}
 }
 
-static VkCullModeFlags rtvk_cull_mode(enum rt_cull_mode mode);
-static VkFrontFace rtvk_front_face(enum rt_front_face face);
-static VkPolygonMode rtvk_fill_mode(enum rt_fill_mode mode);
-static VkBlendFactor rtvk_blend_factor(enum rt_blend_factor factor);
-static VkBlendOp rtvk_blend_op(enum rt_blend_op op);
-
 enum rtvk_spirv_opcode {
 	RTVK_SPIRV_OPCODE_NAME = 5,
 	RTVK_SPIRV_OPCODE_DECORATE = 71,
@@ -182,9 +171,17 @@ static VkFormat rtvk_vertex_format(enum rt_format format) {
 void rtvk_graphics_program_finish(struct rtvk_graphics_program* program) {
 	struct rtvk_context* ctx = program->base.ctx;
 	rtvk_graphics_program_destroy_pipeline_layout(ctx, program);
-	rtvk_graphics_program_destroy_shader(ctx, &program->vk_vertex_shader);
-	rtvk_graphics_program_destroy_shader(ctx, &program->vk_fragment_shader);
-	rtvk_graphics_program_destroy_shader_source(&program->program_source, &program->program_source_size);
+	if (program->vk_vertex_shader) {
+		vkDestroyShaderModule(ctx->vk_device, program->vk_vertex_shader, VK_ALLOCATOR);
+		program->vk_vertex_shader = VK_NULL_HANDLE;
+	}
+	if (program->vk_fragment_shader) {
+		vkDestroyShaderModule(ctx->vk_device, program->vk_fragment_shader, VK_ALLOCATOR);
+		program->vk_fragment_shader = VK_NULL_HANDLE;
+	}
+	free(program->program_source);
+	program->program_source = NULL;
+	program->program_source_size = 0;
 	rtvk_graphics_program_clear_locations(program);
 
 	rtvk_finish_resource_base(RTVK_RESOURCE_BASE(program));
@@ -199,6 +196,7 @@ static VkDescriptorType rtvk_graphics_program_descriptor_type(rtvk_location_kind
 	case RTVK_LOCATION_TEXTURE:
 		return VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 	case RTVK_LOCATION_VERTEX:
+	case RTVK_LOCATION_OUTPUT:
 		break;
 	}
 	return VK_DESCRIPTOR_TYPE_MAX_ENUM;
@@ -207,7 +205,7 @@ static VkDescriptorType rtvk_graphics_program_descriptor_type(rtvk_location_kind
 static void rtvk_graphics_program_create_descriptor_set_layout(struct rtvk_context* ctx, struct rtvk_graphics_program* program) {
 	u32 descriptor_count = 0;
 	for (u32 index = 0; index < program->location_count; index++) {
-		if (program->locations[index].kind != RTVK_LOCATION_VERTEX) {
+		if (program->locations[index].kind != RTVK_LOCATION_VERTEX && program->locations[index].kind != RTVK_LOCATION_OUTPUT) {
 			descriptor_count++;
 		}
 	}
@@ -224,7 +222,7 @@ static void rtvk_graphics_program_create_descriptor_set_layout(struct rtvk_conte
 	u32 binding_index = 0;
 	for (u32 index = 0; index < program->location_count; index++) {
 		rt_location location = &program->locations[index];
-		if (location->kind == RTVK_LOCATION_VERTEX) {
+		if (location->kind == RTVK_LOCATION_VERTEX || location->kind == RTVK_LOCATION_OUTPUT) {
 			continue;
 		}
 		bindings[binding_index].binding = location->binding;
@@ -306,14 +304,22 @@ static void rtvk_graphics_program_viewport_state(VkViewport* viewport, VkRect2D*
 }
 
 static void rtvk_graphics_program_color_blend_state(struct rtvk_graphics_program* program, VkPipelineColorBlendAttachmentState* attachments, u32 attachment_count, VkPipelineColorBlendStateCreateInfo* color_blend_info) {
+	static const VkBlendFactor blend_factors[] = {
+		VK_BLEND_FACTOR_ZERO, VK_BLEND_FACTOR_ONE, VK_BLEND_FACTOR_SRC_COLOR, VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR,
+		VK_BLEND_FACTOR_DST_COLOR, VK_BLEND_FACTOR_ONE_MINUS_DST_COLOR, VK_BLEND_FACTOR_SRC_ALPHA, VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+		VK_BLEND_FACTOR_DST_ALPHA, VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA,
+	};
+	static const VkBlendOp blend_ops[] = {
+		VK_BLEND_OP_ADD, VK_BLEND_OP_SUBTRACT, VK_BLEND_OP_REVERSE_SUBTRACT, VK_BLEND_OP_MIN, VK_BLEND_OP_MAX,
+	};
 	for (u32 i = 0; i < attachment_count; i++) {
 		attachments[i].blendEnable = program->blend_enabled ? VK_TRUE : VK_FALSE;
-		attachments[i].srcColorBlendFactor = rtvk_blend_factor(program->src_color_blend);
-		attachments[i].dstColorBlendFactor = rtvk_blend_factor(program->dst_color_blend);
-		attachments[i].colorBlendOp = rtvk_blend_op(program->color_blend_op);
-		attachments[i].srcAlphaBlendFactor = rtvk_blend_factor(program->src_alpha_blend);
-		attachments[i].dstAlphaBlendFactor = rtvk_blend_factor(program->dst_alpha_blend);
-		attachments[i].alphaBlendOp = rtvk_blend_op(program->alpha_blend_op);
+		attachments[i].srcColorBlendFactor = blend_factors[program->src_color_blend];
+		attachments[i].dstColorBlendFactor = blend_factors[program->dst_color_blend];
+		attachments[i].colorBlendOp = blend_ops[program->color_blend_op];
+		attachments[i].srcAlphaBlendFactor = blend_factors[program->src_alpha_blend];
+		attachments[i].dstAlphaBlendFactor = blend_factors[program->dst_alpha_blend];
+		attachments[i].alphaBlendOp = blend_ops[program->alpha_blend_op];
 		attachments[i].colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
 	}
 
@@ -331,16 +337,16 @@ static VkPipeline rtvk_graphics_program_create_pipeline(struct rtvk_context* ctx
 	VkVertexInputBindingDescription bindings[RTVK_MAX_VERTEX_ATTRIBUTES] = { 0 };
 	VkVertexInputAttributeDescription attributes[RTVK_MAX_VERTEX_ATTRIBUTES] = { 0 };
 	VkPipelineVertexInputStateCreateInfo vertex_input_info = { VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };
-	if (program->vertex_layout.attribute_count) {
-		for (u32 i = 0; i < program->vertex_layout.stream_count; i++) {
+	if (program->vertex_attribute_count) {
+		for (u32 i = 0; i < program->vertex_layout.input_count; i++) {
 			bindings[i].binding = i;
-			bindings[i].stride = (u32)program->vertex_streams[i].stride;
-			bindings[i].inputRate = program->vertex_streams[i].rate == RT_VERTEX_RATE_INSTANCE
+			bindings[i].stride = (u32)program->vertex_inputs[i].stride;
+			bindings[i].inputRate = program->vertex_inputs[i].rate == RT_VERTEX_RATE_INSTANCE
 				? VK_VERTEX_INPUT_RATE_INSTANCE
 				: VK_VERTEX_INPUT_RATE_VERTEX;
 		}
 
-		for (u32 i = 0; i < program->vertex_layout.attribute_count; i++) {
+		for (u32 i = 0; i < program->vertex_attribute_count; i++) {
 			const rt_vertex_attribute* attribute = &program->vertex_attributes[i];
 			rt_location location = rtvk_graphics_program_find_location(program, attribute->name);
 			if (!location || location->kind != RTVK_LOCATION_VERTEX) {
@@ -357,9 +363,9 @@ static VkPipeline rtvk_graphics_program_create_pipeline(struct rtvk_context* ctx
 			}
 		}
 
-		vertex_input_info.vertexBindingDescriptionCount = (u32)program->vertex_layout.stream_count;
+		vertex_input_info.vertexBindingDescriptionCount = (u32)program->vertex_layout.input_count;
 		vertex_input_info.pVertexBindingDescriptions = bindings;
-		vertex_input_info.vertexAttributeDescriptionCount = program->vertex_layout.attribute_count;
+		vertex_input_info.vertexAttributeDescriptionCount = (u32)program->vertex_attribute_count;
 		vertex_input_info.pVertexAttributeDescriptions = attributes;
 	} else {
 		vertex_input_info.vertexBindingDescriptionCount = 0;
@@ -382,9 +388,12 @@ static VkPipeline rtvk_graphics_program_create_pipeline(struct rtvk_context* ctx
 	raster_info.flags = 0;
 	raster_info.depthClampEnable = VK_FALSE;
 	raster_info.rasterizerDiscardEnable = VK_FALSE;
-	raster_info.polygonMode = rtvk_fill_mode(program->fill_mode);
-	raster_info.cullMode = rtvk_cull_mode(program->cull_mode);
-	raster_info.frontFace = rtvk_front_face(program->front_face);
+	static const VkPolygonMode fill_modes[] = { VK_POLYGON_MODE_FILL, VK_POLYGON_MODE_LINE };
+	static const VkCullModeFlags cull_modes[] = { VK_CULL_MODE_NONE, VK_CULL_MODE_FRONT_BIT, VK_CULL_MODE_BACK_BIT };
+	static const VkFrontFace front_faces[] = { VK_FRONT_FACE_COUNTER_CLOCKWISE, VK_FRONT_FACE_CLOCKWISE };
+	raster_info.polygonMode = fill_modes[program->fill_mode];
+	raster_info.cullMode = cull_modes[program->cull_mode];
+	raster_info.frontFace = front_faces[program->front_face];
 	raster_info.depthBiasEnable = VK_FALSE;
 	raster_info.depthBiasConstantFactor = 0.0f;
 	raster_info.depthBiasClamp = 0.0f;
@@ -503,47 +512,70 @@ VkPipeline rtvk_graphics_program_prepare(struct rtvk_context* ctx, struct rtvk_g
 void rtvk_graphics_program_layout(struct rtvk_context* ctx, struct rtvk_graphics_program* program, const rt_vertex_layout* layout) {
 	assert(ctx);
 	assert(program);
-	if (!layout || !layout->streams || !layout->attributes || layout->stream_count == 0 || layout->attribute_count == 0) {
+	if (!layout || !layout->inputs || layout->input_count == 0) {
 		program->vertex_layout = (rt_vertex_layout){ 0 };
+		program->vertex_attribute_count = 0;
 		rtvk_graphics_program_destroy_pipeline_layout(ctx, program);
-		rtvk_graphics_program_destroy_shader(ctx, &program->vk_vertex_shader);
-		rtvk_graphics_program_destroy_shader(ctx, &program->vk_fragment_shader);
+		if (program->vk_vertex_shader) {
+			vkDestroyShaderModule(ctx->vk_device, program->vk_vertex_shader, VK_ALLOCATOR);
+			program->vk_vertex_shader = VK_NULL_HANDLE;
+		}
+		if (program->vk_fragment_shader) {
+			vkDestroyShaderModule(ctx->vk_device, program->vk_fragment_shader, VK_ALLOCATOR);
+			program->vk_fragment_shader = VK_NULL_HANDLE;
+		}
 		rtvk_graphics_program_clear_locations(program);
 		return;
 	}
-	if (layout->stream_count > RTVK_MAX_VERTEX_ATTRIBUTES || layout->attribute_count > RTVK_MAX_VERTEX_ATTRIBUTES) {
-		rtvk_throwf(RT_IMPROPER_USAGE, "too many vertex streams or attributes");
+	if (layout->input_count > RTVK_MAX_VERTEX_ATTRIBUTES) {
+		rtvk_throwf(RT_IMPROPER_USAGE, "too many vertex inputs");
 		return;
 	}
-	for (usize stream_index = 0; stream_index < layout->stream_count; stream_index++) {
-		if (layout->streams[stream_index].stride == 0) {
-			rtvk_throwf(RT_IMPROPER_USAGE, "vertex stream stride is zero");
+
+	usize attribute_count = 0;
+	for (usize input_index = 0; input_index < layout->input_count; input_index++) {
+		const rt_vertex_input* input = &layout->inputs[input_index];
+		if (!input->attributes || input->attribute_count == 0 || input->stride == 0) {
+			rtvk_throwf(RT_IMPROPER_USAGE, "vertex input must have attributes and a nonzero stride");
 			return;
 		}
-	}
-	for (usize attribute_index = 0; attribute_index < layout->attribute_count; attribute_index++) {
-		if (layout->attributes[attribute_index].stream >= layout->stream_count) {
-			rtvk_throwf(RT_IMPROPER_USAGE, "vertex attribute stream is out of range");
+		if (input->attribute_count > RTVK_MAX_VERTEX_ATTRIBUTES - attribute_count) {
+			rtvk_throwf(RT_IMPROPER_USAGE, "too many vertex attributes");
 			return;
 		}
+		attribute_count += input->attribute_count;
 	}
 
-	memcpy(program->vertex_streams, layout->streams, sizeof(layout->streams[0]) * layout->stream_count);
-	memcpy(program->vertex_attributes, layout->attributes, sizeof(layout->attributes[0]) * layout->attribute_count);
-	program->vertex_layout.streams = program->vertex_streams;
-	program->vertex_layout.attributes = program->vertex_attributes;
-	program->vertex_layout.stream_count = layout->stream_count;
-	program->vertex_layout.attribute_count = layout->attribute_count;
+	usize attribute_offset = 0;
+	for (usize input_index = 0; input_index < layout->input_count; input_index++) {
+		const rt_vertex_input* input = &layout->inputs[input_index];
+		program->vertex_inputs[input_index] = *input;
+		program->vertex_attribute_sources[input_index] = input->attributes;
+		program->vertex_inputs[input_index].attributes = &program->vertex_attributes[attribute_offset];
+		memcpy(&program->vertex_attributes[attribute_offset], input->attributes, sizeof(*input->attributes) * input->attribute_count);
+		attribute_offset += input->attribute_count;
+	}
+	program->vertex_layout.inputs = program->vertex_inputs;
+	program->vertex_layout.input_count = layout->input_count;
+	program->vertex_attribute_count = attribute_count;
 	rtvk_graphics_program_destroy_pipeline_layout(ctx, program);
 }
 
-void rtvk_graphics_program_source(struct rtvk_context* ctx, struct rtvk_graphics_program* program, const void* data, usize size) {
+void rtvk_graphics_program_source(struct rtvk_context* ctx, struct rtvk_graphics_program* program, const u08* data, usize size) {
 	assert(program);
 	if (!data || size == 0) {
 		rtvk_graphics_program_destroy_pipeline_layout(ctx, program);
-		rtvk_graphics_program_destroy_shader(ctx, &program->vk_vertex_shader);
-		rtvk_graphics_program_destroy_shader(ctx, &program->vk_fragment_shader);
-		rtvk_graphics_program_destroy_shader_source(&program->program_source, &program->program_source_size);
+		if (program->vk_vertex_shader) {
+			vkDestroyShaderModule(ctx->vk_device, program->vk_vertex_shader, VK_ALLOCATOR);
+			program->vk_vertex_shader = VK_NULL_HANDLE;
+		}
+		if (program->vk_fragment_shader) {
+			vkDestroyShaderModule(ctx->vk_device, program->vk_fragment_shader, VK_ALLOCATOR);
+			program->vk_fragment_shader = VK_NULL_HANDLE;
+		}
+		free(program->program_source);
+		program->program_source = NULL;
+		program->program_source_size = 0;
 		rtvk_graphics_program_clear_locations(program);
 		return;
 	}
@@ -556,9 +588,17 @@ void rtvk_graphics_program_source(struct rtvk_context* ctx, struct rtvk_graphics
 	memcpy(new_source, data, (size_t)size);
 
 	rtvk_graphics_program_destroy_pipeline_layout(ctx, program);
-	rtvk_graphics_program_destroy_shader(ctx, &program->vk_vertex_shader);
-	rtvk_graphics_program_destroy_shader(ctx, &program->vk_fragment_shader);
-	rtvk_graphics_program_destroy_shader_source(&program->program_source, &program->program_source_size);
+	if (program->vk_vertex_shader) {
+		vkDestroyShaderModule(ctx->vk_device, program->vk_vertex_shader, VK_ALLOCATOR);
+		program->vk_vertex_shader = VK_NULL_HANDLE;
+	}
+	if (program->vk_fragment_shader) {
+		vkDestroyShaderModule(ctx->vk_device, program->vk_fragment_shader, VK_ALLOCATOR);
+		program->vk_fragment_shader = VK_NULL_HANDLE;
+	}
+	free(program->program_source);
+	program->program_source = NULL;
+	program->program_source_size = 0;
 	rtvk_graphics_program_clear_locations(program);
 	program->program_source = new_source;
 	program->program_source_size = size;
@@ -630,25 +670,55 @@ static bool rtvk_graphics_program_build_locations(
 
 	rtvk_graphics_program_clear_locations(program);
 	const u32 resource_count = rtsl_spirv_resource_count(translation);
-	const u32 vertex_attribute_count = (u32)program->vertex_layout.attribute_count;
+	const u32 vertex_attribute_count = (u32)program->vertex_attribute_count;
 	u64 vertex_word_count = 0;
 	const u32* vertex_words = rtsl_spirv_stage_words(translation, RTSL_SPIRV_VERTEX, &vertex_word_count);
 	if (!vertex_words || vertex_word_count < 5) {
 		rtvk_throwf(RT_SHADER_LINK_FAILED, "RTSL vertex shader is missing SPIR-V instructions");
 		return false;
 	}
-	if (!rtvk_graphics_program_reserve_locations(program, resource_count + vertex_attribute_count)) {
+	u64 fragment_word_count = 0;
+	const u32* fragment_words = rtsl_spirv_stage_words(translation, RTSL_SPIRV_FRAGMENT, &fragment_word_count);
+	if (!fragment_words || fragment_word_count < 5) {
+		rtvk_throwf(RT_SHADER_LINK_FAILED, "RTSL fragment shader is missing SPIR-V instructions");
 		return false;
 	}
 
+	u32 fragment_output_count = 0;
+	for (u64 word_index = 5; word_index < fragment_word_count; (void)0) {
+		const u32 instruction = fragment_words[word_index];
+		const u32 instruction_word_count = instruction >> 16;
+		const u32 opcode = instruction & 0xffff;
+		if (instruction_word_count == 0 || word_index + instruction_word_count > fragment_word_count) {
+			rtvk_throwf(RT_SHADER_LINK_FAILED, "RTSL fragment shader contains an invalid SPIR-V instruction");
+			return false;
+		}
+		if (opcode == RTVK_SPIRV_OPCODE_NAME && instruction_word_count >= 3) {
+			const char* name = (const char*)&fragment_words[word_index + 2];
+			if (strncmp(name, "out_", 4) == 0) {
+				fragment_output_count++;
+			}
+		}
+		word_index += instruction_word_count;
+	}
+	if (!rtvk_graphics_program_reserve_locations(program, resource_count + vertex_attribute_count + fragment_output_count)) {
+		return false;
+	}
+
+	usize input_index = 0;
+	usize input_attribute_end = program->vertex_layout.input_count ? program->vertex_inputs[0].attribute_count : 0;
 	for (u32 attribute_index = 0; attribute_index < vertex_attribute_count; attribute_index++) {
+		while (attribute_index >= input_attribute_end && input_index + 1 < program->vertex_layout.input_count) {
+			input_index++;
+			input_attribute_end += program->vertex_inputs[input_index].attribute_count;
+		}
 		const rt_vertex_attribute* attribute = &program->vertex_attributes[attribute_index];
 		if (!attribute->name || strlen(attribute->name) >= RTVK_MAX_SHADER_UNIFORM_NAME) {
 			rtvk_throwf(RT_SHADER_LINK_FAILED, "vertex attribute name is missing or exceeds the Vulkan backend limit");
 			return false;
 		}
 		for (u32 location_index = 0; location_index < program->location_count; location_index++) {
-			if (strcmp(program->locations[location_index].name, attribute->name) == 0) {
+			if (program->locations[location_index].kind == RTVK_LOCATION_VERTEX && strcmp(program->locations[location_index].name, attribute->name) == 0) {
 				rtvk_throwf(RT_SHADER_LINK_FAILED, "vertex attribute %s is declared more than once", attribute->name);
 				return false;
 			}
@@ -704,10 +774,75 @@ static bool rtvk_graphics_program_build_locations(
 		memcpy(location->name, attribute->name, strlen(attribute->name) + 1);
 		location->stages = VK_SHADER_STAGE_VERTEX_BIT;
 		location->kind = RTVK_LOCATION_VERTEX;
-		location->binding = (u32)attribute->stream;
+		location->binding = (u32)input_index;
 		location->index = program->location_count;
 		location->shader_location = shader_location;
 		program->location_count++;
+	}
+
+	for (u64 word_index = 5; word_index < fragment_word_count; (void)0) {
+		const u32 instruction = fragment_words[word_index];
+		const u32 instruction_word_count = instruction >> 16;
+		const u32 opcode = instruction & 0xffff;
+		if (instruction_word_count == 0 || word_index + instruction_word_count > fragment_word_count) {
+			rtvk_throwf(RT_SHADER_LINK_FAILED, "RTSL fragment shader contains an invalid SPIR-V instruction");
+			return false;
+		}
+		if (opcode != RTVK_SPIRV_OPCODE_NAME || instruction_word_count < 3) {
+			word_index += instruction_word_count;
+			continue;
+		}
+
+		const char* shader_name = (const char*)&fragment_words[word_index + 2];
+		if (strncmp(shader_name, "out_", 4) != 0) {
+			word_index += instruction_word_count;
+			continue;
+		}
+		const char* name = shader_name + 4;
+		if (!name[0] || strlen(name) >= RTVK_MAX_SHADER_UNIFORM_NAME) {
+			rtvk_throwf(RT_SHADER_LINK_FAILED, "fragment output %s is invalid or conflicts with another graphics program location", name);
+			return false;
+		}
+
+		u32 shader_location = 0;
+		bool shader_location_found = false;
+		for (u64 decoration_index = 5; decoration_index < fragment_word_count; (void)0) {
+			const u32 decoration = fragment_words[decoration_index];
+			const u32 decoration_word_count = decoration >> 16;
+			const u32 decoration_opcode = decoration & 0xffff;
+			if (decoration_word_count == 0 || decoration_index + decoration_word_count > fragment_word_count) {
+				rtvk_throwf(RT_SHADER_LINK_FAILED, "RTSL fragment shader contains an invalid SPIR-V instruction");
+				return false;
+			}
+			if (decoration_opcode == RTVK_SPIRV_OPCODE_DECORATE && decoration_word_count >= 4 && fragment_words[decoration_index + 1] == fragment_words[word_index + 1] && fragment_words[decoration_index + 2] == RTVK_SPIRV_DECORATION_LOCATION) {
+				shader_location = fragment_words[decoration_index + 3];
+				shader_location_found = true;
+				break;
+			}
+			decoration_index += decoration_word_count;
+		}
+		if (!shader_location_found) {
+			rtvk_throwf(RT_SHADER_LINK_FAILED, "fragment output %s has no RTSL fragment location", name);
+			return false;
+		}
+		for (u32 existing_index = 0; existing_index < program->location_count; existing_index++) {
+			rt_location existing = &program->locations[existing_index];
+			if (existing->kind == RTVK_LOCATION_OUTPUT && (strcmp(existing->name, name) == 0 || existing->binding == shader_location)) {
+				rtvk_throwf(RT_SHADER_LINK_FAILED, "fragment output %s is invalid or conflicts with another graphics program location", name);
+				return false;
+			}
+		}
+
+		rt_location location = &program->locations[program->location_count];
+		location->program = program;
+		memcpy(location->name, name, strlen(name) + 1);
+		location->stages = VK_SHADER_STAGE_FRAGMENT_BIT;
+		location->kind = RTVK_LOCATION_OUTPUT;
+		location->binding = shader_location;
+		location->index = program->location_count;
+		location->shader_location = shader_location;
+		program->location_count++;
+		word_index += instruction_word_count;
 	}
 
 	for (u32 i = 0; i < resource_count; i++) {
@@ -757,11 +892,7 @@ static bool rtvk_graphics_program_build_locations(
 		rt_location location = NULL;
 		for (u32 existing_index = 0; existing_index < program->location_count; existing_index++) {
 			rt_location existing = &program->locations[existing_index];
-			if (existing->kind == RTVK_LOCATION_VERTEX) {
-				if (strcmp(existing->name, resource.name) == 0) {
-					rtvk_throwf(RT_SHADER_LINK_FAILED, "vertex attribute %s conflicts with an RTSL resource", resource.name);
-					return false;
-				}
+			if (existing->kind == RTVK_LOCATION_VERTEX || existing->kind == RTVK_LOCATION_OUTPUT) {
 				continue;
 			}
 			if (existing->binding != resource.binding) {
@@ -876,100 +1007,66 @@ cleanup:
 	rtsl_spirv_translation_destroy(translation);
 	if (!complete) {
 		rtvk_graphics_program_destroy_pipeline_layout(ctx, program);
-		rtvk_graphics_program_destroy_shader(ctx, &program->vk_vertex_shader);
-		rtvk_graphics_program_destroy_shader(ctx, &program->vk_fragment_shader);
+		if (program->vk_vertex_shader) {
+			vkDestroyShaderModule(ctx->vk_device, program->vk_vertex_shader, VK_ALLOCATOR);
+			program->vk_vertex_shader = VK_NULL_HANDLE;
+		}
+		if (program->vk_fragment_shader) {
+			vkDestroyShaderModule(ctx->vk_device, program->vk_fragment_shader, VK_ALLOCATOR);
+			program->vk_fragment_shader = VK_NULL_HANDLE;
+		}
 		rtvk_graphics_program_clear_locations(program);
 	}
 }
 
-static VkCullModeFlags rtvk_cull_mode(enum rt_cull_mode mode) {
-	switch (mode) {
-	case RT_CULL_NONE:
-		return VK_CULL_MODE_NONE;
-	case RT_CULL_FRONT:
-		return VK_CULL_MODE_FRONT_BIT;
-	case RT_CULL_BACK:
-		return VK_CULL_MODE_BACK_BIT;
-	default:
-		return VK_CULL_MODE_NONE;
-	}
-}
-
-static VkFrontFace rtvk_front_face(enum rt_front_face face) {
-	switch (face) {
-	case RT_FRONT_FACE_CCW:
-		return VK_FRONT_FACE_COUNTER_CLOCKWISE;
-	case RT_FRONT_FACE_CW:
-		return VK_FRONT_FACE_CLOCKWISE;
-	default:
-		return VK_FRONT_FACE_COUNTER_CLOCKWISE;
-	}
-}
-
-static VkPolygonMode rtvk_fill_mode(enum rt_fill_mode mode) {
-	switch (mode) {
-	case RT_FILL_SOLID:
-		return VK_POLYGON_MODE_FILL;
-	case RT_FILL_WIREFRAME:
-		return VK_POLYGON_MODE_LINE;
-	default:
-		return VK_POLYGON_MODE_FILL;
-	}
-}
-
-static VkBlendFactor rtvk_blend_factor(enum rt_blend_factor factor) {
-	switch (factor) {
-	case RT_BLEND_ZERO:
-		return VK_BLEND_FACTOR_ZERO;
-	case RT_BLEND_ONE:
-		return VK_BLEND_FACTOR_ONE;
-	case RT_BLEND_SRC_COLOR:
-		return VK_BLEND_FACTOR_SRC_COLOR;
-	case RT_BLEND_ONE_MINUS_SRC_COLOR:
-		return VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR;
-	case RT_BLEND_DST_COLOR:
-		return VK_BLEND_FACTOR_DST_COLOR;
-	case RT_BLEND_ONE_MINUS_DST_COLOR:
-		return VK_BLEND_FACTOR_ONE_MINUS_DST_COLOR;
-	case RT_BLEND_SRC_ALPHA:
-		return VK_BLEND_FACTOR_SRC_ALPHA;
-	case RT_BLEND_ONE_MINUS_SRC_ALPHA:
-		return VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-	case RT_BLEND_DST_ALPHA:
-		return VK_BLEND_FACTOR_DST_ALPHA;
-	case RT_BLEND_ONE_MINUS_DST_ALPHA:
-		return VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA;
-	default:
-		return VK_BLEND_FACTOR_ONE;
-	}
-}
-
-static VkBlendOp rtvk_blend_op(enum rt_blend_op op) {
-	switch (op) {
-	case RT_BLEND_OP_ADD:
-		return VK_BLEND_OP_ADD;
-	case RT_BLEND_OP_SUBTRACT:
-		return VK_BLEND_OP_SUBTRACT;
-	case RT_BLEND_OP_REVERSE_SUBTRACT:
-		return VK_BLEND_OP_REVERSE_SUBTRACT;
-	case RT_BLEND_OP_MIN:
-		return VK_BLEND_OP_MIN;
-	case RT_BLEND_OP_MAX:
-		return VK_BLEND_OP_MAX;
-	default:
-		return VK_BLEND_OP_ADD;
-	}
-}
-
-rt_location rtvk_graphics_program_location(struct rtvk_context* ctx, struct rtvk_graphics_program* program, const char* name) {
+rt_location rtvk_graphics_program_uniform_location(struct rtvk_context* ctx, struct rtvk_graphics_program* program, const char* name) {
 	(void)ctx;
 	if (!program || !name) {
-		rtvk_throwf(RT_IMPROPER_USAGE, "graphics program and location name must be valid");
+		rtvk_throwf(RT_IMPROPER_USAGE, "graphics program and uniform name must be valid");
 		return NULL;
 	}
 	if (!program->vk_pipeline_layout) {
 		rtvk_throwf(RT_IMPROPER_USAGE, "graphics program must be finalized before querying locations");
 		return NULL;
 	}
-	return rtvk_graphics_program_find_location(program, name);
+	for (u32 index = 0; index < program->location_count; index++) {
+		rt_location location = &program->locations[index];
+		if (location->kind != RTVK_LOCATION_VERTEX && location->kind != RTVK_LOCATION_OUTPUT && strcmp(location->name, name) == 0) {
+			return location;
+		}
+	}
+	return NULL;
+}
+
+rt_location rtvk_graphics_program_input_location(struct rtvk_context* ctx, struct rtvk_graphics_program* program, const rt_vertex_attribute* attributes, usize attribute_count) {
+	(void)ctx;
+	if (!program || !attributes || attribute_count == 0 || !program->vk_pipeline_layout) {
+		return NULL;
+	}
+	for (usize input_index = 0; input_index < program->vertex_layout.input_count; input_index++) {
+		if (program->vertex_attribute_sources[input_index] != attributes || program->vertex_inputs[input_index].attribute_count != attribute_count) {
+			continue;
+		}
+		for (u32 location_index = 0; location_index < program->location_count; location_index++) {
+			rt_location location = &program->locations[location_index];
+			if (location->kind == RTVK_LOCATION_VERTEX && location->binding == input_index) {
+				return location;
+			}
+		}
+	}
+	return NULL;
+}
+
+rt_location rtvk_graphics_program_output_location(struct rtvk_context* ctx, struct rtvk_graphics_program* program, const char* name) {
+	(void)ctx;
+	if (!program || !name || !program->vk_pipeline_layout) {
+		return NULL;
+	}
+	for (u32 index = 0; index < program->location_count; index++) {
+		rt_location location = &program->locations[index];
+		if (location->kind == RTVK_LOCATION_OUTPUT && strcmp(location->name, name) == 0) {
+			return location;
+		}
+	}
+	return NULL;
 }

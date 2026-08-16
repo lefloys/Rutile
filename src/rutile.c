@@ -9,6 +9,9 @@
 #define RTL_MAX_SETTING_NAME 64
 #define RTL_MAX_SETTING_VALUE 256
 
+typedef const char* (*rtl_layer_get_name_proc)(void);
+typedef void (*rtl_layer_set_next_proc)(rt_proc_chain next);
+
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -386,7 +389,7 @@ static enum rt_error rtl_load_layer_dll(const char* path, const char* requested_
 		return RT_IMPROPER_USAGE;
 	}
 
-	PFN_rtLayerGetName get_name = (PFN_rtLayerGetName)rtl_dll_symbol(dll, "rtLayerGetName");
+	rtl_layer_get_name_proc get_name = (rtl_layer_get_name_proc)rtl_dll_symbol(dll, "rtLayerGetName");
 	if (!get_name) {
 		if (message && message_size) {
 			snprintf(message, message_size, "layer %s DLL %s does not export rtLayerGetName", requested_name, path);
@@ -477,7 +480,7 @@ static void rtl_layer_set_next(usize index, rt_proc_chain next) {
 	rtl_layer_link* link = &rtl_layer_links[index];
 	link->next = next;
 
-	PFN_rtLayerSetNext set_next = (PFN_rtLayerSetNext)rtl_dll_symbol(link->dll, "rtLayerSetNext");
+	rtl_layer_set_next_proc set_next = (rtl_layer_set_next_proc)rtl_dll_symbol(link->dll, "rtLayerSetNext");
 	if (set_next) {
 		set_next(next);
 	}

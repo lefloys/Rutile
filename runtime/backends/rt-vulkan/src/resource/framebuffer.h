@@ -1,6 +1,7 @@
 #ifndef RTVK_FRAMEBUFFER_H
 #define RTVK_FRAMEBUFFER_H
 
+#include "graphics_program.h"
 #include "texture.h"
 
 /*===============================================================================================*/
@@ -10,9 +11,10 @@
 RTVK_API rt_framebuffer rtFramebufferCreate(void);
 RTVK_API void rtFramebufferDestroy(rt_framebuffer framebuffer);
 
-RTVK_API rt_texture_view rtFramebufferColorView(rt_framebuffer framebuffer, u32 slot);
-RTVK_API void rtFramebufferDepthView(rt_framebuffer framebuffer, rt_texture_view view);
-RTVK_API void rtFramebufferSetColorView(rt_framebuffer framebuffer, u32 slot, rt_texture_view view);
+RTVK_API rt_texture_view rtFramebufferColorView(rt_framebuffer framebuffer, rt_location location);
+RTVK_API void rtFramebufferSetColorView(rt_framebuffer framebuffer, rt_texture_view view, rt_location location);
+RTVK_API void rtFramebufferSetDepthView(rt_framebuffer framebuffer, rt_texture_view view);
+RTVK_API void rtFramebufferSetStencilView(rt_framebuffer framebuffer, rt_texture_view view);
 
 /*===============================================================================================*/
 /*                                                                                               */

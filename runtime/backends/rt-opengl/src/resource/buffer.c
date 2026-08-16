@@ -4,6 +4,9 @@
 #include "error.h"
 #include "execution.h"
 
+#include <stdlib.h>
+#include <string.h>
+
 /*===============================================================================================*/
 /*                                                                                               */
 /*===============================================================================================*/
@@ -15,16 +18,24 @@ void rtBufferDestroy(rt_buffer buffer) {
 	rtgl_buffer_destroy(rtgl_get_current_context(), rtgl_buffer_from_handle(buffer));
 }
 
-rt_timepoint rtBufferData(rt_buffer buffer, enum rt_buffer_mode mode, enum rt_buffer_usage usage, u64 size, const void* data) {
-	return rtgl_buffer_data(rtgl_get_current_context(), rtgl_buffer_from_handle(buffer), mode, usage, size, data);
+void rtBufferResize(rt_buffer buffer, enum rt_memory_type memory_type, usize size) {
+	rtgl_buffer_resize(rtgl_get_current_context(), rtgl_buffer_from_handle(buffer), memory_type, size);
 }
 
-rt_timepoint rtBufferSubdata(rt_buffer buffer, u64 offset, u64 size, const void* data) {
-	return rtgl_buffer_subdata(rtgl_get_current_context(), rtgl_buffer_from_handle(buffer), offset, size, data);
+void rtBufferRead(rt_buffer buffer, rt_buffer_range range, u08* data, usize data_size) {
+	if (data_size < range.size) {
+		rtgl_throwf(RT_IMPROPER_USAGE, "buffer read destination is too small");
+		return;
+	}
+	rtgl_buffer_read(rtgl_get_current_context(), rtgl_buffer_from_handle(buffer), range, data);
 }
 
-void rtBufferRead(rt_buffer buffer, u64 offset, u64 size, void* data) {
-	rtgl_buffer_read(rtgl_get_current_context(), rtgl_buffer_from_handle(buffer), offset, size, data);
+u08* rtBufferMap(rt_buffer buffer, rt_buffer_range range) {
+	return rtgl_buffer_map(rtgl_get_current_context(), rtgl_buffer_from_handle(buffer), range);
+}
+
+void rtBufferUnmap(rt_buffer buffer) {
+	rtgl_buffer_unmap(rtgl_get_current_context(), rtgl_buffer_from_handle(buffer));
 }
 
 /*===============================================================================================*/
@@ -33,45 +44,164 @@ void rtBufferRead(rt_buffer buffer, u64 offset, u64 size, void* data) {
 
 RTGL_DEFINE_RESOURCE_PRIVATE(buffer)
 
-bool rtgl_buffer_uses_host_storage(enum rt_buffer_mode mode, enum rt_buffer_usage usage) {
-	return mode == RT_BUFFER_DYNAMIC || (usage & RT_BUFFER_USAGE_STAGING) != 0;
-}
-
 void rtgl_buffer_init(struct rtgl_context* ctx, struct rtgl_buffer* buffer) {
 	rtgl_init_resource_base(ctx, RTGL_RESOURCE_BASE(buffer), RTGL_RESOURCE_BUFFER);
-	buffer->mode = RT_BUFFER_DYNAMIC;
-	buffer->usage = (enum rt_buffer_usage)(RT_BUFFER_USAGE_VERTEX | RT_BUFFER_USAGE_INDEX | RT_BUFFER_USAGE_UNIFORM | RT_BUFFER_USAGE_STORAGE | RT_BUFFER_USAGE_TRANSFER_SRC | RT_BUFFER_USAGE_TRANSFER_DST);
-	rtgl_execution_buffer_create(ctx, buffer);
+	buffer->memory_type = RT_DEVICE_MEMORY;
 }
 
 void rtgl_buffer_finish(struct rtgl_buffer* buffer) {
-	rtgl_execution_buffer_delete(buffer->base.ctx, buffer);
+	rtgl_buffer_storage_release(buffer->storage);
+	buffer->storage = NULL;
+	while (buffer->reusable_storage) {
+		struct rtgl_buffer_storage* storage = buffer->reusable_storage;
+		buffer->reusable_storage = storage->next;
+		storage->next = NULL;
+		rtgl_buffer_storage_release(storage);
+	}
 	rtgl_finish_resource_base(RTGL_RESOURCE_BASE(buffer));
 }
 
-rt_timepoint rtgl_buffer_data(struct rtgl_context* ctx, struct rtgl_buffer* buffer, enum rt_buffer_mode mode, enum rt_buffer_usage usage, u64 size, const void* data) {
-	rt_timepoint timepoint = { 0 };
-
-	buffer->mode = mode;
-	buffer->usage = usage;
-	buffer->size = size;
-	rtgl_execution_buffer_data(ctx, buffer, mode, usage, size, (const u08*)data);
-	return timepoint;
-}
-
-rt_timepoint rtgl_buffer_subdata(struct rtgl_context* ctx, struct rtgl_buffer* buffer, u64 offset, u64 size, const void* data) {
-	rt_timepoint timepoint = { 0 };
-
-	if (!size) {
-		return timepoint;
+static struct rtgl_buffer_storage* rtgl_buffer_storage_create(struct rtgl_context* ctx, enum rt_memory_type memory_type, usize size) {
+	struct rtgl_buffer_storage* storage = RTGL_ALLOC_RESOURCE(struct rtgl_buffer_storage);
+	if (!storage) {
+		return NULL;
 	}
-	rtgl_execution_buffer_subdata(ctx, buffer, offset, size, (const u08*)data);
-	return timepoint;
+	storage->ctx = ctx;
+	storage->memory_type = memory_type;
+	storage->size = size;
+	storage->ref_count = 1;
+	if (size) {
+		storage->shadow_data = (u08*)calloc(size, 1);
+		RTGL_CHECK_ALLOC(storage->shadow_data, size, "OpenGL buffer shadow data");
+		if (!storage->shadow_data) {
+			free(storage);
+			return NULL;
+		}
+	}
+	rtgl_execution_buffer_create(ctx, storage);
+	rtgl_execution_buffer_data(ctx, storage, size, storage->shadow_data);
+	return storage;
 }
 
-void rtgl_buffer_read(struct rtgl_context* ctx, struct rtgl_buffer* buffer, u64 offset, u64 size, void* data) {
-	if (!size) {
+void rtgl_buffer_storage_retain(struct rtgl_buffer_storage* storage) {
+	if (storage) {
+		storage->ref_count++;
+	}
+}
+
+void rtgl_buffer_storage_release(struct rtgl_buffer_storage* storage) {
+	if (!storage || --storage->ref_count) {
 		return;
 	}
-	rtgl_execution_buffer_read(ctx, buffer, offset, size, (u08*)data);
+	rtgl_execution_buffer_delete(storage->ctx, storage);
+	free(storage->shadow_data);
+	free(storage);
+}
+
+static void rtgl_buffer_recycle_storage(struct rtgl_buffer* buffer, struct rtgl_buffer_storage* storage) {
+	if (!storage) {
+		return;
+	}
+	storage->next = buffer->reusable_storage;
+	buffer->reusable_storage = storage;
+}
+
+static struct rtgl_buffer_storage* rtgl_buffer_take_reusable_storage(struct rtgl_buffer* buffer, enum rt_memory_type memory_type, usize size) {
+	struct rtgl_buffer_storage** link = &buffer->reusable_storage;
+	while (*link) {
+		struct rtgl_buffer_storage* storage = *link;
+		if (storage->memory_type == memory_type && storage->size == size && storage->ref_count == 1) {
+			*link = storage->next;
+			storage->next = NULL;
+			return storage;
+		}
+		link = &storage->next;
+	}
+	return NULL;
+}
+
+static struct rtgl_buffer_storage* rtgl_buffer_copy_storage(struct rtgl_context* ctx, struct rtgl_buffer* buffer) {
+	struct rtgl_buffer_storage* source = buffer->storage;
+	struct rtgl_buffer_storage* target = rtgl_buffer_take_reusable_storage(buffer, source->memory_type, source->size);
+	if (!target) {
+		target = rtgl_buffer_storage_create(ctx, source->memory_type, source->size);
+	}
+	if (!target) {
+		return NULL;
+	}
+	if (source->size) {
+		memcpy(target->shadow_data, source->shadow_data, source->size);
+		rtgl_execution_buffer_data(ctx, target, target->size, target->shadow_data);
+	}
+	rtgl_buffer_recycle_storage(buffer, source);
+	buffer->storage = target;
+	return target;
+}
+
+void rtgl_buffer_resize(struct rtgl_context* ctx, struct rtgl_buffer* buffer, enum rt_memory_type memory_type, usize size) {
+	if (!buffer) {
+		return;
+	}
+	buffer->memory_type = memory_type;
+	rtgl_buffer_recycle_storage(buffer, buffer->storage);
+	buffer->storage = rtgl_buffer_take_reusable_storage(buffer, memory_type, size);
+	if (!buffer->storage) {
+		buffer->storage = rtgl_buffer_storage_create(ctx, memory_type, size);
+	}
+}
+
+struct rtgl_buffer_storage* rtgl_buffer_prepare_write(struct rtgl_context* ctx, struct rtgl_buffer* buffer) {
+	if (!buffer || !buffer->storage) {
+		return NULL;
+	}
+	if (buffer->storage->ref_count > 1 && !rtgl_buffer_copy_storage(ctx, buffer)) {
+		return NULL;
+	}
+	return buffer->storage;
+}
+
+void rtgl_buffer_subdata(struct rtgl_context* ctx, struct rtgl_buffer* buffer, rt_buffer_range range, const u08* data) {
+	if (!buffer || !buffer->storage || !range.size) {
+		return;
+	}
+	if (range.offset > buffer->storage->size || range.size > buffer->storage->size - range.offset) {
+		rtgl_throwf(RT_IMPROPER_USAGE, "buffer upload range is out of bounds");
+		return;
+	}
+	if (!rtgl_buffer_prepare_write(ctx, buffer)) {
+		return;
+	}
+	memcpy(buffer->storage->shadow_data + range.offset, data, range.size);
+	rtgl_execution_buffer_subdata(ctx, buffer->storage, range.offset, range.size, data);
+}
+
+void rtgl_buffer_read(struct rtgl_context* ctx, struct rtgl_buffer* buffer, rt_buffer_range range, u08* data) {
+	if (!buffer || !buffer->storage || !range.size) {
+		return;
+	}
+	if (range.offset > buffer->storage->size || range.size > buffer->storage->size - range.offset) {
+		rtgl_throwf(RT_IMPROPER_USAGE, "buffer read range is out of bounds");
+		return;
+	}
+	memcpy(data, buffer->storage->shadow_data + range.offset, range.size);
+}
+
+u08* rtgl_buffer_map(struct rtgl_context* ctx, struct rtgl_buffer* buffer, rt_buffer_range range) {
+	if (!buffer || !buffer->storage || buffer->memory_type != RT_HOST_MEMORY || buffer->mapped || range.offset > buffer->storage->size || range.size > buffer->storage->size - range.offset) {
+		return NULL;
+	}
+	if (!rtgl_buffer_prepare_write(ctx, buffer)) {
+		return NULL;
+	}
+	buffer->mapped_range = range;
+	buffer->mapped = true;
+	return buffer->storage->shadow_data + range.offset;
+}
+
+void rtgl_buffer_unmap(struct rtgl_context* ctx, struct rtgl_buffer* buffer) {
+	if (!buffer || !buffer->mapped || !buffer->storage) {
+		return;
+	}
+	rtgl_execution_buffer_subdata(ctx, buffer->storage, buffer->mapped_range.offset, buffer->mapped_range.size, buffer->storage->shadow_data + buffer->mapped_range.offset);
+	buffer->mapped = false;
 }

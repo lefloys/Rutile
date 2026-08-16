@@ -21,7 +21,7 @@ struct rtdx_submitted_batch {
 	ID3D12GraphicsCommandList* d3d_command_list;
 	ID3D12DescriptorHeap* d3d_resource_heap;
 	ID3D12DescriptorHeap* d3d_sampler_heap;
-	rtdx_command_buffer* command_buffer;
+	rtdx_command_buffer* command_snapshot;
 	rtdx_submitted_batch* next;
 	u64 value;
 };

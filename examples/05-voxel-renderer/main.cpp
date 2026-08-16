@@ -9,6 +9,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdio>
+#include <iostream>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <rtsl/program.hpp>
@@ -21,20 +22,20 @@ extern "C" const rtsl::ProgramBytes terrain_rtslp;
 extern "C" const rtsl::ProgramBytes water_rtslp;
 
 constexpr rt_vertex_attribute VertexAttributes[] = {
-	{ "position", 0, offsetof(Vertex, position), RT_RGB32_SFLOAT },
-	{ "color", 0, offsetof(Vertex, color), RT_RGB32_SFLOAT },
-	{ "normal", 0, offsetof(Vertex, normal), RT_RGB32_SFLOAT },
-	{ "ao", 0, offsetof(Vertex, ao), RT_R32_SFLOAT },
-	{ "pixel_uv", 0, offsetof(Vertex, pixel_uv), RT_RG32_SFLOAT },
-	{ "edge_mask", 0, offsetof(Vertex, edge_mask), RT_R32_SFLOAT },
-	{ "corner_mask", 0, offsetof(Vertex, corner_mask), RT_R32_SFLOAT },
+	{ "position", offsetof(Vertex, position), RT_RGB32_SFLOAT },
+	{ "color", offsetof(Vertex, color), RT_RGB32_SFLOAT },
+	{ "normal", offsetof(Vertex, normal), RT_RGB32_SFLOAT },
+	{ "ao", offsetof(Vertex, ao), RT_R32_SFLOAT },
+	{ "pixel_uv", offsetof(Vertex, pixel_uv), RT_RG32_SFLOAT },
+	{ "edge_mask", offsetof(Vertex, edge_mask), RT_R32_SFLOAT },
+	{ "corner_mask", offsetof(Vertex, corner_mask), RT_R32_SFLOAT },
 };
 
-constexpr rt_vertex_stream VertexStreams[] = {
-	{ sizeof(Vertex), RT_VERTEX_RATE_VERTEX },
+constexpr rt_vertex_input VertexInputs[] = {
+	{ VertexAttributes, 7, sizeof(Vertex), RT_VERTEX_RATE_VERTEX },
 };
 
-constexpr rt_vertex_layout VertexLayout = { VertexStreams, VertexAttributes, 1, 7 };
+constexpr rt_vertex_layout VertexLayout = { VertexInputs, 1 };
 
 struct Camera {
 	glm::vec3 position = glm::vec3(0.0f, 13.0f, 18.0f);
@@ -43,9 +44,10 @@ struct Camera {
 };
 
 rt_swapchain Swapchain = RT_NULL_HANDLE;
+rt_texture DepthTexture = RT_NULL_HANDLE;
+rt_texture_view DepthView = RT_NULL_HANDLE;
 u32 FramebufferWidth = 1280;
 u32 FramebufferHeight = 720;
-bool ResizePending = false;
 f32 MouseDx = 0.0f;
 f32 MouseDy = 0.0f;
 
@@ -66,7 +68,13 @@ void framebuffer_resized(GLFWwindow* window, int width, int height) {
 	if (width > 0 && height > 0) {
 		FramebufferWidth = (u32)width;
 		FramebufferHeight = (u32)height;
-		ResizePending = true;
+		if (Swapchain) {
+			rtSwapchainResize(Swapchain, FramebufferWidth, FramebufferHeight);
+		}
+		if (DepthTexture) {
+			rtTextureResize(DepthTexture, RT_TEXTURE_2D, RT_D32_SFLOAT, { FramebufferWidth, FramebufferHeight, 1 }, 1);
+			rtTextureViewSetTexture(DepthView, DepthTexture);
+		}
 	}
 }
 
@@ -120,8 +128,8 @@ void update_camera(GLFWwindow* window, Camera* camera, f32 dt) {
 
 int main(int argc, char** argv) {
 	const ExampleOptions options = parse_cli(argc, argv);
-	if (rtLoad("rt-vulkan", Layers, 1) != RT_SUCCESS) {
-		std::fprintf(stderr, "rtLoad failed\n");
+	if (rtLoad("rt-d3d12", Layers, 1) != RT_SUCCESS) {
+		std::cerr << "rtLoad failed\n";
 		return 1;
 	}
 
@@ -156,58 +164,59 @@ int main(int argc, char** argv) {
 
 	std::vector<Vertex> vertices = build_world_mesh();
 	rt_buffer vertex_buffer = rtBufferCreate();
-	const u64 vertex_size = (u64)(vertices.size() * sizeof(vertices[0]));
-	rtBufferData(vertex_buffer, RT_BUFFER_STATIC, RT_BUFFER_USAGE_VERTEX, vertex_size, vertices.data());
+	const usize vertex_size = vertices.size() * sizeof(vertices[0]);
+	rtBufferResize(vertex_buffer, RT_DEVICE_MEMORY, vertex_size);
 
 	std::vector<Vertex> water_vertices = build_water_mesh();
 	rt_buffer water_vertex_buffer = rtBufferCreate();
-	const u64 water_vertex_size = (u64)(water_vertices.size() * sizeof(water_vertices[0]));
-	rtBufferData(water_vertex_buffer, RT_BUFFER_STATIC, RT_BUFFER_USAGE_VERTEX, water_vertex_size, water_vertices.data());
+	const usize water_vertex_size = water_vertices.size() * sizeof(water_vertices[0]);
+	rtBufferResize(water_vertex_buffer, RT_DEVICE_MEMORY, water_vertex_size);
 
 	glm::mat4 transform{ 1.0f };
 	rt_buffer transform_buffer = rtBufferCreate();
-	rtBufferData(transform_buffer, RT_BUFFER_DYNAMIC, RT_BUFFER_USAGE_UNIFORM, sizeof(transform), &transform);
+	rtBufferResize(transform_buffer, RT_DEVICE_MEMORY, sizeof(transform));
 
 	glm::mat4 water_transform{ 1.0f };
 	rt_buffer water_transform_buffer = rtBufferCreate();
-	rtBufferData(water_transform_buffer, RT_BUFFER_DYNAMIC, RT_BUFFER_USAGE_UNIFORM, sizeof(water_transform), &water_transform);
+	rtBufferResize(water_transform_buffer, RT_DEVICE_MEMORY, sizeof(water_transform));
 
 	rt_graphics_program graphics_program = rtGraphicsProgramCreate();
-	rtGraphicsProgramLayout(graphics_program, &VertexLayout);
-	rtGraphicsProgramSource(graphics_program, terrain_rtslp.data, terrain_rtslp.size);
-	rtGraphicsProgramRasterState(graphics_program, RT_CULL_BACK, RT_FRONT_FACE_CCW, RT_FILL_SOLID);
+	rtGraphicsProgramSetLayout(graphics_program, &VertexLayout);
+	rtGraphicsProgramSetSource(graphics_program, terrain_rtslp.data, terrain_rtslp.size);
+	rtGraphicsProgramSetRasterState(graphics_program, RT_CULL_BACK, RT_FRONT_FACE_CCW, RT_FILL_SOLID);
 	rtGraphicsProgramFinalize(graphics_program);
-	rt_location transform_location = rtGraphicsProgramLocation(graphics_program, "scene");
-	rt_location position_location = rtGraphicsProgramLocation(graphics_program, "position");
-	rt_location color_location = rtGraphicsProgramLocation(graphics_program, "color");
-	rt_location normal_location = rtGraphicsProgramLocation(graphics_program, "normal");
-	rt_location ao_location = rtGraphicsProgramLocation(graphics_program, "ao");
-	rt_location pixel_uv_location = rtGraphicsProgramLocation(graphics_program, "pixel_uv");
-	rt_location edge_mask_location = rtGraphicsProgramLocation(graphics_program, "edge_mask");
-	rt_location corner_mask_location = rtGraphicsProgramLocation(graphics_program, "corner_mask");
+	rt_location transform_location = rtGraphicsProgramUniformLocation(graphics_program, "scene");
+	rt_location vertex_location = rtGraphicsProgramInputLocation(graphics_program, VertexAttributes, 7);
 
 	rt_graphics_program water_program = rtGraphicsProgramCreate();
-	rtGraphicsProgramLayout(water_program, &VertexLayout);
-	rtGraphicsProgramSource(water_program, water_rtslp.data, water_rtslp.size);
-	rtGraphicsProgramRasterState(water_program, RT_CULL_BACK, RT_FRONT_FACE_CCW, RT_FILL_SOLID);
-	rtGraphicsProgramBlendState(water_program, true, RT_BLEND_SRC_ALPHA, RT_BLEND_ONE_MINUS_SRC_ALPHA, RT_BLEND_OP_ADD, RT_BLEND_ONE, RT_BLEND_ONE_MINUS_SRC_ALPHA, RT_BLEND_OP_ADD);
+	rtGraphicsProgramSetLayout(water_program, &VertexLayout);
+	rtGraphicsProgramSetSource(water_program, water_rtslp.data, water_rtslp.size);
+	rtGraphicsProgramSetRasterState(water_program, RT_CULL_BACK, RT_FRONT_FACE_CCW, RT_FILL_SOLID);
+	rtGraphicsProgramSetBlendState(water_program, true, RT_BLEND_SRC_ALPHA, RT_BLEND_ONE_MINUS_SRC_ALPHA, RT_BLEND_OP_ADD, RT_BLEND_ONE, RT_BLEND_ONE_MINUS_SRC_ALPHA, RT_BLEND_OP_ADD);
 	rtGraphicsProgramFinalize(water_program);
-	rt_location water_transform_location = rtGraphicsProgramLocation(water_program, "scene");
-	rt_location water_position_location = rtGraphicsProgramLocation(water_program, "position");
-	rt_location water_color_location = rtGraphicsProgramLocation(water_program, "color");
-	rt_location water_normal_location = rtGraphicsProgramLocation(water_program, "normal");
-	rt_location water_ao_location = rtGraphicsProgramLocation(water_program, "ao");
-	rt_location water_pixel_uv_location = rtGraphicsProgramLocation(water_program, "pixel_uv");
-	rt_location water_edge_mask_location = rtGraphicsProgramLocation(water_program, "edge_mask");
-	rt_location water_corner_mask_location = rtGraphicsProgramLocation(water_program, "corner_mask");
+	rt_location water_transform_location = rtGraphicsProgramUniformLocation(water_program, "scene");
+	rt_location water_vertex_location = rtGraphicsProgramInputLocation(water_program, VertexAttributes, 7);
 
 	rt_command_buffer cmd = rtCommandBufferCreate();
-	rt_texture depth_texture = rtTextureCreate();
-	rt_texture_view depth_view = rtTextureViewCreate();
-	u32 depth_width = FramebufferWidth;
-	u32 depth_height = FramebufferHeight;
-	rtTextureData(depth_texture, RT_TEXTURE_2D, 0, depth_width, depth_height, 1, RT_D32_SFLOAT, NULL);
-	rtTextureViewBind(depth_view, depth_texture);
+	DepthTexture = rtTextureCreate();
+	DepthView = rtTextureViewCreate();
+	rtTextureResize(DepthTexture, RT_TEXTURE_2D, RT_D32_SFLOAT, { FramebufferWidth, FramebufferHeight, 1 }, 1);
+	rtTextureViewSetTexture(DepthView, DepthTexture);
+	rtCommandBufferBegin(cmd);
+	rtCmdBufferData(cmd, vertex_buffer, { vertex_size, 0 }, reinterpret_cast<const u08*>(vertices.data()));
+	rtCmdBufferData(cmd, water_vertex_buffer, { water_vertex_size, 0 }, reinterpret_cast<const u08*>(water_vertices.data()));
+	rtCommandBufferEnd(cmd);
+	rtTimepointWait(rtQueueSubmit(queue, cmd));
+	rtCommandBufferReset(cmd);
+	rtCommandBufferContinueRendering(cmd);
+	rtCmdUseGraphicsProgram(cmd, graphics_program);
+	rtCmdVertexBuffer(cmd, vertex_location, vertex_buffer, { vertex_size, 0 });
+	rtCmdDraw(cmd, vertices.size(), 0);
+	rtCmdUseGraphicsProgram(cmd, water_program);
+	rtCmdVertexBuffer(cmd, water_vertex_location, water_vertex_buffer, { water_vertex_size, 0 });
+	rtCmdDraw(cmd, water_vertices.size(), 0);
+	rtCommandBufferEnd(cmd);
+	rt_command_buffer primary = rtCommandBufferCreate();
 
 	Camera camera;
 	auto start_time = std::chrono::steady_clock::now();
@@ -229,18 +238,6 @@ int main(int argc, char** argv) {
 
 		const u32 current_width = FramebufferWidth;
 		const u32 current_height = FramebufferHeight;
-		const bool depth_size_changed = current_width != depth_width || current_height != depth_height;
-		const bool resize_pending = ResizePending;
-		if (current_width && current_height && (resize_pending || depth_size_changed)) {
-			depth_width = current_width;
-			depth_height = current_height;
-			ResizePending = false;
-			rtSwapchainResize(swapchain, depth_width, depth_height);
-			rtTextureData(depth_texture, RT_TEXTURE_2D, 0, depth_width, depth_height, 1, RT_D32_SFLOAT, NULL);
-			rtTextureViewBind(depth_view, depth_texture);
-			continue;
-		}
-
 		rt_swapchain_acquire_result acquired = rtSwapchainAcquire(swapchain);
 		if (!acquired.framebuffer) {
 			continue;
@@ -250,45 +247,26 @@ int main(int argc, char** argv) {
 		const glm::mat4 view_projection = camera_matrix(camera, aspect);
 		const std::chrono::duration<f32> elapsed = now - start_time;
 		transform = view_projection;
-		water_transform = view_projection * glm::translate(
-												glm::mat4{ 1.0f },
-												glm::vec3{ 0.0f, glm::sin(elapsed.count() * 1.8f) * 0.035f, 0.0f }
-											);
-		rtBufferSubdata(transform_buffer, 0, sizeof(transform), &transform);
-		rtBufferSubdata(water_transform_buffer, 0, sizeof(water_transform), &water_transform);
+		water_transform = view_projection * glm::translate(glm::mat4{ 1.0f }, glm::vec3{ 0.0f, glm::sin(elapsed.count() * 1.8f) * 0.035f, 0.0f });
+		rtFramebufferSetDepthView(acquired.framebuffer, DepthView);
+		rtQueueWait(queue, acquired.timepoint);
+		rtCommandBufferReset(primary);
+		rtCommandBufferBegin(primary);
+		rtCmdBufferData(primary, transform_buffer, { sizeof(transform), 0 }, reinterpret_cast<const u08*>(&transform));
+		rtCmdBufferData(primary, water_transform_buffer, { sizeof(water_transform), 0 }, reinterpret_cast<const u08*>(&water_transform));
+		rtCmdBufferBarrier(primary, transform_buffer, { sizeof(transform), 0 }, { RT_STAGE_TRANSFER, RT_ACCESS_WRITE }, { RT_STAGE_VERTEX, RT_ACCESS_READ });
+		rtCmdBufferBarrier(primary, water_transform_buffer, { sizeof(water_transform), 0 }, { RT_STAGE_TRANSFER, RT_ACCESS_WRITE }, { RT_STAGE_VERTEX, RT_ACCESS_READ });
+		rtCmdBeginRendering(primary, acquired.framebuffer);
+		rtCmdClearColor(primary, RT_LOCATION_ZERO, 0.54f, 0.72f, 0.94f, 1.0f);
+		rtCmdClearDepth(primary, 1.0f);
+		rtCmdClear(primary, static_cast<enum rt_clear_flag>(RT_CLEAR_COLOR | RT_CLEAR_DEPTH));
+		rtCmdBindBuffer(primary, transform_location, transform_buffer, { sizeof(transform), 0 });
+		rtCmdBindBuffer(primary, water_transform_location, water_transform_buffer, { sizeof(water_transform), 0 });
+		rtCmdExecute(primary, cmd);
+		rtCmdEndRendering(primary);
+		rtCommandBufferEnd(primary);
 
-		rtFramebufferDepthView(acquired.framebuffer, depth_view);
-		rtCmdReset(cmd);
-		rtCmdBegin(cmd);
-		rtCmdWait(cmd, acquired.timepoint);
-		rtCmdBeginRendering(cmd, acquired.framebuffer);
-		rtCmdClearColor(cmd, 0, 0.54f, 0.72f, 0.94f, 1.0f);
-		rtCmdClearDepth(cmd, 1.0f);
-		rtCmdUseGraphicsProgram(cmd, graphics_program);
-		rtCmdBindBuffer(cmd, transform_location, transform_buffer, 0, sizeof(transform));
-		rtCmdVertexBuffer(cmd, position_location, vertex_buffer, 0);
-		rtCmdVertexBuffer(cmd, color_location, vertex_buffer, 0);
-		rtCmdVertexBuffer(cmd, normal_location, vertex_buffer, 0);
-		rtCmdVertexBuffer(cmd, ao_location, vertex_buffer, 0);
-		rtCmdVertexBuffer(cmd, pixel_uv_location, vertex_buffer, 0);
-		rtCmdVertexBuffer(cmd, edge_mask_location, vertex_buffer, 0);
-		rtCmdVertexBuffer(cmd, corner_mask_location, vertex_buffer, 0);
-		rtCmdDraw(cmd, (u32)vertices.size(), 0);
-		rtCmdUseGraphicsProgram(cmd, water_program);
-		rtCmdBindBuffer(cmd, water_transform_location, water_transform_buffer, 0, sizeof(water_transform));
-		rtCmdVertexBuffer(cmd, water_position_location, water_vertex_buffer, 0);
-		rtCmdVertexBuffer(cmd, water_color_location, water_vertex_buffer, 0);
-		rtCmdVertexBuffer(cmd, water_normal_location, water_vertex_buffer, 0);
-		rtCmdVertexBuffer(cmd, water_ao_location, water_vertex_buffer, 0);
-		rtCmdVertexBuffer(cmd, water_pixel_uv_location, water_vertex_buffer, 0);
-		rtCmdVertexBuffer(cmd, water_edge_mask_location, water_vertex_buffer, 0);
-		rtCmdVertexBuffer(cmd, water_corner_mask_location, water_vertex_buffer, 0);
-		rtCmdDraw(cmd, (u32)water_vertices.size(), 0);
-		rtCmdEndRendering(cmd);
-		rtCmdEnd(cmd);
-
-		rt_timepoint rendered = rtQueueSubmit(queue, cmd);
-		rtFramebufferDepthView(acquired.framebuffer, RT_NULL_HANDLE);
+		rt_timepoint rendered = rtQueueSubmit(queue, primary);
 		rtSwapchainPresent(swapchain, rendered);
 		rendered_frames++;
 
@@ -306,6 +284,7 @@ int main(int argc, char** argv) {
 	}
 
 	rtTimepointWait(rtQueueFlush(queue));
+	rtCommandBufferDestroy(primary);
 	rtCommandBufferDestroy(cmd);
 	rtQueueDestroy(queue);
 	rtGraphicsProgramDestroy(water_program);
@@ -314,8 +293,8 @@ int main(int argc, char** argv) {
 	rtBufferDestroy(transform_buffer);
 	rtBufferDestroy(water_vertex_buffer);
 	rtBufferDestroy(vertex_buffer);
-	rtTextureViewDestroy(depth_view);
-	rtTextureDestroy(depth_texture);
+	rtTextureViewDestroy(DepthView);
+	rtTextureDestroy(DepthTexture);
 	rtSwapchainDestroy(swapchain);
 	Swapchain = RT_NULL_HANDLE;
 	glfwDestroyWindow(window);

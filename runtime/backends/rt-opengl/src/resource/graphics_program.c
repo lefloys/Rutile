@@ -21,7 +21,7 @@ void rtGraphicsProgramDestroy(rt_graphics_program program) {
 	);
 }
 
-void rtGraphicsProgramLayout(rt_graphics_program program, const rt_vertex_layout* layout) {
+void rtGraphicsProgramSetLayout(rt_graphics_program program, const rt_vertex_layout* layout) {
 	rtgl_graphics_program_layout(
 		rtgl_get_current_context(),
 		rtgl_graphics_program_from_handle(program),
@@ -29,7 +29,7 @@ void rtGraphicsProgramLayout(rt_graphics_program program, const rt_vertex_layout
 	);
 }
 
-void rtGraphicsProgramSource(rt_graphics_program program, const void* data, usize size) {
+void rtGraphicsProgramSetSource(rt_graphics_program program, const u08* data, usize size) {
 	rtgl_graphics_program_source(
 		rtgl_get_current_context(),
 		rtgl_graphics_program_from_handle(program),
@@ -38,7 +38,7 @@ void rtGraphicsProgramSource(rt_graphics_program program, const void* data, usiz
 	);
 }
 
-void rtGraphicsProgramRasterState(rt_graphics_program program, enum rt_cull_mode cull_mode, enum rt_front_face front_face, enum rt_fill_mode fill_mode) {
+void rtGraphicsProgramSetRasterState(rt_graphics_program program, enum rt_cull_mode cull_mode, enum rt_front_face front_face, enum rt_fill_mode fill_mode) {
 	rtgl_graphics_program_raster_state(
 		rtgl_get_current_context(),
 		rtgl_graphics_program_from_handle(program),
@@ -48,7 +48,7 @@ void rtGraphicsProgramRasterState(rt_graphics_program program, enum rt_cull_mode
 	);
 }
 
-void rtGraphicsProgramBlendState(rt_graphics_program program, bool enabled, enum rt_blend_factor src_color, enum rt_blend_factor dst_color, enum rt_blend_op color_op, enum rt_blend_factor src_alpha, enum rt_blend_factor dst_alpha, enum rt_blend_op alpha_op) {
+void rtGraphicsProgramSetBlendState(rt_graphics_program program, bool enabled, enum rt_blend_factor src_color, enum rt_blend_factor dst_color, enum rt_blend_op color_op, enum rt_blend_factor src_alpha, enum rt_blend_factor dst_alpha, enum rt_blend_op alpha_op) {
 	rtgl_graphics_program_blend_state(
 		rtgl_get_current_context(),
 		rtgl_graphics_program_from_handle(program),
@@ -69,8 +69,47 @@ void rtGraphicsProgramFinalize(rt_graphics_program program) {
 	);
 }
 
-rt_location rtGraphicsProgramLocation(rt_graphics_program program, const char* name) {
+rt_location rtGraphicsProgramUniformLocation(rt_graphics_program program, const char* name) {
 	return (rt_location)rtgl_graphics_program_uniform_location(rtgl_get_current_context(), rtgl_graphics_program_from_handle(program), name);
+}
+
+rt_location rtGraphicsProgramInputLocation(rt_graphics_program program, const rt_vertex_attribute* attributes, usize attribute_count) {
+	struct rtgl_graphics_program* internal = rtgl_graphics_program_from_handle(program);
+	if (!internal || !attributes || !attribute_count || !internal->gl_program) {
+		return NULL;
+	}
+	for (usize input_index = 0; input_index < internal->vertex_layout.input_count; input_index++) {
+		const rt_vertex_input* input = &internal->vertex_layout.inputs[input_index];
+		if (input->attribute_count != attribute_count) {
+			continue;
+		}
+		bool match = true;
+		for (usize attribute_index = 0; attribute_index < attribute_count; attribute_index++) {
+			const rt_vertex_attribute* expected = &input->attributes[attribute_index];
+			const rt_vertex_attribute* actual = &attributes[attribute_index];
+			if (expected->offset != actual->offset || expected->format != actual->format || !expected->name || !actual->name || strcmp(expected->name, actual->name) != 0) {
+				match = false;
+				break;
+			}
+		}
+		if (!match || internal->uniform_location_count == 16) {
+			continue;
+		}
+		rtgl_uniform_location* location = &internal->uniform_locations[internal->uniform_location_count++];
+		memset(location, 0, sizeof(*location));
+		location->program = internal;
+		location->binding = (u32)input_index;
+		location->gl_location = -1;
+		location->kind = RTGL_UNIFORM_LOCATION_VERTEX_STREAM;
+		return (rt_location)location;
+	}
+	return NULL;
+}
+
+rt_location rtGraphicsProgramOutputLocation(rt_graphics_program program, const char* name) {
+	(void)program;
+	(void)name;
+	return NULL;
 }
 
 /*===============================================================================================*/
@@ -94,20 +133,28 @@ void rtgl_graphics_program_init(struct rtgl_context* ctx, struct rtgl_graphics_p
 }
 
 void rtgl_graphics_program_layout(struct rtgl_context* ctx, struct rtgl_graphics_program* internal, const rt_vertex_layout* layout) {
-	if (!layout || !layout->attributes || layout->attribute_count == 0) {
+	if (!layout || !layout->inputs || layout->input_count == 0) {
 		internal->vertex_layout = (rt_vertex_layout){ 0 };
 		return;
 	}
-	if (layout->attribute_count > RTGL_MAX_VERTEX_ATTRIBUTES || layout->stream_count > 16) {
+	if (layout->input_count > 16) {
 		rtgl_throwf(RT_IMPROPER_USAGE, "too many vertex attributes");
 		return;
 	}
-	memcpy(internal->vertex_attributes, layout->attributes, sizeof(layout->attributes[0]) * layout->attribute_count);
-	memcpy(internal->vertex_streams, layout->streams, sizeof(layout->streams[0]) * layout->stream_count);
-	internal->vertex_layout.streams = internal->vertex_streams;
-	internal->vertex_layout.attributes = internal->vertex_attributes;
-	internal->vertex_layout.stream_count = layout->stream_count;
-	internal->vertex_layout.attribute_count = layout->attribute_count;
+	usize attribute_count = 0;
+	for (usize input_index = 0; input_index < layout->input_count; input_index++) {
+		const rt_vertex_input* source = &layout->inputs[input_index];
+		if (!source->attributes || !source->attribute_count || attribute_count + source->attribute_count > RTGL_MAX_VERTEX_ATTRIBUTES) {
+			rtgl_throwf(RT_IMPROPER_USAGE, "invalid vertex input layout");
+			return;
+		}
+		internal->vertex_inputs[input_index] = *source;
+		memcpy(&internal->vertex_attributes[attribute_count], source->attributes, sizeof(source->attributes[0]) * source->attribute_count);
+		internal->vertex_inputs[input_index].attributes = &internal->vertex_attributes[attribute_count];
+		attribute_count += source->attribute_count;
+	}
+	internal->vertex_layout.inputs = internal->vertex_inputs;
+	internal->vertex_layout.input_count = layout->input_count;
 }
 
 void rtgl_graphics_program_source(struct rtgl_context* ctx, struct rtgl_graphics_program* internal, const void* data, usize size) {
@@ -155,20 +202,6 @@ rtgl_uniform_location* rtgl_graphics_program_uniform_location(struct rtgl_contex
 		if (strcmp(internal->uniform_locations[i].name, name) == 0) {
 			return &internal->uniform_locations[i];
 		}
-	}
-	for (u32 i = 0; i < internal->vertex_layout.attribute_count; i++) {
-		const rt_vertex_attribute* attribute = &internal->vertex_attributes[i];
-		if (strcmp(attribute->name, name) != 0 || internal->uniform_location_count == 16) {
-			continue;
-		}
-		rtgl_uniform_location* location = &internal->uniform_locations[internal->uniform_location_count++];
-		memset(location, 0, sizeof(*location));
-		location->program = internal;
-		strncpy(location->name, name, sizeof(location->name) - 1);
-		location->binding = (u32)attribute->stream;
-		location->gl_location = -1;
-		location->kind = RTGL_UNIFORM_LOCATION_VERTEX_STREAM;
-		return location;
 	}
 	return NULL;
 }

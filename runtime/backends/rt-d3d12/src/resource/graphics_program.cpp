@@ -25,19 +25,19 @@ void rtGraphicsProgramDestroy(rt_graphics_program program) {
 	rtdx_graphics_program_destroy(rtdx_get_current_context(), rtdx_graphics_program_from_handle(program));
 }
 
-void rtGraphicsProgramLayout(rt_graphics_program program, const rt_vertex_layout* layout) {
+void rtGraphicsProgramSetLayout(rt_graphics_program program, const rt_vertex_layout* layout) {
 	rtdx_graphics_program_layout(rtdx_get_current_context(), rtdx_graphics_program_from_handle(program), layout);
 }
 
-void rtGraphicsProgramSource(rt_graphics_program program, const void* data, usize size) {
+void rtGraphicsProgramSetSource(rt_graphics_program program, const u08* data, usize size) {
 	rtdx_graphics_program_source(rtdx_get_current_context(), rtdx_graphics_program_from_handle(program), data, size);
 }
 
-void rtGraphicsProgramRasterState(rt_graphics_program program, rt_cull_mode cull_mode, rt_front_face front_face, rt_fill_mode fill_mode) {
+void rtGraphicsProgramSetRasterState(rt_graphics_program program, rt_cull_mode cull_mode, rt_front_face front_face, rt_fill_mode fill_mode) {
 	rtdx_graphics_program_raster_state(rtdx_get_current_context(), rtdx_graphics_program_from_handle(program), cull_mode, front_face, fill_mode);
 }
 
-void rtGraphicsProgramBlendState(rt_graphics_program program, bool enabled, rt_blend_factor src_color, rt_blend_factor dst_color, rt_blend_op color_op, rt_blend_factor src_alpha, rt_blend_factor dst_alpha, rt_blend_op alpha_op) {
+void rtGraphicsProgramSetBlendState(rt_graphics_program program, bool enabled, rt_blend_factor src_color, rt_blend_factor dst_color, rt_blend_op color_op, rt_blend_factor src_alpha, rt_blend_factor dst_alpha, rt_blend_op alpha_op) {
 	rtdx_graphics_program_blend_state(rtdx_get_current_context(), rtdx_graphics_program_from_handle(program), enabled, src_color, dst_color, color_op, src_alpha, dst_alpha, alpha_op);
 }
 
@@ -45,8 +45,16 @@ void rtGraphicsProgramFinalize(rt_graphics_program program) {
 	rtdx_graphics_program_finalize(rtdx_get_current_context(), rtdx_graphics_program_from_handle(program));
 }
 
-rt_location rtGraphicsProgramLocation(rt_graphics_program program, const char* name) {
-	return rtdx_graphics_program_location(rtdx_get_current_context(), rtdx_graphics_program_from_handle(program), name);
+rt_location rtGraphicsProgramUniformLocation(rt_graphics_program program, const char* name) {
+	return rtdx_graphics_program_uniform_location(rtdx_get_current_context(), rtdx_graphics_program_from_handle(program), name);
+}
+
+rt_location rtGraphicsProgramInputLocation(rt_graphics_program program, const rt_vertex_attribute* attributes, usize attribute_count) {
+	return rtdx_graphics_program_input_location(rtdx_get_current_context(), rtdx_graphics_program_from_handle(program), attributes, attribute_count);
+}
+
+rt_location rtGraphicsProgramOutputLocation(rt_graphics_program program, const char* name) {
+	return rtdx_graphics_program_output_location(rtdx_get_current_context(), rtdx_graphics_program_from_handle(program), name);
 }
 
 /*===============================================================================================*/
@@ -227,14 +235,12 @@ static bool rtdx_graphics_program_create_root_signature(rtdx_context* ctx, rtdx_
 		}
 		program->locations.push_back(location);
 	}
-	for (usize index = 0; index < program->vertex_layout.attribute_count; index++) {
-		const rt_vertex_attribute& attribute = program->vertex_attributes[index];
+	for (usize index = 0; index < program->vertex_layout.input_count; index++) {
 		rtdx_location location = {};
 		location.program = program;
-		strncpy_s(location.name, attribute.name, _TRUNCATE);
-		location.kind = rtdx_location_kind::vertex_stream;
+		location.kind = rtdx_location_kind::vertex_input;
 		location.slot = static_cast<u32>(index);
-		location.vertex_stream = attribute.stream;
+		location.vertex_input = index;
 		program->locations.push_back(location);
 	}
 
@@ -356,39 +362,42 @@ bool rtdx_graphics_program_prepare(
 	rtdx_graphics_program_destroy_pipeline(program);
 
 	std::vector<D3D12_INPUT_ELEMENT_DESC> elements;
-	elements.reserve(program->vertex_layout.attribute_count);
+	elements.reserve(RTDX_MAX_VERTEX_ATTRIBUTES);
 	const rtsl::EntryPoint* vertex = program->rtsl_program->entry(rtsl::Stage::vertex);
-	if (!vertex || (program->vertex_layout.attribute_count && !vertex->input)) {
+	if (!vertex || (program->vertex_layout.input_count && !vertex->input)) {
 		rtdx_throwf(RT_SHADER_LINK_FAILED, "RTSL vertex entry does not match the configured vertex layout");
 		return false;
 	}
-	for (u32 index = 0; index < program->vertex_layout.attribute_count; ++index) {
-		const rt_vertex_attribute& attribute = program->vertex_attributes[index];
-		const DXGI_FORMAT format = rtdx_vertex_format(attribute.format);
-		if (format == DXGI_FORMAT_UNKNOWN) {
-			rtdx_throwf(RT_UNSUPPORTED_FEATURE, "unsupported vertex attribute format");
-			return false;
-		}
-		auto reflected = vertex->input->elements.end();
-		for (auto candidate = vertex->input->elements.begin(); candidate != vertex->input->elements.end(); ++candidate) {
-			if (candidate->name == attribute.name) {
-				reflected = candidate;
-				break;
+	for (usize input_index = 0; input_index < program->vertex_layout.input_count; ++input_index) {
+		const rt_vertex_input& input = program->vertex_layout.inputs[input_index];
+		for (usize attribute_index = 0; attribute_index < input.attribute_count; ++attribute_index) {
+			const rt_vertex_attribute& attribute = input.attributes[attribute_index];
+			const DXGI_FORMAT format = rtdx_vertex_format(attribute.format);
+			if (format == DXGI_FORMAT_UNKNOWN) {
+				rtdx_throwf(RT_UNSUPPORTED_FEATURE, "unsupported vertex attribute format");
+				return false;
 			}
+			auto reflected = vertex->input->elements.end();
+			for (auto candidate = vertex->input->elements.begin(); candidate != vertex->input->elements.end(); ++candidate) {
+				if (candidate->name == attribute.name) {
+					reflected = candidate;
+					break;
+				}
+			}
+			if (reflected == vertex->input->elements.end() || !reflected->location) {
+				rtdx_throwf(RT_SHADER_LINK_FAILED, "vertex attribute '%s' is not declared by the RTSL entry", attribute.name);
+				return false;
+			}
+			elements.push_back(D3D12_INPUT_ELEMENT_DESC{
+				.SemanticName = "TEXCOORD",
+				.SemanticIndex = static_cast<UINT>(*reflected->location),
+				.Format = format,
+				.InputSlot = static_cast<UINT>(input_index),
+				.AlignedByteOffset = static_cast<UINT>(attribute.offset),
+				.InputSlotClass = input.rate == RT_VERTEX_RATE_INSTANCE ? D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA : D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,
+				.InstanceDataStepRate = input.rate == RT_VERTEX_RATE_INSTANCE ? 1u : 0u,
+			});
 		}
-		if (reflected == vertex->input->elements.end() || !reflected->location) {
-			rtdx_throwf(RT_SHADER_LINK_FAILED, "vertex attribute '%s' is not declared by the RTSL entry", attribute.name);
-			return false;
-		}
-		elements.push_back(D3D12_INPUT_ELEMENT_DESC{
-			.SemanticName = "TEXCOORD",
-			.SemanticIndex = static_cast<UINT>(*reflected->location),
-			.Format = format,
-			.InputSlot = static_cast<UINT>(attribute.stream),
-			.AlignedByteOffset = static_cast<UINT>(attribute.offset),
-			.InputSlotClass = program->vertex_streams[attribute.stream].rate == RT_VERTEX_RATE_INSTANCE ? D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA : D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA,
-			.InstanceDataStepRate = program->vertex_streams[attribute.stream].rate == RT_VERTEX_RATE_INSTANCE ? 1u : 0u,
-		});
 	}
 
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC desc = {};
@@ -446,27 +455,29 @@ void rtdx_graphics_program_layout(rtdx_context* /*ctx*/, rtdx_graphics_program* 
 		rtdx_throwf(RT_IMPROPER_USAGE, "graphics program is NULL");
 		return;
 	}
-	if (!layout || !layout->attributes || layout->attribute_count == 0) {
+	if (!layout || !layout->inputs || layout->input_count == 0) {
 		program->vertex_layout = {};
 		rtdx_graphics_program_destroy_pipeline(program);
 		return;
 	}
-	if (layout->attribute_count > RTDX_MAX_VERTEX_ATTRIBUTES || layout->stream_count > RTDX_MAX_VERTEX_STREAMS) {
-		rtdx_throwf(RT_IMPROPER_USAGE, "too many vertex attributes");
+	if (layout->input_count > RTDX_MAX_VERTEX_STREAMS) {
+		rtdx_throwf(RT_IMPROPER_USAGE, "too many vertex inputs");
 		return;
 	}
-	std::memcpy(program->vertex_attributes, layout->attributes, sizeof(layout->attributes[0]) * layout->attribute_count);
-	std::memcpy(program->vertex_streams, layout->streams, sizeof(layout->streams[0]) * layout->stream_count);
-	program->vertex_layout.streams = program->vertex_streams;
-	program->vertex_layout.stream_count = layout->stream_count;
-	program->vertex_layout.attributes = program->vertex_attributes;
-	program->vertex_layout.attribute_count = layout->attribute_count;
-	for (usize index = 0; index < layout->attribute_count; index++) {
-		if (program->vertex_attributes[index].stream >= layout->stream_count) {
-			rtdx_throwf(RT_IMPROPER_USAGE, "vertex attribute stream index is outside the configured vertex streams");
+	usize attribute_count = 0;
+	for (usize input_index = 0; input_index < layout->input_count; ++input_index) {
+		const rt_vertex_input& input = layout->inputs[input_index];
+		if (!input.attributes || input.attribute_count == 0 || attribute_count + input.attribute_count > RTDX_MAX_VERTEX_ATTRIBUTES) {
+			rtdx_throwf(RT_IMPROPER_USAGE, "invalid vertex input attributes");
 			return;
 		}
+		std::memcpy(program->vertex_attributes + attribute_count, input.attributes, sizeof(input.attributes[0]) * input.attribute_count);
+		program->vertex_inputs[input_index] = input;
+		program->vertex_inputs[input_index].attributes = program->vertex_attributes + attribute_count;
+		attribute_count += input.attribute_count;
 	}
+	program->vertex_layout.inputs = program->vertex_inputs;
+	program->vertex_layout.input_count = layout->input_count;
 	rtdx_graphics_program_destroy_pipeline(program);
 }
 
@@ -612,7 +623,7 @@ void rtdx_graphics_program_finalize(rtdx_context* ctx, rtdx_graphics_program* pr
 	}
 }
 
-rt_location rtdx_graphics_program_location(rtdx_context* /*ctx*/, rtdx_graphics_program* program, const char* name) {
+rt_location rtdx_graphics_program_uniform_location(rtdx_context* /*ctx*/, rtdx_graphics_program* program, const char* name) {
 	if (!program) {
 		rtdx_throwf(RT_IMPROPER_USAGE, "graphics program is NULL");
 		return RT_NULL_HANDLE;
@@ -626,9 +637,50 @@ rt_location rtdx_graphics_program_location(rtdx_context* /*ctx*/, rtdx_graphics_
 		return RT_NULL_HANDLE;
 	}
 	for (rtdx_location& loc : program->locations) {
-		if (std::strcmp(name, loc.name) == 0) {
+		if (loc.kind != rtdx_location_kind::vertex_input && std::strcmp(name, loc.name) == 0) {
 			return rtdx_location_to_handle(&loc);
 		}
+	}
+	return RT_NULL_HANDLE;
+}
+
+rt_location rtdx_graphics_program_input_location(rtdx_context* /*ctx*/, rtdx_graphics_program* program, const rt_vertex_attribute* attributes, usize attribute_count) {
+	if (!program || !attributes || !attribute_count) {
+		rtdx_throwf(RT_IMPROPER_USAGE, "vertex input attributes are invalid");
+		return RT_NULL_HANDLE;
+	}
+	if (!program->d3d_root_signature) {
+		rtdx_throwf(RT_IMPROPER_USAGE, "graphics program must be finalized before querying vertex inputs");
+		return RT_NULL_HANDLE;
+	}
+	for (rtdx_location& location : program->locations) {
+		if (location.kind != rtdx_location_kind::vertex_input || location.vertex_input >= program->vertex_layout.input_count) {
+			continue;
+		}
+		const rt_vertex_input& input = program->vertex_layout.inputs[location.vertex_input];
+		if (input.attribute_count != attribute_count) {
+			continue;
+		}
+		bool matches = true;
+		for (usize index = 0; index < attribute_count; ++index) {
+			const rt_vertex_attribute& expected = input.attributes[index];
+			const rt_vertex_attribute& supplied = attributes[index];
+			if (expected.offset != supplied.offset || expected.format != supplied.format || std::strcmp(expected.name, supplied.name) != 0) {
+				matches = false;
+				break;
+			}
+		}
+		if (matches) {
+			return rtdx_location_to_handle(&location);
+		}
+	}
+	return RT_NULL_HANDLE;
+}
+
+rt_location rtdx_graphics_program_output_location(rtdx_context* /*ctx*/, rtdx_graphics_program* program, const char* name) {
+	(void)name;
+	if (!program || !program->d3d_root_signature) {
+		rtdx_throwf(RT_IMPROPER_USAGE, "graphics program must be finalized before querying fragment outputs");
 	}
 	return RT_NULL_HANDLE;
 }

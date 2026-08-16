@@ -19,6 +19,6 @@ const char* rtval_rtErrorMessage(void);
 void rtval_rtClearError(void);
 const char* rtval_rtGetName(void);
 enum rt_format_usage rtval_rtQueryFormatCapabilities(enum rt_format format);
-void rtval_rtSetOutput(PFN_rtOutput output, void* user_data);
+void rtval_rtSetOutput(rt_output output, void* user_data);
 
 #endif

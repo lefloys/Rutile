@@ -19,7 +19,7 @@ static u64 rtdx_now_ns() {
 
 static void rtdx_log_startup_time(u64 start_ns) {
 	u64 elapsed_ns = rtdx_now_ns() - start_ns;
-	rtdx_printf("rt-directx12: initialized in %.3f ms\n", static_cast<double>(elapsed_ns) / 1000000.0);
+	rtdx_printf("rt-d3d12: initialized in %.3f ms\n", static_cast<double>(elapsed_ns) / 1000000.0);
 }
 
 static bool rtdx_context_create_factory(rtdx_context* ctx) {

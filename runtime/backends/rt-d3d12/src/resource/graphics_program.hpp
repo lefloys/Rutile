@@ -21,12 +21,14 @@ struct rtdx_graphics_program;
 
 RTDX_API rt_graphics_program rtGraphicsProgramCreate();
 RTDX_API void rtGraphicsProgramDestroy(rt_graphics_program program);
-RTDX_API void rtGraphicsProgramLayout(rt_graphics_program program, const rt_vertex_layout* layout);
-RTDX_API void rtGraphicsProgramSource(rt_graphics_program program, const void* data, usize size);
-RTDX_API void rtGraphicsProgramRasterState(rt_graphics_program program, rt_cull_mode cull_mode, rt_front_face front_face, rt_fill_mode fill_mode);
-RTDX_API void rtGraphicsProgramBlendState(rt_graphics_program program, bool enabled, rt_blend_factor src_color, rt_blend_factor dst_color, rt_blend_op color_op, rt_blend_factor src_alpha, rt_blend_factor dst_alpha, rt_blend_op alpha_op);
+RTDX_API void rtGraphicsProgramSetLayout(rt_graphics_program program, const rt_vertex_layout* layout);
+RTDX_API void rtGraphicsProgramSetSource(rt_graphics_program program, const u08* data, usize size);
+RTDX_API void rtGraphicsProgramSetRasterState(rt_graphics_program program, rt_cull_mode cull_mode, rt_front_face front_face, rt_fill_mode fill_mode);
+RTDX_API void rtGraphicsProgramSetBlendState(rt_graphics_program program, bool enabled, rt_blend_factor src_color, rt_blend_factor dst_color, rt_blend_op color_op, rt_blend_factor src_alpha, rt_blend_factor dst_alpha, rt_blend_op alpha_op);
 RTDX_API void rtGraphicsProgramFinalize(rt_graphics_program program);
-RTDX_API rt_location rtGraphicsProgramLocation(rt_graphics_program program, const char* name);
+RTDX_API rt_location rtGraphicsProgramUniformLocation(rt_graphics_program program, const char* name);
+RTDX_API rt_location rtGraphicsProgramInputLocation(rt_graphics_program program, const rt_vertex_attribute* attributes, usize attribute_count);
+RTDX_API rt_location rtGraphicsProgramOutputLocation(rt_graphics_program program, const char* name);
 
 /*===============================================================================================*/
 /*                                                                                               */
@@ -36,7 +38,7 @@ enum class rtdx_location_kind {
 	buffer,
 	storage_buffer,
 	texture,
-	vertex_stream,
+	vertex_input,
 };
 
 struct rtdx_location {
@@ -48,7 +50,7 @@ struct rtdx_location {
 	u32 storage_stride;
 	u32 root_parameter;
 	u32 sampler_root_parameter;
-	usize vertex_stream;
+	usize vertex_input;
 };
 
 inline rtdx_location* rtdx_location_from_handle(rt_location location) { return reinterpret_cast<rtdx_location*>(location); }
@@ -60,8 +62,9 @@ struct rtdx_graphics_program {
 	ID3D12PipelineState* d3d_pipeline;
 
 	rt_vertex_layout vertex_layout;
-	rt_vertex_stream vertex_streams[RTDX_MAX_VERTEX_STREAMS];
+	rt_vertex_input vertex_inputs[RTDX_MAX_VERTEX_STREAMS];
 	rt_vertex_attribute vertex_attributes[RTDX_MAX_VERTEX_ATTRIBUTES];
+	usize vertex_attribute_inputs[RTDX_MAX_VERTEX_ATTRIBUTES];
 	rt_cull_mode cull_mode;
 	rt_front_face front_face;
 	rt_fill_mode fill_mode;
@@ -89,4 +92,6 @@ void rtdx_graphics_program_source(rtdx_context* ctx, rtdx_graphics_program* prog
 void rtdx_graphics_program_raster_state(rtdx_context* ctx, rtdx_graphics_program* program, rt_cull_mode cull_mode, rt_front_face front_face, rt_fill_mode fill_mode);
 void rtdx_graphics_program_blend_state(rtdx_context* ctx, rtdx_graphics_program* program, bool enabled, rt_blend_factor src_color, rt_blend_factor dst_color, rt_blend_op color_op, rt_blend_factor src_alpha, rt_blend_factor dst_alpha, rt_blend_op alpha_op);
 void rtdx_graphics_program_finalize(rtdx_context* ctx, rtdx_graphics_program* program);
-rt_location rtdx_graphics_program_location(rtdx_context* ctx, rtdx_graphics_program* program, const char* name);
+rt_location rtdx_graphics_program_uniform_location(rtdx_context* ctx, rtdx_graphics_program* program, const char* name);
+rt_location rtdx_graphics_program_input_location(rtdx_context* ctx, rtdx_graphics_program* program, const rt_vertex_attribute* attributes, usize attribute_count);
+rt_location rtdx_graphics_program_output_location(rtdx_context* ctx, rtdx_graphics_program* program, const char* name);

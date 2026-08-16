@@ -9,8 +9,9 @@ struct rtval_buffer {
 
 struct rtval_buffer* rtval_buffer_create(void);
 void rtval_buffer_destroy(struct rtval_buffer* buffer);
-rt_timepoint rtval_buffer_data(struct rtval_buffer* buffer, enum rt_buffer_mode mode, enum rt_buffer_usage usage, usize size, const void* data);
-rt_timepoint rtval_buffer_subdata(struct rtval_buffer* buffer, usize offset, usize size, const void* data);
-void rtval_buffer_read(struct rtval_buffer* buffer, u64 offset, u64 size, void* data);
+void rtval_buffer_resize(struct rtval_buffer* buffer, enum rt_memory_type memory_type, usize size);
+void rtval_buffer_read(struct rtval_buffer* buffer, rt_buffer_range range, u08* data, usize data_size);
+u08* rtval_buffer_map(struct rtval_buffer* buffer, rt_buffer_range range);
+void rtval_buffer_unmap(struct rtval_buffer* buffer);
 
 #endif

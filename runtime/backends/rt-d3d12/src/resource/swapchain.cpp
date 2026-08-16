@@ -221,7 +221,7 @@ bool rtdx_swapchain_create_framebuffers(struct rtdx_context* ctx, struct rtdx_sw
 		}
 
 		D3D12_RENDER_TARGET_VIEW_DESC rtv_info = {};
-		rtv_info.Format = DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
+		rtv_info.Format = swapchain->dxgi_format;
 		rtv_info.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
 		rtv_info.Texture2D.MipSlice = 0;
 		rtv_info.Texture2D.PlaneSlice = 0;
@@ -267,7 +267,10 @@ rt_swapchain_acquire_result rtdx_swapchain_acquire(struct rtdx_context* ctx, str
 
 	rtdx_swapchain_lock_unacquired(swapchain);
 	swapchain->current_image_index = swapchain->dxgi_swapchain->GetCurrentBackBufferIndex();
-	rtdx_swapchain_wait_frame(ctx, &swapchain->frames[swapchain->current_image_index]);
+	/* The caller establishes the dependency before submitting work for this
+	 * image. Do not CPU-wait here: that would discard the frame completion
+	 * signal and prevent normal per-frame command-buffer reuse. */
+	rt_timepoint available = swapchain->frames[swapchain->current_image_index].present_timepoint;
 	if (!swapchain->framebuffers[swapchain->current_image_index]) {
 		rtdx_throwf(RT_INITIALIZATION_FAILED, "swapchain framebuffer %u is unavailable", swapchain->current_image_index);
 		rtdx_swapchain_unlock(swapchain);
@@ -275,7 +278,7 @@ rt_swapchain_acquire_result rtdx_swapchain_acquire(struct rtdx_context* ctx, str
 	}
 	rt_swapchain_acquire_result acquire = {
 		rtdx_framebuffer_to_handle(swapchain->framebuffers[swapchain->current_image_index]),
-		{ 0 },
+		available,
 	};
 	swapchain->frame_acquired = true;
 	rtdx_swapchain_unlock(swapchain);
@@ -336,7 +339,11 @@ static bool rtdx_swapchain_submit_present_transition(struct rtdx_context* ctx, s
 		barrier.Transition.StateBefore = view->image->state;
 		barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
 		frame->present_command_list->ResourceBarrier(1, &barrier);
-		view->image->state = D3D12_RESOURCE_STATE_PRESENT;
+		for (usize layer = 0; layer < view->image->layer_count; ++layer) {
+			for (usize mip = 0; mip < view->image->mip_count; ++mip) {
+				rtdx_texture_set_subresource_state(view->image, mip, layer, D3D12_RESOURCE_STATE_PRESENT);
+			}
+		}
 	}
 
 	result = frame->present_command_list->Close();

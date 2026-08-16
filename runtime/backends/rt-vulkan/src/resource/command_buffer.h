@@ -16,37 +16,57 @@
 
 RTVK_API rt_command_buffer rtCommandBufferCreate(void);
 RTVK_API void rtCommandBufferDestroy(rt_command_buffer command_buffer);
-RTVK_API void rtCmdReset(rt_command_buffer command_buffer);
-RTVK_API void rtCmdBegin(rt_command_buffer command_buffer);
-RTVK_API void rtCmdWait(rt_command_buffer command_buffer, rt_timepoint timepoint);
+RTVK_API void rtCommandBufferReset(rt_command_buffer command_buffer);
+RTVK_API void rtCommandBufferBegin(rt_command_buffer command_buffer);
+RTVK_API void rtCommandBufferContinue(rt_command_buffer command_buffer);
+RTVK_API void rtCommandBufferContinueRendering(rt_command_buffer command_buffer);
+RTVK_API void rtCommandBufferEnd(rt_command_buffer command_buffer);
+RTVK_API void rtCmdExecute(rt_command_buffer command_buffer, rt_command_buffer secondary);
+RTVK_API void rtCmdBufferData(rt_command_buffer command_buffer, rt_buffer buffer, rt_buffer_range range, const u08* data);
+RTVK_API void rtCmdBufferCopy(rt_command_buffer command_buffer, rt_buffer src, rt_buffer_range src_range, rt_buffer dst, rt_buffer_range dst_range);
+RTVK_API void rtCmdBufferCopyToTexture(rt_command_buffer command_buffer, rt_buffer src, rt_buffer_range src_range, rt_texture dst, rt_texture_range dst_range);
+RTVK_API void rtCmdBufferBarrier(rt_command_buffer command_buffer, rt_buffer buffer, rt_buffer_range range, rt_access src, rt_access dst);
+RTVK_API void rtCmdTextureCopy(rt_command_buffer command_buffer, rt_texture src, rt_texture_range src_range, rt_texture dst, rt_texture_range dst_range);
+RTVK_API void rtCmdTextureData(rt_command_buffer command_buffer, rt_texture texture, rt_texture_range range, const u08* data);
+RTVK_API void rtCmdTextureCopyToBuffer(rt_command_buffer command_buffer, rt_texture src, rt_texture_range src_range, rt_buffer dst, rt_buffer_range dst_range);
+RTVK_API void rtCmdTextureBarrier(rt_command_buffer command_buffer, rt_texture texture, rt_texture_range range, rt_access src, rt_access dst);
 RTVK_API void rtCmdBeginRendering(rt_command_buffer command_buffer, rt_framebuffer framebuffer);
-RTVK_API void rtCmdClearColor(rt_command_buffer command_buffer, u32 color_index, f32 r, f32 g, f32 b, f32 a);
+RTVK_API void rtCmdClearColor(rt_command_buffer command_buffer, rt_location location, f32 r, f32 g, f32 b, f32 a);
 RTVK_API void rtCmdClearDepth(rt_command_buffer command_buffer, f32 depth);
-RTVK_API void rtCmdClearStencil(rt_command_buffer command_buffer, u32 stencil);
-RTVK_API void rtCmdSetViewport(rt_command_buffer command_buffer, u32 x, u32 y, u32 width, u32 height, f32 min_depth, f32 max_depth);
-RTVK_API void rtCmdSetScissor(rt_command_buffer command_buffer, u32 x, u32 y, u32 width, u32 height);
+RTVK_API void rtCmdClearStencil(rt_command_buffer command_buffer, usize stencil);
+RTVK_API void rtCmdClear(rt_command_buffer command_buffer, enum rt_clear_flag attachments);
+RTVK_API void rtCmdSetViewport(rt_command_buffer command_buffer, usize x, usize y, usize width, usize height, f32 min_depth, f32 max_depth);
+RTVK_API void rtCmdSetScissor(rt_command_buffer command_buffer, usize x, usize y, usize width, usize height);
 RTVK_API void rtCmdEndRendering(rt_command_buffer command_buffer);
 RTVK_API void rtCmdUseGraphicsProgram(rt_command_buffer command_buffer, rt_graphics_program program);
-RTVK_API void rtCmdBindBuffer(rt_command_buffer command_buffer, rt_location location, rt_buffer buffer, usize offset, usize size);
+RTVK_API void rtCmdBindBuffer(rt_command_buffer command_buffer, rt_location location, rt_buffer buffer, rt_buffer_range range);
 RTVK_API void rtCmdBindTexture(rt_command_buffer command_buffer, rt_location location, rt_texture_view texture_view);
-RTVK_API void rtCmdVertexBuffer(rt_command_buffer command_buffer, rt_location location, rt_buffer buffer, usize offset);
-RTVK_API void rtCmdIndexBuffer(rt_command_buffer command_buffer, rt_buffer buffer, usize offset, enum rt_index_format format);
-RTVK_API void rtCmdDraw(rt_command_buffer command_buffer, u32 vertex_count, u32 first_vertex);
-RTVK_API void rtCmdDrawInstanced(rt_command_buffer command_buffer, u32 vertex_count, u32 instance_count, u32 first_vertex, u32 first_instance);
-RTVK_API void rtCmdDrawIndexed(rt_command_buffer command_buffer, u32 index_count, u32 first_index, i32 vertex_offset);
-RTVK_API void rtCmdDrawIndexedInstanced(rt_command_buffer command_buffer, u32 index_count, u32 instance_count, u32 first_index, i32 vertex_offset, u32 first_instance);
-RTVK_API void rtCmdEnd(rt_command_buffer command_buffer);
+RTVK_API void rtCmdVertexBuffer(rt_command_buffer command_buffer, rt_location location, rt_buffer buffer, rt_buffer_range range);
+RTVK_API void rtCmdIndexBuffer(rt_command_buffer command_buffer, rt_buffer buffer, rt_buffer_range range, enum rt_index_format format);
+RTVK_API void rtCmdDraw(rt_command_buffer command_buffer, usize vertex_count, usize first_vertex);
+RTVK_API void rtCmdDrawInstanced(rt_command_buffer command_buffer, usize vertex_count, usize instance_count, usize first_vertex, usize first_instance);
+RTVK_API void rtCmdDrawIndexed(rt_command_buffer command_buffer, usize index_count, usize first_index, usize vertex_offset);
+RTVK_API void rtCmdDrawIndexedInstanced(rt_command_buffer command_buffer, usize index_count, usize instance_count, usize first_index, usize vertex_offset, usize first_instance);
 
 /*===============================================================================================*/
 /*                                                                                                */
 /*===============================================================================================*/
 
 typedef enum rtvk_command_opcode {
-	RTVK_COMMAND_WAIT,
+	RTVK_COMMAND_BUFFER_DATA,
+	RTVK_COMMAND_BUFFER_COPY,
+	RTVK_COMMAND_BUFFER_COPY_TO_TEXTURE,
+	RTVK_COMMAND_BUFFER_BARRIER,
+	RTVK_COMMAND_TEXTURE_COPY,
+	RTVK_COMMAND_TEXTURE_DATA,
+	RTVK_COMMAND_TEXTURE_COPY_TO_BUFFER,
+	RTVK_COMMAND_TEXTURE_BARRIER,
+	RTVK_COMMAND_EXECUTE,
 	RTVK_COMMAND_BEGIN_RENDERING,
 	RTVK_COMMAND_CLEAR_COLOR,
 	RTVK_COMMAND_CLEAR_DEPTH,
 	RTVK_COMMAND_CLEAR_STENCIL,
+	RTVK_COMMAND_CLEAR,
 	RTVK_COMMAND_SET_VIEWPORT,
 	RTVK_COMMAND_SET_SCISSOR,
 	RTVK_COMMAND_END_RENDERING,
@@ -66,12 +86,85 @@ struct rtvk_command_header {
 	u08 opcode;
 };
 
-struct rtvk_ir_wait {
-	rt_timepoint timepoint;
+struct rtvk_ir_buffer_data {
+	struct rtvk_buffer* copy_source;
+	struct rtvk_buffer* buffer;
+	rt_buffer_range range;
+	u08* data;
+};
+
+struct rtvk_ir_buffer_copy {
+	struct rtvk_buffer* copy_source;
+	struct rtvk_buffer* src;
+	struct rtvk_buffer* dst;
+	rt_buffer_range src_range;
+	rt_buffer_range dst_range;
+};
+
+struct rtvk_ir_buffer_copy_to_texture {
+	struct rtvk_buffer* src;
+	struct rtvk_texture* dst;
+	rt_buffer_range src_range;
+	rt_texture_range dst_range;
+};
+
+struct rtvk_ir_buffer_barrier {
+	struct rtvk_buffer* buffer;
+	rt_buffer_range range;
+	rt_access src;
+	rt_access dst;
+};
+
+struct rtvk_ir_texture_copy {
+	struct rtvk_texture* copy_source;
+	struct rtvk_texture* src;
+	struct rtvk_texture* dst;
+	rt_texture_range src_range;
+	rt_texture_range dst_range;
+};
+
+struct rtvk_ir_texture_data {
+	struct rtvk_texture* copy_source;
+	struct rtvk_texture* texture;
+	rt_texture_range range;
+	u08* data;
+	usize data_size;
+};
+
+struct rtvk_ir_texture_copy_to_buffer {
+	struct rtvk_texture* src;
+	struct rtvk_buffer* copy_source;
+	struct rtvk_buffer* dst;
+	rt_texture_range src_range;
+	rt_buffer_range dst_range;
+};
+
+struct rtvk_ir_texture_barrier {
+	struct rtvk_texture* texture;
+	rt_texture_range range;
+	rt_access src;
+	rt_access dst;
+};
+
+struct rtvk_ir_execute {
+	struct rtvk_command_buffer* command_buffer;
 };
 
 struct rtvk_ir_framebuffer {
 	struct rtvk_framebuffer* framebuffer;
+	struct rtvk_texture_view* color_views[RTVK_MAX_FRAMEBUFFER_COLOR_ATTACHMENTS];
+	struct rtvk_image_base* color_images[RTVK_MAX_FRAMEBUFFER_COLOR_ATTACHMENTS];
+	VkImageView color_vk_image_views[RTVK_MAX_FRAMEBUFFER_COLOR_ATTACHMENTS];
+	VkFormat color_formats[RTVK_MAX_FRAMEBUFFER_COLOR_ATTACHMENTS];
+	struct rtvk_texture_view* depth_view;
+	struct rtvk_image_base* depth_image;
+	VkImageView depth_vk_image_view;
+	VkFormat depth_format;
+	struct rtvk_texture_view* stencil_view;
+	struct rtvk_image_base* stencil_image;
+	VkImageView stencil_vk_image_view;
+	VkFormat stencil_format;
+	u32 color_texture_count;
 };
 
 struct rtvk_ir_clear_color {
@@ -88,6 +181,10 @@ struct rtvk_ir_clear_depth {
 
 struct rtvk_ir_clear_stencil {
 	u32 stencil;
+};
+
+struct rtvk_ir_clear {
+	enum rt_clear_flag attachments;
 };
 
 struct rtvk_ir_viewport {
@@ -120,17 +217,20 @@ struct rtvk_ir_buffer {
 struct rtvk_ir_texture {
 	rt_location location;
 	struct rtvk_texture_view* view;
+	struct rtvk_image_base* image;
+	VkImageView vk_image_view;
+	VkSampler vk_sampler;
 };
 
 struct rtvk_ir_vertex_buffer {
 	rt_location location;
 	struct rtvk_buffer* buffer;
-	usize offset;
+	rt_buffer_range range;
 };
 
 struct rtvk_ir_index_buffer {
 	struct rtvk_buffer* buffer;
-	usize offset;
+	rt_buffer_range range;
 	enum rt_index_format format;
 };
 
@@ -167,14 +267,18 @@ struct rtvk_command_buffer {
 	usize ir_capacity;
 	bool recording;
 	bool executable;
+	bool continuation;
+	bool rendering_continuation;
+	bool rendering;
+	bool lowering;
+	bool checking_references;
 };
 RTVK_DECLARE_NEW_RESOURCE(command_buffer)
 
-struct rtvk_lowered_command_segment {
-	VkCommandBuffer vk_command_buffer;
-	VkDescriptorPool vk_descriptor_pool;
-	rt_timepoint wait;
-	usize command_count;
+struct rtvk_lowered_staging_buffer {
+	struct rtvk_lowered_staging_buffer* next;
+	VkBuffer vk_buffer;
+	VmaAllocation vma_allocation;
 };
 
 struct rtvk_lowered_resource_job {
@@ -184,28 +288,38 @@ struct rtvk_lowered_resource_job {
 
 struct rtvk_lowered_command_buffer {
 	struct rtvk_lowered_resource_job* resource_jobs;
-	struct rtvk_lowered_command_segment* segments;
+	struct rtvk_lowered_staging_buffer* staging_buffers;
+	VkCommandBuffer vk_command_buffer;
+	VkDescriptorPool vk_descriptor_pool;
 	VkCommandPool vk_command_pool;
-	usize segment_count;
-	usize segment_capacity;
-	usize segment_index;
 };
 
 void rtvk_command_buffer_reset(struct rtvk_command_buffer* command_buffer);
 void rtvk_command_buffer_begin(struct rtvk_command_buffer* command_buffer);
-void rtvk_command_buffer_wait(struct rtvk_command_buffer* command_buffer, rt_timepoint timepoint);
+void rtvk_command_buffer_continue(struct rtvk_command_buffer* command_buffer);
+void rtvk_command_buffer_continue_rendering(struct rtvk_command_buffer* command_buffer);
+void rtvk_command_buffer_execute(struct rtvk_command_buffer* command_buffer, struct rtvk_command_buffer* secondary);
+void rtvk_command_buffer_buffer_data(struct rtvk_command_buffer* command_buffer, struct rtvk_buffer* buffer, rt_buffer_range range, const u08* data);
+void rtvk_command_buffer_buffer_copy(struct rtvk_command_buffer* command_buffer, struct rtvk_buffer* src, rt_buffer_range src_range, struct rtvk_buffer* dst, rt_buffer_range dst_range);
+void rtvk_command_buffer_buffer_copy_to_texture(struct rtvk_command_buffer* command_buffer, struct rtvk_buffer* src, rt_buffer_range src_range, struct rtvk_texture* dst, rt_texture_range dst_range);
+void rtvk_command_buffer_buffer_barrier(struct rtvk_command_buffer* command_buffer, struct rtvk_buffer* buffer, rt_buffer_range range, rt_access src, rt_access dst);
+void rtvk_command_buffer_texture_copy(struct rtvk_command_buffer* command_buffer, struct rtvk_texture* src, rt_texture_range src_range, struct rtvk_texture* dst, rt_texture_range dst_range);
+void rtvk_command_buffer_texture_data(struct rtvk_command_buffer* command_buffer, struct rtvk_texture* texture, rt_texture_range range, const u08* data);
+void rtvk_command_buffer_texture_copy_to_buffer(struct rtvk_command_buffer* command_buffer, struct rtvk_texture* src, rt_texture_range src_range, struct rtvk_buffer* dst, rt_buffer_range dst_range);
+void rtvk_command_buffer_texture_barrier(struct rtvk_command_buffer* command_buffer, struct rtvk_texture* texture, rt_texture_range range, rt_access src, rt_access dst);
 void rtvk_command_buffer_begin_rendering(struct rtvk_command_buffer* command_buffer, struct rtvk_framebuffer* framebuffer);
 void rtvk_command_buffer_clear_color(struct rtvk_command_buffer* command_buffer, u32 index, f32 r, f32 g, f32 b, f32 a);
 void rtvk_command_buffer_clear_depth(struct rtvk_command_buffer* command_buffer, f32 depth);
 void rtvk_command_buffer_clear_stencil(struct rtvk_command_buffer* command_buffer, u32 stencil);
+void rtvk_command_buffer_clear(struct rtvk_command_buffer* command_buffer, enum rt_clear_flag attachments);
 void rtvk_command_buffer_set_viewport(struct rtvk_command_buffer* command_buffer, u32 x, u32 y, u32 width, u32 height, f32 min_depth, f32 max_depth);
 void rtvk_command_buffer_set_scissor(struct rtvk_command_buffer* command_buffer, u32 x, u32 y, u32 width, u32 height);
 void rtvk_command_buffer_end_rendering(struct rtvk_command_buffer* command_buffer);
 void rtvk_command_buffer_use_graphics_program(struct rtvk_command_buffer* command_buffer, struct rtvk_graphics_program* program);
 void rtvk_command_buffer_bind_buffer(struct rtvk_command_buffer* command_buffer, rt_location location, struct rtvk_buffer* buffer, usize offset, usize size);
 void rtvk_command_buffer_bind_texture(struct rtvk_command_buffer* command_buffer, rt_location location, struct rtvk_texture_view* view);
-void rtvk_command_buffer_vertex_buffer(struct rtvk_command_buffer* command_buffer, rt_location location, struct rtvk_buffer* buffer, usize offset);
-void rtvk_command_buffer_index_buffer(struct rtvk_command_buffer* command_buffer, struct rtvk_buffer* buffer, usize offset, enum rt_index_format format);
+void rtvk_command_buffer_vertex_buffer(struct rtvk_command_buffer* command_buffer, rt_location location, struct rtvk_buffer* buffer, rt_buffer_range range);
+void rtvk_command_buffer_index_buffer(struct rtvk_command_buffer* command_buffer, struct rtvk_buffer* buffer, rt_buffer_range range, enum rt_index_format format);
 void rtvk_command_buffer_draw(struct rtvk_command_buffer* command_buffer, u32 count, u32 first);
 void rtvk_command_buffer_draw_instanced(struct rtvk_command_buffer* command_buffer, u32 count, u32 instances, u32 first, u32 first_instance);
 void rtvk_command_buffer_draw_indexed(struct rtvk_command_buffer* command_buffer, u32 count, u32 first, i32 vertex_offset);

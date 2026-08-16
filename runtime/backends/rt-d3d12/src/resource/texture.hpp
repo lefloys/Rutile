@@ -8,42 +8,52 @@
 
 RTDX_API rt_texture rtTextureCreate();
 RTDX_API void rtTextureDestroy(rt_texture texture);
+RTDX_API void rtTextureResize(rt_texture texture, rt_texture_type type, rt_format format, rt_extent_3d extent, usize mip_count);
+RTDX_API void rtCmdTextureCopy(rt_command_buffer command_buffer, rt_texture src, rt_texture_range src_range, rt_texture dst, rt_texture_range dst_range);
+RTDX_API void rtCmdTextureData(rt_command_buffer command_buffer, rt_texture texture, rt_texture_range range, const u08* data);
+RTDX_API void rtCmdTextureCopyToBuffer(rt_command_buffer command_buffer, rt_texture src, rt_texture_range src_range, rt_buffer dst, rt_buffer_range dst_range);
+RTDX_API void rtCmdTextureBarrier(rt_command_buffer command_buffer, rt_texture texture, rt_texture_range range, rt_access src, rt_access dst);
 RTDX_API rt_texture_view rtTextureViewCreate();
-RTDX_API void rtTextureViewBind(rt_texture_view texture_view, rt_texture texture);
 RTDX_API void rtTextureViewDestroy(rt_texture_view texture_view);
-RTDX_API void rtTextureViewFilter(rt_texture_view texture_view, rt_filter mag_filter, rt_filter min_filter, rt_mip_filter mip_filter);
-RTDX_API void rtTextureViewAddress(rt_texture_view texture_view, rt_address_mode address_u, rt_address_mode address_v, rt_address_mode address_w);
-RTDX_API void rtTextureViewAnisotropy(rt_texture_view texture_view, u32 max_anisotropy);
-RTDX_API void rtTextureViewLod(rt_texture_view texture_view, f32 min_lod, f32 max_lod, f32 lod_bias);
-
-RTDX_API rt_timepoint rtTextureCopy(rt_texture src_texture, u32 src_mip, rt_texture dst_texture, u32 dst_mip);
-RTDX_API rt_timepoint rtTextureData(rt_texture texture, rt_texture_type type, u32 mip, u32 width, u32 height, u32 depth, rt_format format, const void* data);
-RTDX_API rt_timepoint rtTextureSubcopy(rt_texture src_texture, u32 src_mip, rt_extent_3d src_offset, rt_texture dst_texture, u32 dst_mip, rt_extent_3d dst_offset, rt_extent_3d extent);
-RTDX_API rt_timepoint rtTextureSubdata(rt_texture texture, u32 mip, rt_extent_3d offset, rt_extent_3d extent, const void* data);
-RTDX_API rt_timepoint rtTextureViewCopyToBuffer(rt_texture_view texture_view, rt_buffer buffer);
 RTDX_API rt_extent_3d rtTextureViewExtent(rt_texture_view texture_view);
+RTDX_API void rtTextureViewSetTexture(rt_texture_view texture_view, rt_texture texture);
+RTDX_API void rtTextureViewSetFilter(rt_texture_view texture_view, rt_filter mag_filter, rt_filter min_filter, rt_mip_filter mip_filter);
+RTDX_API void rtTextureViewSetAddress(rt_texture_view texture_view, rt_address_mode address_u, rt_address_mode address_v, rt_address_mode address_w);
+RTDX_API void rtTextureViewSetAnisotropy(rt_texture_view texture_view, usize max_anisotropy);
+RTDX_API void rtTextureViewSetLod(rt_texture_view texture_view, f32 min_lod, f32 max_lod, f32 lod_bias);
+RTDX_API void rtTextureViewRead(rt_texture_view texture_view, rt_texture_range range, u08* data, usize data_size);
 
 struct rtdx_buffer;
 
 struct rtdx_image_base : rtdx_resource_base {
 	ID3D12Resource* d3d_resource;
-	u32 width;
-	u32 height;
-	u32 depth;
+	usize width;
+	usize height;
+	usize depth;
+	usize mip_count;
+	usize layer_count;
 	DXGI_FORMAT dxgi_format;
+	/* Compatibility mirror until every lowering path has been converted to
+	 * per-subresource transitions. */
 	D3D12_RESOURCE_STATES state;
+	D3D12_RESOURCE_STATES* states;
 	rt_texture_type type;
+	bool swapchain_image;
 };
 
 struct rtdx_texture : rtdx_image_base {
 	rtdx_texture* active;
 	rtdx_texture* next;
 };
+struct rtdx_texture_write { rtdx_image_base* source; rtdx_image_base* target; };
 RTDX_DECLARE_NEW_RESOURCE(texture)
 
 struct rtdx_texture_view {
 	rtdx_resource_base base;
 
+	/* The logical texture remains attached to a view.  image is rebuilt from its
+	 * current physical revision whenever the view is used outside recorded IR. */
+	rtdx_texture* texture;
 	rtdx_image_base* image;
 	ID3D12DescriptorHeap* d3d_sampler_heap;
 	ID3D12DescriptorHeap* d3d_srv_heap;
@@ -78,7 +88,13 @@ void rtdx_texture_view_address(rtdx_texture_view* texture_view, rt_address_mode 
 void rtdx_texture_view_anisotropy(rtdx_texture_view* texture_view, u32 max_anisotropy);
 void rtdx_texture_view_lod(rtdx_texture_view* texture_view, f32 min_lod, f32 max_lod, f32 lod_bias);
 bool rtdx_texture_view_prepare_sampler(rtdx_context* ctx, rtdx_texture_view* texture_view);
+bool rtdx_texture_view_refresh(rtdx_context* ctx, rtdx_texture_view* texture_view);
 bool rtdx_texture_format_is_depth(DXGI_FORMAT format);
+rtdx_texture_write rtdx_texture_write_begin(rtdx_context* ctx, rtdx_texture* texture);
+bool rtdx_texture_resize(rtdx_context* ctx, rtdx_texture* texture, rt_texture_type type, rt_format format, rt_extent_3d extent, usize mip_count);
+usize rtdx_texture_subresource_count(const rtdx_image_base* image);
+D3D12_RESOURCE_STATES rtdx_texture_subresource_state(const rtdx_image_base* image, usize mip, usize layer);
+void rtdx_texture_set_subresource_state(rtdx_image_base* image, usize mip, usize layer, D3D12_RESOURCE_STATES state);
 
 rt_timepoint rtdx_texture_copy(rtdx_context* ctx, rtdx_texture* src_texture, u32 src_mip, rtdx_texture* dst_texture, u32 dst_mip);
 rt_timepoint rtdx_texture_data(rtdx_context* ctx, rtdx_texture* texture, rt_texture_type type, u32 width, u32 height, u32 depth, u32 mip, rt_format format, const void* data);

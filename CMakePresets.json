@@ -165,7 +165,7 @@
       "configurePreset": "windows-ci",
       "targets": [
         "rt-vulkan",
-        "rt-directx12",
+        "rt-d3d12",
         "rt-validation-layer",
         "rt-logging-layer",
         "rtsl-tests",

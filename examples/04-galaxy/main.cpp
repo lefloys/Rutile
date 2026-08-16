@@ -47,24 +47,26 @@ struct Camera {
 };
 
 rt_swapchain Swapchain = RT_NULL_HANDLE;
+rt_texture DepthTexture = RT_NULL_HANDLE;
+rt_texture_view DepthView = RT_NULL_HANDLE;
 u32 FramebufferWidth = 1600;
 u32 FramebufferHeight = 900;
 f32 MouseDx = 0.0f;
 f32 MouseDy = 0.0f;
 
 constexpr rt_vertex_attribute VertexAttributes[] = {
-	{ "position", 0, offsetof(Vertex, position), RT_RGB32_SFLOAT },
-	{ "color", 0, offsetof(Vertex, color), RT_RGBA32_SFLOAT },
-	{ "normal", 0, offsetof(Vertex, normal), RT_RGB32_SFLOAT },
-	{ "kind", 0, offsetof(Vertex, kind), RT_R32_SFLOAT },
-	{ "seed", 0, offsetof(Vertex, seed), RT_R32_SFLOAT },
+	{ "position", offsetof(Vertex, position), RT_RGB32_SFLOAT },
+	{ "color", offsetof(Vertex, color), RT_RGBA32_SFLOAT },
+	{ "normal", offsetof(Vertex, normal), RT_RGB32_SFLOAT },
+	{ "kind", offsetof(Vertex, kind), RT_R32_SFLOAT },
+	{ "seed", offsetof(Vertex, seed), RT_R32_SFLOAT },
 };
 
-constexpr rt_vertex_stream VertexStreams[] = {
-	{ sizeof(Vertex), RT_VERTEX_RATE_VERTEX },
+constexpr rt_vertex_input VertexInputs[] = {
+	{ VertexAttributes, 5, sizeof(Vertex), RT_VERTEX_RATE_VERTEX },
 };
 
-constexpr rt_vertex_layout VertexLayout = { VertexStreams, VertexAttributes, 1, 5 };
+constexpr rt_vertex_layout VertexLayout = { VertexInputs, 1 };
 
 glm::vec3 camera_forward(const Camera& camera) {
 	const f32 cp = glm::cos(camera.pitch);
@@ -225,10 +227,13 @@ void framebuffer_resized(GLFWwindow* window, int width, int height) {
 	if (width > 0 && height > 0) {
 		FramebufferWidth = (u32)width;
 		FramebufferHeight = (u32)height;
-	}
-	rt_swapchain swapchain = Swapchain;
-	if (swapchain && width > 0 && height > 0) {
-		rtSwapchainResize(swapchain, (u32)width, (u32)height);
+		if (Swapchain) {
+			rtSwapchainResize(Swapchain, FramebufferWidth, FramebufferHeight);
+		}
+		if (DepthTexture) {
+			rtTextureResize(DepthTexture, RT_TEXTURE_2D, RT_D32_SFLOAT, { FramebufferWidth, FramebufferHeight, 1 }, 1);
+			rtTextureViewSetTexture(DepthView, DepthTexture);
+		}
 	}
 }
 
@@ -312,33 +317,36 @@ int main(int argc, char** argv) {
 
 	std::vector<Vertex> vertices = build_galaxy();
 	rt_buffer vertex_buffer = rtBufferCreate();
-	rtBufferData(vertex_buffer, RT_BUFFER_STATIC, RT_BUFFER_USAGE_VERTEX, (u64)(vertices.size() * sizeof(vertices[0])), vertices.data());
+	rtBufferResize(vertex_buffer, RT_DEVICE_MEMORY, vertices.size() * sizeof(vertices[0]));
 
 	SceneUniform scene = {};
 	rt_buffer scene_buffer = rtBufferCreate();
-	rtBufferData(scene_buffer, RT_BUFFER_DYNAMIC, RT_BUFFER_USAGE_UNIFORM, sizeof(scene), &scene);
+	rtBufferResize(scene_buffer, RT_DEVICE_MEMORY, sizeof(scene));
 
 	rt_graphics_program graphics_program = rtGraphicsProgramCreate();
-	rtGraphicsProgramLayout(graphics_program, &VertexLayout);
-	rtGraphicsProgramSource(graphics_program, galaxy_rtslp.data, galaxy_rtslp.size);
-	rtGraphicsProgramRasterState(graphics_program, RT_CULL_NONE, RT_FRONT_FACE_CCW, RT_FILL_SOLID);
+	rtGraphicsProgramSetLayout(graphics_program, &VertexLayout);
+	rtGraphicsProgramSetSource(graphics_program, galaxy_rtslp.data, galaxy_rtslp.size);
+	rtGraphicsProgramSetRasterState(graphics_program, RT_CULL_NONE, RT_FRONT_FACE_CCW, RT_FILL_SOLID);
 	rtGraphicsProgramFinalize(graphics_program);
-	rt_location scene_location = rtGraphicsProgramLocation(graphics_program, "scene");
-	rt_location position_location = rtGraphicsProgramLocation(graphics_program, "position");
-	rt_location color_location = rtGraphicsProgramLocation(graphics_program, "color");
-	rt_location normal_location = rtGraphicsProgramLocation(graphics_program, "normal");
-	rt_location kind_location = rtGraphicsProgramLocation(graphics_program, "kind");
-	rt_location seed_location = rtGraphicsProgramLocation(graphics_program, "seed");
+	rt_location scene_location = rtGraphicsProgramUniformLocation(graphics_program, "scene");
+	rt_location vertex_location = rtGraphicsProgramInputLocation(graphics_program, VertexAttributes, 5);
 
 	rt_command_buffer cmd = rtCommandBufferCreate();
-	rt_texture depth_texture = RT_NULL_HANDLE;
-	rt_texture_view depth_view = RT_NULL_HANDLE;
-	u32 depth_width = FramebufferWidth;
-	u32 depth_height = FramebufferHeight;
-	depth_texture = rtTextureCreate();
-	rtTextureData(depth_texture, RT_TEXTURE_2D, 0, depth_width, depth_height, 1, RT_D32_SFLOAT, NULL);
-	depth_view = rtTextureViewCreate();
-	rtTextureViewBind(depth_view, depth_texture);
+	DepthTexture = rtTextureCreate();
+	rtTextureResize(DepthTexture, RT_TEXTURE_2D, RT_D32_SFLOAT, { FramebufferWidth, FramebufferHeight, 1 }, 1);
+	DepthView = rtTextureViewCreate();
+	rtTextureViewSetTexture(DepthView, DepthTexture);
+	rtCommandBufferBegin(cmd);
+	rtCmdBufferData(cmd, vertex_buffer, { vertices.size() * sizeof(vertices[0]), 0 }, reinterpret_cast<const u08*>(vertices.data()));
+	rtCommandBufferEnd(cmd);
+	rtTimepointWait(rtQueueSubmit(queue, cmd));
+	rtCommandBufferReset(cmd);
+	rtCommandBufferContinueRendering(cmd);
+	rtCmdUseGraphicsProgram(cmd, graphics_program);
+	rtCmdVertexBuffer(cmd, vertex_location, vertex_buffer, { vertices.size() * sizeof(vertices[0]), 0 });
+	rtCmdDraw(cmd, vertices.size(), 0);
+	rtCommandBufferEnd(cmd);
+	rt_command_buffer primary = rtCommandBufferCreate();
 
 	Camera camera;
 	auto start_time = std::chrono::steady_clock::now();
@@ -361,48 +369,38 @@ int main(int argc, char** argv) {
 
 		const u32 current_width = FramebufferWidth;
 		const u32 current_height = FramebufferHeight;
-		const bool depth_size_changed = current_width != depth_width || current_height != depth_height;
-		if (current_width && current_height && depth_size_changed) {
-			depth_width = current_width;
-			depth_height = current_height;
-			rtTextureData(depth_texture, RT_TEXTURE_2D, 0, depth_width, depth_height, 1, RT_D32_SFLOAT, NULL);
-			rtTextureViewBind(depth_view, depth_texture);
-		}
 
 		const f32 aspect = current_height ? (f32)current_width / (f32)current_height : 1.0f;
 		write_scene_uniform(&scene, camera, aspect, elapsed.count());
-		rtBufferSubdata(scene_buffer, 0, sizeof(scene), &scene);
-
 		rt_swapchain_acquire_result acquired = rtSwapchainAcquire(swapchain);
 		if (!acquired.framebuffer) {
 			continue;
 		}
 
-		if (depth_view) {
-			rtFramebufferDepthView(acquired.framebuffer, depth_view);
+		if (DepthView) {
+			rtFramebufferSetDepthView(acquired.framebuffer, DepthView);
 		}
-		rtCmdReset(cmd);
-		rtCmdBegin(cmd);
-		rtCmdWait(cmd, acquired.timepoint);
-		rtCmdBeginRendering(cmd, acquired.framebuffer);
-		rtCmdClearColor(cmd, 0, 0.004f, 0.006f, 0.014f, 1.0f);
-		if (depth_view) {
-			rtCmdClearDepth(cmd, 1.0f);
+		rtQueueWait(queue, acquired.timepoint);
+		rtCommandBufferReset(primary);
+		rtCommandBufferBegin(primary);
+		rtCmdBufferData(primary, scene_buffer, { sizeof(scene), 0 }, reinterpret_cast<const u08*>(&scene));
+		rtCmdBufferBarrier(primary, scene_buffer, { sizeof(scene), 0 }, { RT_STAGE_TRANSFER, RT_ACCESS_WRITE }, { RT_STAGE_VERTEX, RT_ACCESS_READ });
+		rtCmdBeginRendering(primary, acquired.framebuffer);
+		rtCmdClearColor(primary, RT_LOCATION_ZERO, 0.004f, 0.006f, 0.014f, 1.0f);
+		if (DepthView) {
+			rtCmdClearDepth(primary, 1.0f);
 		}
-		rtCmdUseGraphicsProgram(cmd, graphics_program);
-		rtCmdBindBuffer(cmd, scene_location, scene_buffer, 0, sizeof(scene));
-		rtCmdVertexBuffer(cmd, position_location, vertex_buffer, 0);
-		rtCmdVertexBuffer(cmd, color_location, vertex_buffer, 0);
-		rtCmdVertexBuffer(cmd, normal_location, vertex_buffer, 0);
-		rtCmdVertexBuffer(cmd, kind_location, vertex_buffer, 0);
-		rtCmdVertexBuffer(cmd, seed_location, vertex_buffer, 0);
-		rtCmdDraw(cmd, (u32)vertices.size(), 0);
-		rtCmdEndRendering(cmd);
-		rtCmdEnd(cmd);
+		rtCmdClear(primary, static_cast<enum rt_clear_flag>(RT_CLEAR_COLOR | RT_CLEAR_DEPTH));
+		rtCmdSetViewport(primary, 0, 0, current_width, current_height, 0.0f, 1.0f);
+		rtCmdSetScissor(primary, 0, 0, current_width, current_height);
+		rtCmdBindBuffer(primary, scene_location, scene_buffer, { sizeof(scene), 0 });
+		rtCmdExecute(primary, cmd);
+		rtCmdEndRendering(primary);
+		rtCommandBufferEnd(primary);
 
-		rt_timepoint rendered = rtQueueSubmit(queue, cmd);
-		if (depth_view) {
-			rtFramebufferDepthView(acquired.framebuffer, RT_NULL_HANDLE);
+		rt_timepoint rendered = rtQueueSubmit(queue, primary);
+		if (DepthView) {
+			rtFramebufferSetDepthView(acquired.framebuffer, RT_NULL_HANDLE);
 		}
 		rtSwapchainPresent(swapchain, rendered);
 		rendered_frames++;
@@ -420,11 +418,12 @@ int main(int argc, char** argv) {
 	}
 
 	rtTimepointWait(rtQueueFlush(queue));
+	rtCommandBufferDestroy(primary);
 	rtCommandBufferDestroy(cmd);
 	rtQueueDestroy(queue);
 	rtGraphicsProgramDestroy(graphics_program);
-	rtTextureViewDestroy(depth_view);
-	rtTextureDestroy(depth_texture);
+	rtTextureViewDestroy(DepthView);
+	rtTextureDestroy(DepthTexture);
 	rtBufferDestroy(scene_buffer);
 	rtBufferDestroy(vertex_buffer);
 	Swapchain = RT_NULL_HANDLE;

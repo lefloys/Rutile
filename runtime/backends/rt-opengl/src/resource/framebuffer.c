@@ -3,6 +3,7 @@
 #include "context.h"
 #include "error.h"
 #include "execution.h"
+#include "resource/graphics_program.h"
 
 /*===============================================================================================*/
 /*                                                                                               */
@@ -16,16 +17,22 @@ void rtFramebufferDestroy(rt_framebuffer framebuffer) {
 	rtgl_framebuffer_destroy(rtgl_get_current_context(), rtgl_framebuffer_from_handle(framebuffer));
 }
 
-rt_texture_view rtFramebufferColorView(rt_framebuffer framebuffer, u32 slot) {
+rt_texture_view rtFramebufferColorView(rt_framebuffer framebuffer, rt_location location) {
+	u32 slot = location ? ((struct rt_location_t*)location)->binding : 0;
 	return rtgl_texture_view_to_handle(rtgl_framebuffer_color_view(rtgl_framebuffer_from_handle(framebuffer), slot));
 }
 
-void rtFramebufferSetColorView(rt_framebuffer framebuffer, u32 slot, rt_texture_view view) {
+void rtFramebufferSetColorView(rt_framebuffer framebuffer, rt_texture_view view, rt_location location) {
+	u32 slot = location ? ((struct rt_location_t*)location)->binding : 0;
 	rtgl_framebuffer_set_color_view(rtgl_get_current_context(), rtgl_framebuffer_from_handle(framebuffer), slot, rtgl_texture_view_from_handle(view));
 }
 
-void rtFramebufferDepthView(rt_framebuffer framebuffer, rt_texture_view view) {
+void rtFramebufferSetDepthView(rt_framebuffer framebuffer, rt_texture_view view) {
 	rtgl_framebuffer_set_depth_view(rtgl_get_current_context(), rtgl_framebuffer_from_handle(framebuffer), rtgl_texture_view_from_handle(view));
+}
+
+void rtFramebufferSetStencilView(rt_framebuffer framebuffer, rt_texture_view view) {
+	rtgl_framebuffer_set_stencil_view(rtgl_get_current_context(), rtgl_framebuffer_from_handle(framebuffer), rtgl_texture_view_from_handle(view));
 }
 
 /*===============================================================================================*/
@@ -79,6 +86,15 @@ void rtgl_framebuffer_set_depth_view(struct rtgl_context* ctx, struct rtgl_frame
 	rtgl_release_resource(framebuffer->depth_view);
 	framebuffer->depth_view = view;
 	rtgl_execution_framebuffer_attach_depth(ctx, framebuffer, view);
+}
+
+void rtgl_framebuffer_set_stencil_view(struct rtgl_context* ctx, struct rtgl_framebuffer* framebuffer, struct rtgl_texture_view* view) {
+	if (view) {
+		rtgl_retain_resource(view);
+	}
+	rtgl_release_resource(framebuffer->stencil_view);
+	framebuffer->stencil_view = view;
+	rtgl_execution_framebuffer_attach_stencil(ctx, framebuffer, view);
 }
 
 bool rtgl_framebuffer_valid(struct rtgl_framebuffer* framebuffer) {

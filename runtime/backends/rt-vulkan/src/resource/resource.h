@@ -23,6 +23,8 @@ typedef enum rtvk_resource_type {
 	RT_RESOURCE_GRAPHICS_PROGRAM,
 	RT_RESOURCE_QUEUE,
 	RT_RESOURCE_SWAPCHAIN,
+	RT_RESOURCE_SWAPCHAIN_GENERATION,
+	RT_RESOURCE_SWAPCHAIN_SURFACE,
 	RT_RESOURCE_SWAPCHAIN_FRAME,
 	RT_RESOURCE_TEXTURE,
 	RT_RESOURCE_TEXTURE_VIEW,
@@ -59,7 +61,12 @@ u64 rtvk_timepoint_value(rt_timepoint timepoint);
 
 #define RTVK_ALLOC_RESOURCE(type) (type*)rtvk_alloc_resource(sizeof(type))
 #define RTVK_RESOURCE_BASE(resource) ((struct rtvk_resource_base*)&(resource)->base)
-#define rtvk_retain_resource(resource) rtvk_resource_retain((RTVK_RESOURCE_BASE(resource)))
+#define rtvk_retain_resource(resource)                            \
+	do {                                                           \
+		if (resource) {                                              \
+			rtvk_resource_retain((RTVK_RESOURCE_BASE(resource)));      \
+		}                                                            \
+	} while (0)
 #define rtvk_release_resource(resource)                            \
 	do {                                                           \
 		if (resource) {                                            \

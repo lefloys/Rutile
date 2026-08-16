@@ -26,7 +26,7 @@ function(rutile_configure_example target)
     set(_example_runtimes)
     foreach(_runtime IN ITEMS
         rt-vulkan
-        rt-directx12
+        rt-d3d12
         rt-opengl
         rt-validation-layer
         rt-logging-layer

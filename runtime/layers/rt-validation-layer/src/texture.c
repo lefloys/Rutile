@@ -1,7 +1,5 @@
 #include "texture.h"
-#include "buffer.h"
 #include "logger.h"
-#include "queue.h"
 #include "texture_view.h"
 
 #define RTVAL_DROP(message) rtval_printf("[validation] %s, dropping call\n", message)
@@ -18,31 +16,35 @@ RT_API_PUBLIC void rtTextureDestroy(rt_texture texture) {
 	rtval_texture_destroy(rtval_texture_from_handle(texture));
 }
 
+RT_API_PUBLIC void rtTextureResize(rt_texture texture, enum rt_texture_type type, enum rt_format format, rt_extent_3d extent, usize mip_count) {
+	rtval_texture_resize(rtval_texture_from_handle(texture), type, format, extent, mip_count);
+}
+
 RT_API_PUBLIC rt_texture_view rtTextureViewCreate(void) {
 	return rtval_texture_view_to_handle(rtval_texture_view_create());
 }
 
-RT_API_PUBLIC void rtTextureViewBind(rt_texture_view texture_view, rt_texture texture) {
-	rtval_texture_view_bind(rtval_texture_view_from_handle(texture_view), rtval_texture_from_handle(texture));
+RT_API_PUBLIC void rtTextureViewSetTexture(rt_texture_view texture_view, rt_texture texture) {
+	rtval_texture_view_set_texture(rtval_texture_view_from_handle(texture_view), rtval_texture_from_handle(texture));
 }
 
 RT_API_PUBLIC void rtTextureViewDestroy(rt_texture_view texture_view) {
 	rtval_texture_view_destroy(rtval_texture_view_from_handle(texture_view));
 }
 
-RT_API_PUBLIC void rtTextureViewFilter(rt_texture_view texture_view, enum rt_filter mag_filter, enum rt_filter min_filter, enum rt_mip_filter mip_filter) {
+RT_API_PUBLIC void rtTextureViewSetFilter(rt_texture_view texture_view, enum rt_filter mag_filter, enum rt_filter min_filter, enum rt_mip_filter mip_filter) {
 	rtval_texture_view_filter(rtval_texture_view_from_handle(texture_view), mag_filter, min_filter, mip_filter);
 }
 
-RT_API_PUBLIC void rtTextureViewAddress(rt_texture_view texture_view, enum rt_address_mode address_u, enum rt_address_mode address_v, enum rt_address_mode address_w) {
+RT_API_PUBLIC void rtTextureViewSetAddress(rt_texture_view texture_view, enum rt_address_mode address_u, enum rt_address_mode address_v, enum rt_address_mode address_w) {
 	rtval_texture_view_address(rtval_texture_view_from_handle(texture_view), address_u, address_v, address_w);
 }
 
-RT_API_PUBLIC void rtTextureViewAnisotropy(rt_texture_view texture_view, u32 max_anisotropy) {
+RT_API_PUBLIC void rtTextureViewSetAnisotropy(rt_texture_view texture_view, usize max_anisotropy) {
 	rtval_texture_view_anisotropy(rtval_texture_view_from_handle(texture_view), max_anisotropy);
 }
 
-RT_API_PUBLIC void rtTextureViewLod(rt_texture_view texture_view, f32 min_lod, f32 max_lod, f32 lod_bias) {
+RT_API_PUBLIC void rtTextureViewSetLod(rt_texture_view texture_view, f32 min_lod, f32 max_lod, f32 lod_bias) {
 	rtval_texture_view_lod(rtval_texture_view_from_handle(texture_view), min_lod, max_lod, lod_bias);
 }
 
@@ -50,55 +52,8 @@ RT_API_PUBLIC rt_extent_3d rtTextureViewExtent(rt_texture_view texture_view) {
 	return rtval_texture_view_extent(rtval_texture_view_from_handle(texture_view));
 }
 
-RT_API_PUBLIC rt_timepoint rtTextureCopy(rt_texture src_texture, u32 src_mip, rt_texture dst_texture, u32 dst_mip) {
-	return rtval_texture_copy(
-		rtval_texture_from_handle(src_texture),
-		src_mip,
-		rtval_texture_from_handle(dst_texture),
-		dst_mip
-	);
-}
-
-RT_API_PUBLIC rt_timepoint rtTextureData(rt_texture texture, enum rt_texture_type type, u32 mip, u32 width, u32 height, u32 depth, enum rt_format format, const void* data) {
-	return rtval_texture_data(
-		rtval_texture_from_handle(texture),
-		type,
-		mip,
-		width,
-		height,
-		depth,
-		format,
-		data
-	);
-}
-
-RT_API_PUBLIC rt_timepoint rtTextureSubcopy(rt_texture src_texture, u32 src_mip, rt_extent_3d src_offset, rt_texture dst_texture, u32 dst_mip, rt_extent_3d dst_offset, rt_extent_3d extent) {
-	return rtval_texture_subcopy(
-		rtval_texture_from_handle(src_texture),
-		src_mip,
-		src_offset,
-		rtval_texture_from_handle(dst_texture),
-		dst_mip,
-		dst_offset,
-		extent
-	);
-}
-
-RT_API_PUBLIC rt_timepoint rtTextureSubdata(rt_texture texture, u32 mip, rt_extent_3d offset, rt_extent_3d extent, const void* data) {
-	return rtval_texture_subdata(
-		rtval_texture_from_handle(texture),
-		mip,
-		offset,
-		extent,
-		data
-	);
-}
-
-RT_API_PUBLIC rt_timepoint rtTextureViewCopyToBuffer(rt_texture_view texture_view, rt_buffer buffer) {
-	return rtval_texture_view_copy_to_buffer(
-		rtval_texture_view_from_handle(texture_view),
-		rtval_buffer_from_handle(buffer)
-	);
+RT_API_PUBLIC void rtTextureViewRead(rt_texture_view texture_view, rt_texture_range range, u08* data, usize data_size) {
+	rtval_texture_view_read(rtval_texture_view_from_handle(texture_view), range, data, data_size);
 }
 
 /*===============================================================================================*/
@@ -135,6 +90,16 @@ void rtval_texture_destroy(struct rtval_texture* texture) {
 	rtval_handle_destroy(texture);
 }
 
+void rtval_texture_resize(struct rtval_texture* texture, enum rt_texture_type type, enum rt_format format, rt_extent_3d extent, usize mip_count) {
+	struct rtval_texture* state = RTVAL_PAYLOAD(texture, struct rtval_texture);
+	if (!state || !mip_count || !extent.width || !extent.height || !extent.depth) {
+		RTVAL_DROP("rtTextureResize: texture, non-zero extent, and mip count required");
+		return;
+	}
+	rtval_next_rtTextureResize(state->backend, type, format, extent, mip_count);
+	rtval_report_error("rtTextureResize");
+}
+
 struct rtval_texture_view* rtval_texture_view_create(void) {
 	rt_texture_view backend = rtval_next_rtTextureViewCreate();
 	if (!backend) {
@@ -152,15 +117,15 @@ struct rtval_texture_view* rtval_texture_view_create(void) {
 	return handle;
 }
 
-void rtval_texture_view_bind(struct rtval_texture_view* view, struct rtval_texture* texture) {
+void rtval_texture_view_set_texture(struct rtval_texture_view* view, struct rtval_texture* texture) {
 	struct rtval_texture_view* view_state = RTVAL_PAYLOAD(view, struct rtval_texture_view);
 	struct rtval_texture* tex_state = RTVAL_PAYLOAD(texture, struct rtval_texture);
 	if (!view_state || !tex_state) {
-		RTVAL_DROP("rtTextureViewBind: invalid handle");
+		RTVAL_DROP("rtTextureViewSetTexture: invalid handle");
 		return;
 	}
-	rtval_next_rtTextureViewBind(view_state->backend, tex_state->backend);
-	rtval_report_error("rtTextureViewBind");
+	rtval_next_rtTextureViewSetTexture(view_state->backend, tex_state->backend);
+	rtval_report_error("rtTextureViewSetTexture");
 }
 
 void rtval_texture_view_destroy(struct rtval_texture_view* view) {
@@ -182,8 +147,8 @@ void rtval_texture_view_filter(struct rtval_texture_view* view, enum rt_filter m
 		RTVAL_DROP("rtTextureViewFilter: invalid handle");
 		return;
 	}
-	rtval_next_rtTextureViewFilter(state->backend, mag_filter, min_filter, mip_filter);
-	rtval_report_error("rtTextureViewFilter");
+	rtval_next_rtTextureViewSetFilter(state->backend, mag_filter, min_filter, mip_filter);
+	rtval_report_error("rtTextureViewSetFilter");
 }
 
 void rtval_texture_view_address(struct rtval_texture_view* view, enum rt_address_mode address_u, enum rt_address_mode address_v, enum rt_address_mode address_w) {
@@ -192,18 +157,18 @@ void rtval_texture_view_address(struct rtval_texture_view* view, enum rt_address
 		RTVAL_DROP("rtTextureViewAddress: invalid handle");
 		return;
 	}
-	rtval_next_rtTextureViewAddress(state->backend, address_u, address_v, address_w);
-	rtval_report_error("rtTextureViewAddress");
+	rtval_next_rtTextureViewSetAddress(state->backend, address_u, address_v, address_w);
+	rtval_report_error("rtTextureViewSetAddress");
 }
 
-void rtval_texture_view_anisotropy(struct rtval_texture_view* view, u32 max_anisotropy) {
+void rtval_texture_view_anisotropy(struct rtval_texture_view* view, usize max_anisotropy) {
 	struct rtval_texture_view* state = RTVAL_PAYLOAD(view, struct rtval_texture_view);
 	if (!state) {
 		RTVAL_DROP("rtTextureViewAnisotropy: invalid handle");
 		return;
 	}
-	rtval_next_rtTextureViewAnisotropy(state->backend, max_anisotropy);
-	rtval_report_error("rtTextureViewAnisotropy");
+	rtval_next_rtTextureViewSetAnisotropy(state->backend, max_anisotropy);
+	rtval_report_error("rtTextureViewSetAnisotropy");
 }
 
 void rtval_texture_view_lod(struct rtval_texture_view* view, f32 min_lod, f32 max_lod, f32 lod_bias) {
@@ -212,8 +177,8 @@ void rtval_texture_view_lod(struct rtval_texture_view* view, f32 min_lod, f32 ma
 		RTVAL_DROP("rtTextureViewLod: invalid handle");
 		return;
 	}
-	rtval_next_rtTextureViewLod(state->backend, min_lod, max_lod, lod_bias);
-	rtval_report_error("rtTextureViewLod");
+	rtval_next_rtTextureViewSetLod(state->backend, min_lod, max_lod, lod_bias);
+	rtval_report_error("rtTextureViewSetLod");
 }
 
 rt_extent_3d rtval_texture_view_extent(struct rtval_texture_view* view) {
@@ -228,83 +193,14 @@ rt_extent_3d rtval_texture_view_extent(struct rtval_texture_view* view) {
 	return extent;
 }
 
-rt_timepoint rtval_texture_copy(struct rtval_texture* src, u32 src_mip, struct rtval_texture* dst, u32 dst_mip) {
-	rt_timepoint timepoint = { 0 };
-	struct rtval_texture* s = RTVAL_PAYLOAD(src, struct rtval_texture);
-	struct rtval_texture* d = RTVAL_PAYLOAD(dst, struct rtval_texture);
-	if (!s || !d) {
-		RTVAL_DROP("rtTextureCopy: invalid texture");
-		return timepoint;
+void rtval_texture_view_read(struct rtval_texture_view* view, rt_texture_range range, u08* data, usize data_size) {
+	struct rtval_texture_view* state = RTVAL_PAYLOAD(view, struct rtval_texture_view);
+	if (!state || !data) {
+		RTVAL_DROP("rtTextureViewRead: view and destination required");
+		return;
 	}
-
-	timepoint = rtval_next_rtTextureCopy(s->backend, src_mip, d->backend, dst_mip);
-	rtval_report_error("rtTextureCopy");
-	return rtval_timepoint_wrap(timepoint);
-}
-
-rt_timepoint rtval_texture_data(struct rtval_texture* texture, enum rt_texture_type type, u32 mip, u32 width, u32 height, u32 depth, enum rt_format format, const void* data) {
-	rt_timepoint timepoint = { 0 };
-	struct rtval_texture* t = RTVAL_PAYLOAD(texture, struct rtval_texture);
-	if (!t) {
-		RTVAL_DROP("rtTextureData: invalid texture");
-		return timepoint;
-	}
-	timepoint = rtval_next_rtTextureData(t->backend, type, mip, width, height, depth, format, data);
-	rtval_report_error("rtTextureData");
-	return rtval_timepoint_wrap(timepoint);
-}
-
-rt_timepoint rtval_texture_subcopy(struct rtval_texture* src, u32 src_mip, rt_extent_3d src_offset, struct rtval_texture* dst, u32 dst_mip, rt_extent_3d dst_offset, rt_extent_3d extent) {
-	rt_timepoint timepoint = { 0 };
-	struct rtval_texture* s = RTVAL_PAYLOAD(src, struct rtval_texture);
-	struct rtval_texture* d = RTVAL_PAYLOAD(dst, struct rtval_texture);
-	if (!s || !d) {
-		RTVAL_DROP("rtTextureSubcopy: invalid texture");
-		return timepoint;
-	}
-	if (extent.width == 0 || extent.height == 0 || extent.depth == 0) {
-		RTVAL_DROP("rtTextureSubcopy: zero extent");
-		return timepoint;
-	}
-
-	timepoint = rtval_next_rtTextureSubcopy(s->backend, src_mip, src_offset, d->backend, dst_mip, dst_offset, extent);
-	rtval_report_error("rtTextureSubcopy");
-	return rtval_timepoint_wrap(timepoint);
-}
-
-rt_timepoint rtval_texture_subdata(struct rtval_texture* texture, u32 mip, rt_extent_3d offset, rt_extent_3d extent, const void* data) {
-	rt_timepoint timepoint = { 0 };
-	struct rtval_texture* t = RTVAL_PAYLOAD(texture, struct rtval_texture);
-	if (!t) {
-		RTVAL_DROP("rtTextureSubdata: invalid texture");
-		return timepoint;
-	}
-	if (!data) {
-		RTVAL_DROP("rtTextureSubdata: NULL data");
-		return timepoint;
-	}
-	if (extent.width == 0 || extent.height == 0 || extent.depth == 0) {
-		RTVAL_DROP("rtTextureSubdata: zero extent");
-		return timepoint;
-	}
-
-	timepoint = rtval_next_rtTextureSubdata(t->backend, mip, offset, extent, data);
-	rtval_report_error("rtTextureSubdata");
-	return rtval_timepoint_wrap(timepoint);
-}
-
-rt_timepoint rtval_texture_view_copy_to_buffer(struct rtval_texture_view* view, struct rtval_buffer* buffer) {
-	rt_timepoint timepoint = { 0 };
-	struct rtval_texture_view* v = RTVAL_PAYLOAD(view, struct rtval_texture_view);
-	struct rtval_buffer* b = RTVAL_PAYLOAD(buffer, struct rtval_buffer);
-	if (!v || !b) {
-		RTVAL_DROP("rtTextureViewCopyToBuffer: invalid resource");
-		return timepoint;
-	}
-
-	timepoint = rtval_next_rtTextureViewCopyToBuffer(v->backend, b->backend);
-	rtval_report_error("rtTextureViewCopyToBuffer");
-	return rtval_timepoint_wrap(timepoint);
+	rtval_next_rtTextureViewRead(state->backend, range, data, data_size);
+	rtval_report_error("rtTextureViewRead");
 }
 
 #undef RTVAL_DROP

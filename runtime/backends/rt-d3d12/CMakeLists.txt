@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.28.0)
 
-project(rt-directx12 C CXX)
+project(rt-d3d12 C CXX)
 
 include("${RUTILE_SOURCE_DIR}/cmake/RutileTarget.cmake")
 
@@ -102,5 +102,5 @@ if(_rtdx_dxcompiler_dll AND _rtdx_dxil_dll)
         DESTINATION "${CMAKE_INSTALL_BINDIR}"
     )
 else()
-    message(FATAL_ERROR "rt-directx12 requires redistributable dxcompiler.dll and dxil.dll")
+    message(FATAL_ERROR "rt-d3d12 requires redistributable dxcompiler.dll and dxil.dll")
 endif()

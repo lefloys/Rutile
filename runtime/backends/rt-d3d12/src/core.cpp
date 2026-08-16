@@ -12,7 +12,7 @@ void rtSettingSet(const char* name, const char* value) {
 	(void)value;
 }
 
-const char* rtGetName(void) { return "rt-directx12"; }
+const char* rtGetName(void) { return "rt-d3d12"; }
 
 enum rt_format_usage rtQueryFormatCapabilities(enum rt_format format) {
 	return RT_FORMAT_USAGE_NONE;

@@ -1,4 +1,5 @@
 #include "texture.hpp"
+#include "resource/command_buffer.hpp"
 #include "context.hpp"
 #include "error.hpp"
 #include "resource/buffer.hpp"
@@ -8,6 +9,26 @@
 #include <stdlib.h>
 #include <string.h>
 #include <vector>
+
+static u32 rtdx_texture_view_bytes_per_pixel(DXGI_FORMAT format);
+static DXGI_FORMAT rtdx_texture_format(enum rt_format format);
+static void rtdx_texture_recycle_node(struct rtdx_texture* texture, struct rtdx_texture* node);
+static bool rtdx_texture_view_read_direct(rtdx_context* ctx, rtdx_texture_view* view, rt_texture_range range, u08* data, usize data_size);
+
+usize rtdx_texture_subresource_count(const rtdx_image_base* image) {
+	return image ? image->mip_count * image->layer_count : 0;
+}
+
+D3D12_RESOURCE_STATES rtdx_texture_subresource_state(const rtdx_image_base* image, usize mip, usize layer) {
+	if (!image || mip >= image->mip_count || layer >= image->layer_count || !image->states) { return image ? image->state : D3D12_RESOURCE_STATE_COMMON; }
+	return image->states[layer * image->mip_count + mip];
+}
+
+void rtdx_texture_set_subresource_state(rtdx_image_base* image, usize mip, usize layer, D3D12_RESOURCE_STATES state) {
+	if (!image || mip >= image->mip_count || layer >= image->layer_count) { return; }
+	if (image->states) { image->states[layer * image->mip_count + mip] = state; }
+	image->state = state;
+}
 
 /*===============================================================================================*/
 /*                                                                                               */
@@ -22,11 +43,15 @@ void rtTextureDestroy(rt_texture texture) {
 	rtdx_texture_destroy(rtdx_get_current_context(), rtdx_texture_from_handle(texture));
 }
 
+void rtTextureResize(rt_texture texture, enum rt_texture_type type, enum rt_format format, rt_extent_3d extent, usize mip_count) {
+	rtdx_texture_resize(rtdx_get_current_context(), rtdx_texture_from_handle(texture), type, format, extent, mip_count);
+}
+
 rt_texture_view rtTextureViewCreate(void) {
 	return rtdx_texture_view_to_handle(rtdx_texture_view_create(rtdx_get_current_context()));
 }
 
-void rtTextureViewBind(rt_texture_view texture_view, rt_texture texture) {
+void rtTextureViewSetTexture(rt_texture_view texture_view, rt_texture texture) {
 	rtdx_texture_view_bind(
 		rtdx_get_current_context(),
 		rtdx_texture_view_from_handle(texture_view),
@@ -38,19 +63,19 @@ void rtTextureViewDestroy(rt_texture_view texture_view) {
 	rtdx_texture_view_destroy(rtdx_get_current_context(), rtdx_texture_view_from_handle(texture_view));
 }
 
-void rtTextureViewFilter(rt_texture_view texture_view, enum rt_filter mag_filter, enum rt_filter min_filter, enum rt_mip_filter mip_filter) {
+void rtTextureViewSetFilter(rt_texture_view texture_view, enum rt_filter mag_filter, enum rt_filter min_filter, enum rt_mip_filter mip_filter) {
 	rtdx_texture_view_filter(rtdx_texture_view_from_handle(texture_view), mag_filter, min_filter, mip_filter);
 }
 
-void rtTextureViewAddress(rt_texture_view texture_view, enum rt_address_mode address_u, enum rt_address_mode address_v, enum rt_address_mode address_w) {
+void rtTextureViewSetAddress(rt_texture_view texture_view, enum rt_address_mode address_u, enum rt_address_mode address_v, enum rt_address_mode address_w) {
 	rtdx_texture_view_address(rtdx_texture_view_from_handle(texture_view), address_u, address_v, address_w);
 }
 
-void rtTextureViewAnisotropy(rt_texture_view texture_view, u32 max_anisotropy) {
-	rtdx_texture_view_anisotropy(rtdx_texture_view_from_handle(texture_view), max_anisotropy);
+void rtTextureViewSetAnisotropy(rt_texture_view texture_view, usize max_anisotropy) {
+	rtdx_texture_view_anisotropy(rtdx_texture_view_from_handle(texture_view), (u32)max_anisotropy);
 }
 
-void rtTextureViewLod(rt_texture_view texture_view, f32 min_lod, f32 max_lod, f32 lod_bias) {
+void rtTextureViewSetLod(rt_texture_view texture_view, f32 min_lod, f32 max_lod, f32 lod_bias) {
 	rtdx_texture_view_lod(rtdx_texture_view_from_handle(texture_view), min_lod, max_lod, lod_bias);
 }
 
@@ -112,80 +137,26 @@ static D3D12_SAMPLER_DESC rtdx_sampler_desc(struct rtdx_texture_view* view) {
 	return result;
 }
 
-rt_timepoint rtTextureCopy(rt_texture src_texture, u32 src_mip, rt_texture dst_texture, u32 dst_mip) {
-	rt_timepoint timepoint = rtdx_texture_copy(
-		rtdx_get_current_context(),
-		rtdx_texture_from_handle(src_texture),
-		src_mip,
-		rtdx_texture_from_handle(dst_texture),
-		dst_mip
-	);
-	return timepoint;
+void rtCmdTextureCopy(rt_command_buffer command_buffer, rt_texture src_texture, rt_texture_range src_range, rt_texture dst_texture, rt_texture_range dst_range) {
+	rtdx_command_buffer_texture_copy(rtdx_command_buffer_from_handle(command_buffer), rtdx_texture_from_handle(src_texture), src_range, rtdx_texture_from_handle(dst_texture), dst_range);
 }
 
-rt_timepoint rtTextureData(rt_texture texture, enum rt_texture_type type, u32 mip, u32 width, u32 height, u32 depth, enum rt_format format, const void* data) {
-	rt_timepoint timepoint = rtdx_texture_data(
-		rtdx_get_current_context(),
-		rtdx_texture_from_handle(texture),
-		type,
-		width,
-		height,
-		depth,
-		mip,
-		format,
-		data
-	);
-	return timepoint;
+void rtCmdTextureData(rt_command_buffer command_buffer, rt_texture texture, rt_texture_range range, const u08* data) {
+	rtdx_command_buffer_texture_data(rtdx_command_buffer_from_handle(command_buffer), rtdx_texture_from_handle(texture), range, data);
 }
 
-rt_timepoint rtTextureSubcopy(rt_texture src_texture, u32 src_mip, rt_extent_3d src_offset, rt_texture dst_texture, u32 dst_mip, rt_extent_3d dst_offset, rt_extent_3d extent) {
-	rt_timepoint timepoint = rtdx_texture_subcopy(
-		rtdx_get_current_context(),
-		rtdx_texture_from_handle(src_texture),
-		src_mip,
-		src_offset.width,
-		src_offset.height,
-		src_offset.depth,
-		rtdx_texture_from_handle(dst_texture),
-		dst_mip,
-		dst_offset.width,
-		dst_offset.height,
-		dst_offset.depth,
-		extent.width,
-		extent.height,
-		extent.depth
-	);
-	return timepoint;
+void rtCmdTextureCopyToBuffer(rt_command_buffer command_buffer, rt_texture src, rt_texture_range src_range, rt_buffer dst, rt_buffer_range dst_range) {
+	rtdx_command_buffer_texture_copy_to_buffer(rtdx_command_buffer_from_handle(command_buffer), rtdx_texture_from_handle(src), src_range, rtdx_buffer_from_handle(dst), dst_range);
 }
 
-rt_timepoint rtTextureSubdata(rt_texture texture, u32 mip, rt_extent_3d offset, rt_extent_3d extent, const void* data) {
-	rt_timepoint timepoint = rtdx_texture_subdata(
-		rtdx_get_current_context(),
-		rtdx_texture_from_handle(texture),
-		mip,
-		offset.width,
-		offset.height,
-		offset.depth,
-		extent.width,
-		extent.height,
-		extent.depth,
-		data
-	);
-	return timepoint;
-}
-
-rt_timepoint rtTextureViewCopyToBuffer(rt_texture_view texture_view, rt_buffer buffer) {
-	rt_timepoint timepoint = rtdx_texture_view_copy_to_buffer(
-		rtdx_get_current_context(),
-		rtdx_texture_view_from_handle(texture_view),
-		rtdx_buffer_from_handle(buffer)
-	);
-	return timepoint;
+void rtCmdTextureBarrier(rt_command_buffer command_buffer, rt_texture texture, rt_texture_range range, rt_access src, rt_access dst) {
+	rtdx_command_buffer_texture_barrier(rtdx_command_buffer_from_handle(command_buffer), rtdx_texture_from_handle(texture), range, src, dst);
 }
 
 rt_extent_3d rtTextureViewExtent(rt_texture_view texture_view) {
 	rt_extent_3d extent = { 0, 0, 0 };
 	struct rtdx_texture_view* view = rtdx_texture_view_from_handle(texture_view);
+	rtdx_texture_view_refresh(rtdx_get_current_context(), view);
 	if (!view || !view->image || !view->image->d3d_resource) {
 		rtdx_throwf(RT_IMPROPER_USAGE, "texture view extent query source is invalid");
 		return extent;
@@ -194,6 +165,12 @@ rt_extent_3d rtTextureViewExtent(rt_texture_view texture_view) {
 	extent.height = view->image->height;
 	extent.depth = view->image->depth;
 	return extent;
+}
+
+void rtTextureViewRead(rt_texture_view texture_view, rt_texture_range range, u08* data, usize data_size) {
+	rtdx_context* ctx = rtdx_get_current_context();
+	rtdx_texture_view* view = rtdx_texture_view_from_handle(texture_view);
+	if (!rtdx_texture_view_refresh(ctx, view) || !rtdx_texture_view_read_direct(ctx, view, range, data, data_size)) { return; }
 }
 
 /*===============================================================================================*/
@@ -209,7 +186,13 @@ static u32 rtdx_texture_view_bytes_per_pixel(DXGI_FORMAT format) {
 	case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB:
 	case DXGI_FORMAT_B8G8R8A8_UNORM:
 	case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB:
+	case DXGI_FORMAT_D32_FLOAT:
+	case DXGI_FORMAT_D24_UNORM_S8_UINT:
 		return 4;
+	case DXGI_FORMAT_D16_UNORM:
+		return 2;
+	case DXGI_FORMAT_D32_FLOAT_S8X24_UINT:
+		return 8;
 	default:
 		return 0;
 	}
@@ -261,6 +244,77 @@ static struct rtdx_queue* rtdx_texture_upload_queue(struct rtdx_context* ctx) {
 		return queue;
 	}
 	return rtdx_context_queue(ctx, RT_QUEUE_GRAPHICS);
+}
+
+static bool rtdx_texture_read_range_valid(const rtdx_image_base* image, rt_texture_range range) {
+	if (!image || !range.mip_count || !range.layer_count || !range.extent.width || !range.extent.height || !range.extent.depth || range.base_mip >= image->mip_count || range.mip_count > image->mip_count - range.base_mip) { return false; }
+	const enum rt_texture_aspect_flag available = rtdx_texture_format_is_depth(image->dxgi_format)
+		? (image->dxgi_format == DXGI_FORMAT_D24_UNORM_S8_UINT || image->dxgi_format == DXGI_FORMAT_D32_FLOAT_S8X24_UINT
+			? (enum rt_texture_aspect_flag)(RT_TEXTURE_ASPECT_DEPTH | RT_TEXTURE_ASPECT_STENCIL)
+			: RT_TEXTURE_ASPECT_DEPTH)
+		: RT_TEXTURE_ASPECT_COLOR;
+	if (!range.aspects || (range.aspects & ~available)) { return false; }
+	const usize layers = (image->type == RT_TEXTURE_1D_ARRAY || image->type == RT_TEXTURE_2D_ARRAY) ? image->layer_count : 1;
+	if (range.base_layer >= layers || range.layer_count > layers - range.base_layer) { return false; }
+	if ((image->type == RT_TEXTURE_1D || image->type == RT_TEXTURE_1D_ARRAY) && (range.offset.height || range.extent.height != 1 || range.offset.depth || range.extent.depth != 1)) { return false; }
+	if (image->type != RT_TEXTURE_3D && (range.offset.depth || range.extent.depth != 1)) { return false; }
+	for (usize mip = 0; mip < range.mip_count; ++mip) {
+		usize level = range.base_mip + mip;
+		usize width = image->width >> level ? image->width >> level : 1;
+		usize height = image->type == RT_TEXTURE_1D || image->type == RT_TEXTURE_1D_ARRAY ? 1 : (image->height >> level ? image->height >> level : 1);
+		usize depth = image->type == RT_TEXTURE_3D ? (image->depth >> level ? image->depth >> level : 1) : 1;
+		if (range.offset.width > width || range.extent.width > width - range.offset.width || range.offset.height > height || range.extent.height > height - range.offset.height || range.offset.depth > depth || range.extent.depth > depth - range.offset.depth) { return false; }
+	}
+	return true;
+}
+
+static bool rtdx_texture_read_aspects_supported(const rtdx_image_base* image, rt_texture_range range) {
+	if (!image || (image->dxgi_format != DXGI_FORMAT_D24_UNORM_S8_UINT && image->dxgi_format != DXGI_FORMAT_D32_FLOAT_S8X24_UINT)) {
+		return true;
+	}
+	return range.aspects == (enum rt_texture_aspect_flag)(RT_TEXTURE_ASPECT_DEPTH | RT_TEXTURE_ASPECT_STENCIL);
+}
+
+static bool rtdx_texture_view_read_direct(rtdx_context* ctx, rtdx_texture_view* view, rt_texture_range range, u08* data, usize data_size) {
+	if (!ctx || !view || !view->image || !view->image->d3d_resource || !data || !rtdx_texture_read_range_valid(view->image, range) || !rtdx_texture_read_aspects_supported(view->image, range)) { rtdx_throwf(RT_IMPROPER_USAGE, "texture view read range is invalid"); return false; }
+	const u32 bpp = rtdx_texture_view_bytes_per_pixel(view->image->dxgi_format);
+	const usize packed_region = range.extent.width * range.extent.height * range.extent.depth * bpp;
+	const usize region_count = range.mip_count * range.layer_count;
+	if (!bpp || !packed_region || data_size < packed_region * region_count) { rtdx_throwf(RT_IMPROPER_USAGE, "texture view read destination is too small or format is unsupported"); return false; }
+	struct rtdx_read_region { D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint; UINT subresource; D3D12_RESOURCE_STATES state; };
+	std::vector<rtdx_read_region> regions;
+	D3D12_RESOURCE_DESC desc = view->image->d3d_resource->GetDesc();
+	u64 offset = 0;
+	for (usize mip = 0; mip < range.mip_count; ++mip) for (usize layer = 0; layer < range.layer_count; ++layer) {
+		const UINT subresource = (UINT)((range.base_layer + layer) * view->image->mip_count + range.base_mip + mip);
+		D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint = {}; u32 rows = 0; u64 row_size = 0; u64 size = 0;
+		ctx->d3d_device->GetCopyableFootprints(&desc, subresource, 1, offset, &footprint, &rows, &row_size, &size);
+		footprint.Footprint.Width = (UINT)range.extent.width;
+		footprint.Footprint.Height = (UINT)range.extent.height;
+		footprint.Footprint.Depth = (UINT)range.extent.depth;
+		regions.push_back({ footprint, subresource, rtdx_texture_subresource_state(view->image, range.base_mip + mip, range.base_layer + layer) });
+		offset = footprint.Offset + size;
+	}
+	D3D12_HEAP_PROPERTIES heap = {}; heap.Type = D3D12_HEAP_TYPE_READBACK;
+	D3D12_RESOURCE_DESC buffer = {}; buffer.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER; buffer.Width = offset; buffer.Height = 1; buffer.DepthOrArraySize = 1; buffer.MipLevels = 1; buffer.SampleDesc.Count = 1; buffer.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+	ID3D12Resource* readback = NULL; HRESULT result = ctx->d3d_device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &buffer, D3D12_RESOURCE_STATE_COPY_DEST, NULL, IID_PPV_ARGS(&readback));
+	if (FAILED(result)) { rtdx_throwf(rtdx_error_from_hresult(result), "CreateCommittedResource(texture readback) failed: 0x%08x", (u32)result); return false; }
+	ID3D12CommandAllocator* allocator = NULL; result = ctx->d3d_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&allocator));
+	if (FAILED(result)) { rtdx_release(&readback); rtdx_throwf(rtdx_error_from_hresult(result), "CreateCommandAllocator(texture readback) failed: 0x%08x", (u32)result); return false; }
+	ID3D12GraphicsCommandList* list = NULL; result = ctx->d3d_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator, NULL, IID_PPV_ARGS(&list));
+	if (FAILED(result)) { rtdx_release(&allocator); rtdx_release(&readback); rtdx_throwf(rtdx_error_from_hresult(result), "CreateCommandList(texture readback) failed: 0x%08x", (u32)result); return false; }
+	for (const rtdx_read_region& region : regions) if (region.state != D3D12_RESOURCE_STATE_COPY_SOURCE) { D3D12_RESOURCE_BARRIER barrier = {}; barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION; barrier.Transition.pResource = view->image->d3d_resource; barrier.Transition.Subresource = region.subresource; barrier.Transition.StateBefore = region.state; barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE; list->ResourceBarrier(1, &barrier); }
+	for (const rtdx_read_region& region : regions) { D3D12_TEXTURE_COPY_LOCATION src = {}; src.pResource = view->image->d3d_resource; src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX; src.SubresourceIndex = region.subresource; D3D12_TEXTURE_COPY_LOCATION dst = {}; dst.pResource = readback; dst.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT; dst.PlacedFootprint = region.footprint; D3D12_BOX box = { (UINT)range.offset.width, (UINT)range.offset.height, (UINT)range.offset.depth, (UINT)(range.offset.width + range.extent.width), (UINT)(range.offset.height + range.extent.height), (UINT)(range.offset.depth + range.extent.depth) }; list->CopyTextureRegion(&dst, 0, 0, 0, &src, &box); }
+	for (const rtdx_read_region& region : regions) if (region.state != D3D12_RESOURCE_STATE_COPY_SOURCE) { D3D12_RESOURCE_BARRIER barrier = {}; barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION; barrier.Transition.pResource = view->image->d3d_resource; barrier.Transition.Subresource = region.subresource; barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE; barrier.Transition.StateAfter = region.state; list->ResourceBarrier(1, &barrier); }
+	result = list->Close(); if (FAILED(result)) { rtdx_release(&list); rtdx_release(&allocator); rtdx_release(&readback); rtdx_throwf(rtdx_error_from_hresult(result), "Close(texture readback) failed: 0x%08x", (u32)result); return false; }
+	rtdx_queue* queue = rtdx_texture_upload_queue(ctx); if (!queue) { rtdx_release(&list); rtdx_release(&allocator); rtdx_release(&readback); rtdx_throwf(RT_IMPROPER_USAGE, "texture read requires a queue"); return false; }
+	rtdx_wait_for_timepoint(ctx, rtdx_queue_timepoint(queue, queue->fence_value));
+	{ rtdx_physical_queue_scope physical_queue(ctx); ID3D12CommandList* lists[] = { list }; queue->d3d_queue->ExecuteCommandLists(1, lists); u64 fence = ++ctx->next_fence_value; result = queue->d3d_queue->Signal(queue->d3d_fence, fence); if (FAILED(result)) { rtdx_release(&list); rtdx_release(&allocator); rtdx_release(&readback); rtdx_throwf(rtdx_error_from_hresult(result), "Signal(texture readback) failed: 0x%08x", (u32)result); return false; } queue->fence_value = fence; rtdx_wait_for_timepoint(ctx, rtdx_queue_timepoint(queue, fence)); }
+	D3D12_RANGE read = { 0, (SIZE_T)offset }; void* mapped = NULL; result = readback->Map(0, &read, &mapped); if (FAILED(result)) { rtdx_release(&list); rtdx_release(&allocator); rtdx_release(&readback); rtdx_throwf(rtdx_error_from_hresult(result), "Map(texture readback) failed: 0x%08x", (u32)result); return false; }
+	for (usize index = 0; index < regions.size(); ++index) for (usize z = 0; z < range.extent.depth; ++z) for (usize y = 0; y < range.extent.height; ++y) memcpy(data + index * packed_region + (z * range.extent.height + y) * range.extent.width * bpp, static_cast<const u08*>(mapped) + regions[index].footprint.Offset + (z * range.extent.height + y) * regions[index].footprint.Footprint.RowPitch, range.extent.width * bpp);
+	D3D12_RANGE write = { 0, 0 }; readback->Unmap(0, &write);
+	rtdx_release(&list); rtdx_release(&allocator); rtdx_release(&readback);
+	return true;
 }
 
 bool rtdx_texture_format_is_depth(DXGI_FORMAT format) {
@@ -412,6 +466,8 @@ void rtdx_texture_finish(struct rtdx_context* ctx, struct rtdx_texture* texture)
 	}
 	texture->next = NULL;
 	rtdx_release(&texture->d3d_resource);
+	free(texture->states);
+	texture->states = NULL;
 	rtdx_finish_resource_base(ctx, RTDX_RESOURCE_BASE(texture));
 }
 
@@ -420,10 +476,8 @@ void rtdx_texture_view_finish(struct rtdx_context* ctx, struct rtdx_texture_view
 	rtdx_release(&view->d3d_srv_heap);
 	rtdx_release(&view->d3d_rtv_heap);
 	rtdx_release(&view->d3d_dsv_heap);
-	if (view->image) {
-		rtdx_resource_release(view->image);
-		view->image = NULL;
-	}
+	if (view->texture) { rtdx_resource_release(RTDX_RESOURCE_BASE(view->texture)); view->texture = NULL; }
+	view->image = NULL;
 	view->rtv.ptr = 0;
 	view->dsv.ptr = 0;
 	view->sampler_cpu.ptr = 0;
@@ -446,6 +500,90 @@ static struct rtdx_texture* rtdx_texture_node_create(struct rtdx_context* ctx) {
 	return node;
 }
 
+static bool rtdx_texture_desc(rt_texture_type type, DXGI_FORMAT format, rt_extent_3d extent, usize mip_count, D3D12_RESOURCE_DESC* out_desc, usize* out_layers) {
+	if (!out_desc || !extent.width || !extent.height || !extent.depth || !mip_count || format == DXGI_FORMAT_UNKNOWN) { return false; }
+	D3D12_RESOURCE_DESC desc = {};
+	desc.Width = extent.width;
+	desc.Height = (UINT)extent.height;
+	desc.MipLevels = (UINT16)mip_count;
+	switch (format) {
+	case DXGI_FORMAT_D16_UNORM: desc.Format = DXGI_FORMAT_R16_TYPELESS; break;
+	case DXGI_FORMAT_D32_FLOAT: desc.Format = DXGI_FORMAT_R32_TYPELESS; break;
+	case DXGI_FORMAT_D24_UNORM_S8_UINT: desc.Format = DXGI_FORMAT_R24G8_TYPELESS; break;
+	case DXGI_FORMAT_D32_FLOAT_S8X24_UINT: desc.Format = DXGI_FORMAT_R32G8X24_TYPELESS; break;
+	default: desc.Format = format; break;
+	}
+	desc.SampleDesc.Count = 1;
+	desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+	usize layers = 1;
+	switch (type) {
+	case RT_TEXTURE_1D:
+		if (extent.height != 1 || extent.depth != 1) { return false; }
+		desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE1D;
+		desc.Height = 1;
+		desc.DepthOrArraySize = 1;
+		break;
+	case RT_TEXTURE_2D:
+		if (extent.depth != 1) { return false; }
+		desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+		desc.DepthOrArraySize = 1;
+		break;
+	case RT_TEXTURE_3D:
+		desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE3D;
+		desc.DepthOrArraySize = (UINT16)extent.depth;
+		break;
+	case RT_TEXTURE_1D_ARRAY:
+		if (extent.height != 1) { return false; }
+		desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE1D;
+		desc.Height = 1;
+		desc.DepthOrArraySize = (UINT16)extent.depth;
+		layers = extent.depth;
+		break;
+	case RT_TEXTURE_2D_ARRAY:
+		desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+		desc.DepthOrArraySize = (UINT16)extent.depth;
+		layers = extent.depth;
+		break;
+	default:
+		return false;
+	}
+	desc.Flags = rtdx_texture_format_is_depth(format) ? D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL : D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+	*out_desc = desc;
+	*out_layers = layers;
+	return true;
+}
+
+bool rtdx_texture_resize(rtdx_context* ctx, rtdx_texture* texture, rt_texture_type type, rt_format format, rt_extent_3d extent, usize mip_count) {
+	if (!ctx || !texture) { rtdx_throwf(RT_IMPROPER_USAGE, "texture resize target is invalid"); return false; }
+	DXGI_FORMAT dxgi_format = rtdx_texture_format(format);
+	D3D12_RESOURCE_DESC desc = {};
+	usize layers = 0;
+	if (!rtdx_texture_desc(type, dxgi_format, extent, mip_count, &desc, &layers)) { rtdx_throwf(RT_IMPROPER_USAGE, "texture resize description is invalid or unsupported"); return false; }
+	rtdx_texture* node = rtdx_texture_node_create(ctx);
+	if (!node) { return false; }
+	D3D12_HEAP_PROPERTIES heap = {};
+	heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+	D3D12_CLEAR_VALUE clear_value = {};
+	clear_value.Format = dxgi_format;
+	clear_value.DepthStencil.Depth = 1.0f;
+	HRESULT result = ctx->d3d_device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_COMMON, rtdx_texture_format_is_depth(dxgi_format) ? &clear_value : NULL, IID_PPV_ARGS(&node->d3d_resource));
+	if (FAILED(result)) { rtdx_resource_release(RTDX_RESOURCE_BASE(node)); rtdx_throwf(rtdx_error_from_hresult(result), "CreateCommittedResource(texture) failed: 0x%08x", (u32)result); return false; }
+	node->width = extent.width;
+	node->height = extent.height;
+	node->depth = extent.depth;
+	node->mip_count = mip_count;
+	node->layer_count = layers;
+	node->dxgi_format = dxgi_format;
+	node->type = type;
+	node->state = D3D12_RESOURCE_STATE_COMMON;
+	node->states = static_cast<D3D12_RESOURCE_STATES*>(calloc(mip_count * layers, sizeof(*node->states)));
+	if (!node->states) { rtdx_resource_release(RTDX_RESOURCE_BASE(node)); rtdx_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate texture subresource state"); return false; }
+	for (usize i = 0; i < mip_count * layers; ++i) { node->states[i] = D3D12_RESOURCE_STATE_COMMON; }
+	rtdx_texture_recycle_node(texture, texture->active);
+	texture->active = node;
+	return true;
+}
+
 static bool rtdx_texture_view_rebuild_descriptors(struct rtdx_context* ctx, struct rtdx_texture_view* view) {
 	if (!view || !view->image || !view->image->d3d_resource || view->image->dxgi_format == DXGI_FORMAT_UNKNOWN) {
 		rtdx_throwf(RT_IMPROPER_USAGE, "texture view is invalid");
@@ -461,7 +599,8 @@ static bool rtdx_texture_view_rebuild_descriptors(struct rtdx_context* ctx, stru
 	view->srv_gpu.ptr = 0;
 	HRESULT result = S_OK;
 
-	if (rtdx_texture_format_is_depth(view->image->dxgi_format)) {
+	const bool depth_format = rtdx_texture_format_is_depth(view->image->dxgi_format);
+	if (depth_format) {
 		D3D12_DESCRIPTOR_HEAP_DESC heap_desc = {};
 		heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
 		heap_desc.NumDescriptors = 1;
@@ -473,9 +612,14 @@ static bool rtdx_texture_view_rebuild_descriptors(struct rtdx_context* ctx, stru
 		view->dsv = view->d3d_dsv_heap->GetCPUDescriptorHandleForHeapStart();
 		D3D12_DEPTH_STENCIL_VIEW_DESC dsv_desc = {};
 		dsv_desc.Format = view->image->dxgi_format;
-		dsv_desc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
+		switch (view->image->type) {
+		case RT_TEXTURE_1D: dsv_desc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE1D; break;
+		case RT_TEXTURE_1D_ARRAY: dsv_desc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE1DARRAY; dsv_desc.Texture1DArray.ArraySize = (UINT)view->image->layer_count; break;
+		case RT_TEXTURE_2D_ARRAY: dsv_desc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2DARRAY; dsv_desc.Texture2DArray.ArraySize = (UINT)view->image->layer_count; break;
+		case RT_TEXTURE_2D: dsv_desc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D; break;
+		default: rtdx_throwf(RT_UNSUPPORTED_FEATURE, "D3D12 depth views do not support this texture type"); return false;
+		}
 		ctx->d3d_device->CreateDepthStencilView(view->image->d3d_resource, &dsv_desc, view->dsv);
-		return true;
 	}
 
 	D3D12_DESCRIPTOR_HEAP_DESC srv_heap_desc = {};
@@ -491,10 +635,26 @@ static bool rtdx_texture_view_rebuild_descriptors(struct rtdx_context* ctx, stru
 	view->srv_gpu = view->d3d_srv_heap->GetGPUDescriptorHandleForHeapStart();
 	D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc = {};
 	srv_desc.Format = view->image->dxgi_format;
+	if (depth_format) {
+		switch (view->image->dxgi_format) {
+		case DXGI_FORMAT_D16_UNORM: srv_desc.Format = DXGI_FORMAT_R16_UNORM; break;
+		case DXGI_FORMAT_D32_FLOAT: srv_desc.Format = DXGI_FORMAT_R32_FLOAT; break;
+		case DXGI_FORMAT_D24_UNORM_S8_UINT: srv_desc.Format = DXGI_FORMAT_R24_UNORM_X8_TYPELESS; break;
+		case DXGI_FORMAT_D32_FLOAT_S8X24_UINT: srv_desc.Format = DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS; break;
+		default: break;
+		}
+	}
 	srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-	srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-	srv_desc.Texture2D.MipLevels = UINT_MAX;
+	switch (view->image->type) {
+	case RT_TEXTURE_1D: srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE1D; srv_desc.Texture1D.MipLevels = (UINT)view->image->mip_count; break;
+	case RT_TEXTURE_1D_ARRAY: srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE1DARRAY; srv_desc.Texture1DArray.ArraySize = (UINT)view->image->layer_count; srv_desc.Texture1DArray.MipLevels = (UINT)view->image->mip_count; break;
+	case RT_TEXTURE_2D: srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D; srv_desc.Texture2D.MipLevels = (UINT)view->image->mip_count; break;
+	case RT_TEXTURE_2D_ARRAY: srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2DARRAY; srv_desc.Texture2DArray.ArraySize = (UINT)view->image->layer_count; srv_desc.Texture2DArray.MipLevels = (UINT)view->image->mip_count; break;
+	case RT_TEXTURE_3D: srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE3D; srv_desc.Texture3D.MipLevels = (UINT)view->image->mip_count; break;
+	default: rtdx_throwf(RT_UNSUPPORTED_FEATURE, "D3D12 texture view type is unsupported"); return false;
+	}
 	ctx->d3d_device->CreateShaderResourceView(view->image->d3d_resource, &srv_desc, view->srv_cpu);
+	if (depth_format) { return true; }
 
 	D3D12_DESCRIPTOR_HEAP_DESC heap_desc = {};
 	heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
@@ -507,7 +667,14 @@ static bool rtdx_texture_view_rebuild_descriptors(struct rtdx_context* ctx, stru
 	view->rtv = view->d3d_rtv_heap->GetCPUDescriptorHandleForHeapStart();
 	D3D12_RENDER_TARGET_VIEW_DESC rtv_desc = {};
 	rtv_desc.Format = view->image->dxgi_format;
-	rtv_desc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
+	switch (view->image->type) {
+	case RT_TEXTURE_1D: rtv_desc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE1D; break;
+	case RT_TEXTURE_1D_ARRAY: rtv_desc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE1DARRAY; rtv_desc.Texture1DArray.ArraySize = (UINT)view->image->layer_count; break;
+	case RT_TEXTURE_2D: rtv_desc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D; break;
+	case RT_TEXTURE_2D_ARRAY: rtv_desc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2DARRAY; rtv_desc.Texture2DArray.ArraySize = (UINT)view->image->layer_count; break;
+	case RT_TEXTURE_3D: rtv_desc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE3D; rtv_desc.Texture3D.WSize = (UINT)view->image->depth; break;
+	default: rtdx_throwf(RT_UNSUPPORTED_FEATURE, "D3D12 render-target view type is unsupported"); return false;
+	}
 	ctx->d3d_device->CreateRenderTargetView(view->image->d3d_resource, &rtv_desc, view->rtv);
 	return true;
 }
@@ -518,6 +685,76 @@ static void rtdx_texture_recycle_node(struct rtdx_texture* texture, struct rtdx_
 	}
 	node->next = texture->next;
 	texture->next = node;
+}
+
+static struct rtdx_texture* rtdx_texture_take_reusable_node(struct rtdx_texture* texture, const D3D12_RESOURCE_DESC& desc) {
+	if (!texture) { return NULL; }
+	struct rtdx_texture** link = &texture->next;
+	while (*link) {
+		struct rtdx_texture* node = *link;
+		D3D12_RESOURCE_DESC candidate = node->d3d_resource ? node->d3d_resource->GetDesc() : D3D12_RESOURCE_DESC{};
+		if (rtdx_atomic_load(&node->ref_count) == 1 && candidate.Dimension == desc.Dimension && candidate.Width == desc.Width && candidate.Height == desc.Height && candidate.DepthOrArraySize == desc.DepthOrArraySize && candidate.MipLevels == desc.MipLevels && candidate.Format == desc.Format && candidate.Flags == desc.Flags) {
+			*link = node->next;
+			node->next = NULL;
+			return node;
+		}
+		link = &node->next;
+	}
+	return NULL;
+}
+
+rtdx_texture_write rtdx_texture_write_begin(struct rtdx_context* ctx, struct rtdx_texture* texture) {
+	rtdx_texture_write write = {};
+	if (!texture || !texture->active || !texture->active->d3d_resource) { return write; }
+	write.target = texture->active;
+	/* DXGI owns swapchain back buffers. Acquiring a frame supplies the queue
+	 * dependency that makes its one physical image writable again; it must never
+	 * be copy-on-written into an unrelated private render target. */
+	if (texture->active->swapchain_image) { return write; }
+	if (rtdx_atomic_load(&texture->active->ref_count) == 1) { return write; }
+	struct rtdx_texture* source = texture->active;
+	D3D12_RESOURCE_DESC desc = source->d3d_resource->GetDesc();
+	struct rtdx_texture* target = rtdx_texture_take_reusable_node(texture, desc);
+	if (!target) {
+		target = rtdx_texture_node_create(ctx);
+	}
+	if (!target) { return {}; }
+	const bool reused = target->d3d_resource != NULL;
+	if (!reused) {
+		D3D12_HEAP_PROPERTIES heap = {};
+		heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+		D3D12_CLEAR_VALUE clear_value = {};
+		clear_value.Format = source->dxgi_format;
+		clear_value.DepthStencil.Depth = 1.0f;
+		const bool depth = rtdx_texture_format_is_depth(source->dxgi_format);
+		HRESULT result = ctx->d3d_device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_COPY_DEST, depth ? &clear_value : NULL, IID_PPV_ARGS(&target->d3d_resource));
+		if (FAILED(result)) { rtdx_release_resource(target); rtdx_throwf(rtdx_error_from_hresult(result), "CreateCommittedResource(texture revision) failed: 0x%08x", (u32)result); return {}; }
+	}
+	target->width = source->width;
+	target->height = source->height;
+	target->depth = source->depth;
+	target->mip_count = source->mip_count;
+	target->layer_count = source->layer_count;
+	target->dxgi_format = source->dxgi_format;
+	target->type = source->type;
+	if (!reused) {
+		target->state = D3D12_RESOURCE_STATE_COPY_DEST;
+	}
+	const usize state_count = rtdx_texture_subresource_count(source);
+	if (state_count && !reused) {
+		target->states = static_cast<D3D12_RESOURCE_STATES*>(malloc(state_count * sizeof(*target->states)));
+		if (!target->states) { rtdx_resource_release(RTDX_RESOURCE_BASE(target)); rtdx_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate texture revision state"); return {}; }
+		/* The resource was created in COPY_DEST. Its tracked state must describe
+		 * that real state; the complete revision copy is lowered before mutation. */
+		for (usize i = 0; i < state_count; ++i) {
+			target->states[i] = D3D12_RESOURCE_STATE_COPY_DEST;
+		}
+	}
+	rtdx_texture_recycle_node(texture, source);
+	texture->active = target;
+	write.source = source;
+	write.target = target;
+	return write;
 }
 
 static void rtdx_texture_collect_nodes(struct rtdx_texture* texture) {
@@ -550,10 +787,16 @@ struct rtdx_texture* rtdx_texture_create_for_swapchain_image(struct rtdx_context
 	node->d3d_resource->AddRef();
 	node->dxgi_format = format;
 	node->state = D3D12_RESOURCE_STATE_PRESENT;
+	node->swapchain_image = true;
 	node->type = RT_TEXTURE_2D;
 	node->width = width;
 	node->height = height;
 	node->depth = 1;
+	node->mip_count = 1;
+	node->layer_count = 1;
+	node->states = static_cast<D3D12_RESOURCE_STATES*>(malloc(sizeof(*node->states)));
+	if (!node->states) { rtdx_texture_destroy(ctx, texture); rtdx_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate swapchain texture state"); return NULL; }
+	node->states[0] = D3D12_RESOURCE_STATE_PRESENT;
 	texture->active = node;
 	return texture;
 }
@@ -570,7 +813,8 @@ struct rtdx_texture_view* rtdx_texture_view_create_for_texture(struct rtdx_conte
 		return NULL;
 	}
 
-	rtdx_resource_retain(node);
+	rtdx_resource_retain(RTDX_RESOURCE_BASE(texture));
+	view->texture = texture;
 	view->image = node;
 	view->rtv = rtv;
 	if (!rtdx_texture_view_rebuild_descriptors(ctx, view)) {
@@ -586,20 +830,30 @@ void rtdx_texture_view_bind(struct rtdx_context* ctx, struct rtdx_texture_view* 
 		rtdx_throwf(RT_IMPROPER_USAGE, "texture view bind source texture is invalid");
 		return;
 	}
-	if (view->image == node) {
+	if (view->texture == texture && view->image == node) {
 		return;
 	}
-	if (view->image || view->d3d_rtv_heap || view->d3d_dsv_heap || view->d3d_sampler_heap || view->d3d_srv_heap) {
-		rtdx_texture_view_destroy(ctx, view);
-		rtdx_texture_view_init(ctx, view);
-	}
-	rtdx_resource_retain(node);
+	if (view->texture) { rtdx_resource_release(RTDX_RESOURCE_BASE(view->texture)); view->texture = NULL; }
+	rtdx_release(&view->d3d_rtv_heap);
+	rtdx_release(&view->d3d_dsv_heap);
+	rtdx_release(&view->d3d_srv_heap);
+	rtdx_release(&view->d3d_sampler_heap);
+	rtdx_resource_retain(RTDX_RESOURCE_BASE(texture));
+	view->texture = texture;
 	view->image = node;
 	if (!rtdx_texture_view_rebuild_descriptors(ctx, view)) {
-		rtdx_texture_view_destroy(ctx, view);
-		rtdx_texture_view_init(ctx, view);
+		rtdx_resource_release(RTDX_RESOURCE_BASE(view->texture));
+		view->texture = NULL;
+		view->image = NULL;
 		return;
 	}
+}
+
+bool rtdx_texture_view_refresh(rtdx_context* ctx, rtdx_texture_view* view) {
+	if (!view || !view->texture || !view->texture->active || !view->texture->active->d3d_resource) { return false; }
+	if (view->image == view->texture->active) { return true; }
+	view->image = view->texture->active;
+	return rtdx_texture_view_rebuild_descriptors(ctx, view);
 }
 
 struct rtdx_texture_view* rtdx_texture_view_create_for_swapchain(struct rtdx_context* ctx, struct rtdx_texture* texture, D3D12_CPU_DESCRIPTOR_HANDLE rtv) {
@@ -1112,7 +1366,6 @@ rt_timepoint rtdx_texture_view_copy_to_buffer(struct rtdx_context* ctx, struct r
 	assert(queue);
 	assert(texture_view && texture_view->image->d3d_resource);
 	assert(buffer);
-	assert((buffer->usage & RT_BUFFER_USAGE_TRANSFER_DST) || (buffer->usage & RT_BUFFER_USAGE_STAGING));
 
 	u32 bytes_per_pixel = rtdx_texture_view_bytes_per_pixel(texture_view->image->dxgi_format);
 	if (bytes_per_pixel == 0) {
@@ -1122,7 +1375,7 @@ rt_timepoint rtdx_texture_view_copy_to_buffer(struct rtdx_context* ctx, struct r
 
 	u64 packed_size = (u64)texture_view->image->width * texture_view->image->height * bytes_per_pixel;
 	if (!buffer->storage || buffer->storage->size < packed_size) {
-		rtdx_buffer_data(ctx, buffer, buffer->mode, buffer->usage, packed_size, NULL);
+		rtdx_buffer_resize(ctx, buffer, RT_DEVICE_MEMORY, (usize)packed_size);
 	}
 	if (!buffer->storage) {
 		return timepoint;

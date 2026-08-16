@@ -9,7 +9,7 @@
 static thread_local enum rt_error rtgl_error_status = RT_SUCCESS;
 static thread_local char rtgl_error_text[1024] = "";
 
-static thread_local PFN_rtOutput rtgl_output = NULL;
+static thread_local rt_output rtgl_output = NULL;
 static thread_local void* rtgl_output_user_data = NULL;
 
 static void rtgl_default_output(const char* message, void* user_data) {
@@ -22,7 +22,7 @@ static void rtgl_default_output(const char* message, void* user_data) {
 /*                                                                                               */
 /*===============================================================================================*/
 
-RTGL_API void rtSetOutput(PFN_rtOutput output, void* user_data) {
+RTGL_API void rtSetOutput(rt_output output, void* user_data) {
 	rtgl_set_output(output, user_data);
 }
 
@@ -44,7 +44,7 @@ RTGL_API void rtClearError(void) {
 
 void rtgl_vprintf(const char* format, va_list args) {
 	char message[1024];
-	PFN_rtOutput output = rtgl_output ? rtgl_output : rtgl_default_output;
+	rt_output output = rtgl_output ? rtgl_output : rtgl_default_output;
 
 	if (!format) {
 		return;
@@ -77,7 +77,7 @@ void rtgl_throwf(enum rt_error error, const char* format, ...) {
 	rtgl_error_text[sizeof(rtgl_error_text) - 1] = '\0';
 }
 
-void rtgl_set_output(PFN_rtOutput output, void* user_data) {
+void rtgl_set_output(rt_output output, void* user_data) {
 	rtgl_output = output;
 	rtgl_output_user_data = user_data;
 }

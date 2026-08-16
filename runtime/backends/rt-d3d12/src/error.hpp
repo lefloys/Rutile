@@ -8,7 +8,7 @@
 #include <dxgi.h>
 #include <stdarg.h>
 
-RTDX_API void rtSetOutput(PFN_rtOutput output, void* user_data);
+RTDX_API void rtSetOutput(rt_output output, void* user_data);
 RTDX_API rt_error rtError();
 RTDX_API const char* rtErrorMessage();
 RTDX_API void rtClearError();

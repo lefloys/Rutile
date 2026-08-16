@@ -47,7 +47,7 @@ void rtInit(const char* const* features, u32 feature_count) {
 
 	rtClearError();
 	if (current_context) {
-		rtdx_throwf(RT_ALREADY_INITIALIZED, "rtInit called while rt-directx12 is already initialized");
+		rtdx_throwf(RT_ALREADY_INITIALIZED, "rtInit called while rt-d3d12 is already initialized");
 		return;
 	}
 
@@ -55,7 +55,7 @@ void rtInit(const char* const* features, u32 feature_count) {
 		return;
 	}
 
-	rtdx_printf("rutile: initializing backend rt-directx12\n");
+	rtdx_printf("rutile: initializing backend rt-d3d12\n");
 	current_context = rtdx_create_context(flags);
 }
 

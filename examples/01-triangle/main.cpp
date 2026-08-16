@@ -8,6 +8,7 @@
 #include <rtsl/program.hpp>
 
 #include <cstddef>
+#include <iostream>
 
 extern "C" const rtsl::ProgramBytes triangle_rtslp;
 
@@ -23,18 +24,18 @@ static const Vertex Vertices[] = {
 };
 
 static const rt_vertex_attribute Attributes[] = {
-	{ "position", 0, offsetof(Vertex, position), RT_RG32_SFLOAT },
-	{ "color", 0, offsetof(Vertex, color), RT_RGB32_SFLOAT },
+	{ "position", offsetof(Vertex, position), RT_RG32_SFLOAT },
+	{ "color", offsetof(Vertex, color), RT_RGB32_SFLOAT },
 };
-static const rt_vertex_stream Streams[] = {
-	{ sizeof(Vertex), RT_VERTEX_RATE_VERTEX },
+static const rt_vertex_input Inputs[] = {
+	{ Attributes, 2, sizeof(Vertex), RT_VERTEX_RATE_VERTEX },
 };
-static const rt_vertex_layout Layout = { Streams, Attributes, 1, 2 };
+static const rt_vertex_layout Layout = { Inputs, 1 };
 
 int main(int argc, char* argv[]) {
 	const ExampleOptions options = parse_cli(argc, argv);
 	if (rtLoad("rt-vulkan", nullptr, 0) != RT_SUCCESS) {
-		std::fprintf(stderr, "rtLoad failed\n");
+		std::cerr << "rtLoad failed\n";
 		return 1;
 	}
 	const char* features[] = { RT_FEATURE_PRESENTATION };
@@ -43,8 +44,8 @@ int main(int argc, char* argv[]) {
 	rtLoad_RT_EXT_GLFW();
 
 	rt_graphics_program program = rtGraphicsProgramCreate();
-	rtGraphicsProgramSource(program, triangle_rtslp.data, triangle_rtslp.size);
-	rtGraphicsProgramLayout(program, &Layout);
+	rtGraphicsProgramSetSource(program, triangle_rtslp.data, triangle_rtslp.size);
+	rtGraphicsProgramSetLayout(program, &Layout);
 	rtGraphicsProgramFinalize(program);
 
 	glfwInit();
@@ -56,11 +57,21 @@ int main(int argc, char* argv[]) {
 
 	rt_queue queue = rtQueueCreate(RT_QUEUE_GRAPHICS);
 	rt_buffer vbo = rtBufferCreate();
-	rtBufferData(vbo, RT_BUFFER_STATIC, RT_BUFFER_USAGE_VERTEX, sizeof(Vertices), Vertices);
+	rtBufferResize(vbo, RT_DEVICE_MEMORY, sizeof(Vertices));
 
-	rt_location position_location = rtGraphicsProgramLocation(program, "position");
-	rt_location color_location = rtGraphicsProgramLocation(program, "color");
+	rt_location vertex_location = rtGraphicsProgramInputLocation(program, Attributes, 2);
 	rt_command_buffer cmd = rtCommandBufferCreate();
+	rtCommandBufferBegin(cmd);
+	rtCmdBufferData(cmd, vbo, { sizeof(Vertices), 0 }, reinterpret_cast<const u08*>(Vertices));
+	rtCommandBufferEnd(cmd);
+	rtTimepointWait(rtQueueSubmit(queue, cmd));
+	rtCommandBufferReset(cmd);
+	rtCommandBufferContinueRendering(cmd);
+	rtCmdUseGraphicsProgram(cmd, program);
+	rtCmdVertexBuffer(cmd, vertex_location, vbo, { sizeof(Vertices), 0 });
+	rtCmdDraw(cmd, 3, 0);
+	rtCommandBufferEnd(cmd);
+	rt_command_buffer primary = rtCommandBufferCreate();
 	u32 rendered_frames = 0;
 
 	while (!glfwWindowShouldClose(window) && (!options.frames || rendered_frames < options.frames)) {
@@ -71,23 +82,27 @@ int main(int argc, char* argv[]) {
 			continue;
 		}
 
-		rtCmdReset(cmd);
-		rtCmdBegin(cmd);
-		rtCmdWait(cmd, acquired.timepoint);
-		rtCmdBeginRendering(cmd, acquired.framebuffer);
-		rtCmdClearColor(cmd, 0, 0.08f, 0.09f, 0.12f, 1.0f);
-		rtCmdUseGraphicsProgram(cmd, program);
-		rtCmdVertexBuffer(cmd, position_location, vbo, 0);
-		rtCmdVertexBuffer(cmd, color_location, vbo, 0);
-		rtCmdDraw(cmd, 3, 0);
-		rtCmdEndRendering(cmd);
-		rtCmdEnd(cmd);
+		rtQueueWait(queue, acquired.timepoint);
+		rtCommandBufferReset(primary);
+		rtCommandBufferBegin(primary);
+		rtCmdBeginRendering(primary, acquired.framebuffer);
+		rtCmdClearColor(primary, RT_LOCATION_ZERO, 0.08f, 0.09f, 0.12f, 1.0f);
+		rtCmdClear(primary, RT_CLEAR_COLOR);
+		int width = 0;
+		int height = 0;
+		glfwGetFramebufferSize(window, &width, &height);
+		rtCmdSetViewport(primary, 0, 0, (usize)width, (usize)height, 0.0f, 1.0f);
+		rtCmdSetScissor(primary, 0, 0, (usize)width, (usize)height);
+		rtCmdExecute(primary, cmd);
+		rtCmdEndRendering(primary);
+		rtCommandBufferEnd(primary);
 
-		rtSwapchainPresent(swapchain, rtQueueSubmit(queue, cmd));
+		rtSwapchainPresent(swapchain, rtQueueSubmit(queue, primary));
 		rendered_frames++;
 	}
 
 	rtTimepointWait(rtQueueFlush(queue));
+	rtCommandBufferDestroy(primary);
 	rtCommandBufferDestroy(cmd);
 	rtQueueDestroy(queue);
 	rtGraphicsProgramDestroy(program);

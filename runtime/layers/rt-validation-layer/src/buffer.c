@@ -21,16 +21,20 @@ RT_API_PUBLIC void rtBufferDestroy(rt_buffer buffer) {
 	rtval_buffer_destroy(rtval_buffer_from_handle(buffer));
 }
 
-RT_API_PUBLIC rt_timepoint rtBufferData(rt_buffer buffer, enum rt_buffer_mode mode, enum rt_buffer_usage usage, usize size, const void* data) {
-	return rtval_buffer_data(rtval_buffer_from_handle(buffer), mode, usage, size, data);
+RT_API_PUBLIC void rtBufferResize(rt_buffer buffer, enum rt_memory_type memory_type, usize size) {
+	rtval_buffer_resize(rtval_buffer_from_handle(buffer), memory_type, size);
 }
 
-RT_API_PUBLIC rt_timepoint rtBufferSubdata(rt_buffer buffer, usize offset, usize size, const void* data) {
-	return rtval_buffer_subdata(rtval_buffer_from_handle(buffer), offset, size, data);
+RT_API_PUBLIC void rtBufferRead(rt_buffer buffer, rt_buffer_range range, u08* data, usize data_size) {
+	rtval_buffer_read(rtval_buffer_from_handle(buffer), range, data, data_size);
 }
 
-RT_API_PUBLIC void rtBufferRead(rt_buffer buffer, usize offset, usize size, void* data) {
-	rtval_buffer_read(rtval_buffer_from_handle(buffer), offset, size, data);
+RT_API_PUBLIC u08* rtBufferMap(rt_buffer buffer, rt_buffer_range range) {
+	return rtval_buffer_map(rtval_buffer_from_handle(buffer), range);
+}
+
+RT_API_PUBLIC void rtBufferUnmap(rt_buffer buffer) {
+	rtval_buffer_unmap(rtval_buffer_from_handle(buffer));
 }
 
 /*===============================================================================================*/
@@ -67,45 +71,37 @@ void rtval_buffer_destroy(struct rtval_buffer* buffer) {
 	rtval_handle_destroy(buffer);
 }
 
-rt_timepoint rtval_buffer_data(struct rtval_buffer* buffer, enum rt_buffer_mode mode, enum rt_buffer_usage usage, usize size, const void* data) {
-	rt_timepoint timepoint = { 0 };
-	RTVAL_RESOLVE(buffer, "rtBufferData", timepoint);
-	if (mode != RT_BUFFER_STATIC && mode != RT_BUFFER_DYNAMIC) {
-		RTVAL_DROP("rtBufferData: unsupported buffer mode");
-		return timepoint;
-	}
-	if (usage == RT_BUFFER_USAGE_NONE) {
-		RTVAL_DROP("rtBufferData: empty usage");
-		return timepoint;
-	}
-
-	timepoint = rtval_next_rtBufferData(state->backend, mode, usage, size, data);
-	rtval_report_error("rtBufferData");
-	return rtval_timepoint_wrap(timepoint);
-}
-
-rt_timepoint rtval_buffer_subdata(struct rtval_buffer* buffer, usize offset, usize size, const void* data) {
-	rt_timepoint timepoint = { 0 };
-	RTVAL_RESOLVE(buffer, "rtBufferSubdata", timepoint);
-	if (size && !data) {
-		RTVAL_DROP("rtBufferSubdata: NULL data");
-		return timepoint;
-	}
-
-	timepoint = rtval_next_rtBufferSubdata(state->backend, offset, size, data);
-	rtval_report_error("rtBufferSubdata");
-	return rtval_timepoint_wrap(timepoint);
-}
-
-void rtval_buffer_read(struct rtval_buffer* buffer, u64 offset, u64 size, void* data) {
-	RTVAL_RESOLVE(buffer, "rtBufferRead", );
-	if (size && !data) {
-		RTVAL_DROP("rtBufferRead: NULL destination");
+void rtval_buffer_resize(struct rtval_buffer* buffer, enum rt_memory_type memory_type, usize size) {
+	RTVAL_RESOLVE(buffer, "rtBufferResize", );
+	if (memory_type != RT_HOST_MEMORY && memory_type != RT_DEVICE_MEMORY) {
+		RTVAL_DROP("rtBufferResize: valid memory type required");
 		return;
 	}
+	rtval_next_rtBufferResize(state->backend, memory_type, size);
+	rtval_report_error("rtBufferResize");
+}
 
-	rtval_next_rtBufferRead(state->backend, offset, size, data);
+void rtval_buffer_read(struct rtval_buffer* buffer, rt_buffer_range range, u08* data, usize data_size) {
+	RTVAL_RESOLVE(buffer, "rtBufferRead", );
+	if ((range.size && !data) || data_size < range.size) {
+		RTVAL_DROP("rtBufferRead: destination must hold the requested range");
+		return;
+	}
+	rtval_next_rtBufferRead(state->backend, range, data, data_size);
 	rtval_report_error("rtBufferRead");
+}
+
+u08* rtval_buffer_map(struct rtval_buffer* buffer, rt_buffer_range range) {
+	RTVAL_RESOLVE(buffer, "rtBufferMap", NULL);
+	u08* data = rtval_next_rtBufferMap(state->backend, range);
+	rtval_report_error("rtBufferMap");
+	return data;
+}
+
+void rtval_buffer_unmap(struct rtval_buffer* buffer) {
+	RTVAL_RESOLVE(buffer, "rtBufferUnmap", );
+	rtval_next_rtBufferUnmap(state->backend);
+	rtval_report_error("rtBufferUnmap");
 }
 
 #undef RTVAL_RESOLVE

@@ -7,7 +7,7 @@
 /*                                                                                               */
 /*===============================================================================================*/
 
-RTGL_API void rtInit(const char* const* features, u32 feature_count) {
+RTGL_API void rtInit(const char* const* features, usize feature_count) {
 	rtgl_context_flags flags;
 
 	rtClearError();
@@ -17,15 +17,15 @@ RTGL_API void rtInit(const char* const* features, u32 feature_count) {
 	}
 
 	if (feature_count && !features) {
-		rtgl_throwf(RT_IMPROPER_USAGE, "rtInit feature_count is %u but features is NULL", feature_count);
+		rtgl_throwf(RT_IMPROPER_USAGE, "rtInit feature_count is %zu but features is NULL", feature_count);
 		return;
 	}
 
 	flags = (rtgl_context_flags){ 0 };
-	for (u32 i = 0; i < feature_count; i++) {
+	for (usize i = 0; i < feature_count; i++) {
 		const char* feature = features[i];
 		if (!feature) {
-			rtgl_throwf(RT_IMPROPER_USAGE, "rtInit feature at index %u is NULL", i);
+			rtgl_throwf(RT_IMPROPER_USAGE, "rtInit feature at index %zu is NULL", i);
 			return;
 		}
 		if (strcmp(feature, RT_FEATURE_PRESENTATION) == 0) {
@@ -43,11 +43,6 @@ RTGL_API void rtInit(const char* const* features, u32 feature_count) {
 RTGL_API void rtExit(void) {
 	rtgl_context_destroy(current_context);
 	current_context = NULL;
-}
-
-RTGL_API void rtSettingSet(const char* name, const char* value) {
-	(void)name;
-	(void)value;
 }
 
 RTGL_API const char* rtGetName(void) {

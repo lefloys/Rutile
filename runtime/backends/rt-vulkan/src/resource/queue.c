@@ -286,7 +286,7 @@ VkPipelineStageFlags rtvk_queue_wait_stage(struct rtvk_queue* queue) {
 	return VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
 }
 
-struct rtvk_lowered_command_buffer* rtvk_queue_create_lowered_command_buffer(struct rtvk_context* ctx, struct rtvk_queue* queue, usize segment_count) {
+struct rtvk_lowered_command_buffer* rtvk_queue_create_lowered_command_buffer(struct rtvk_context* ctx, struct rtvk_queue* queue) {
 	struct rtvk_lowered_command_buffer* lowered = calloc(1, sizeof(*lowered));
 	if (!lowered) {
 		rtvk_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate %zu bytes for lowered command buffer", sizeof(*lowered));
@@ -303,34 +303,15 @@ struct rtvk_lowered_command_buffer* rtvk_queue_create_lowered_command_buffer(str
 		return NULL;
 	}
 
-	lowered->segments = calloc(segment_count, sizeof(*lowered->segments));
-	if (!lowered->segments) {
-		rtvk_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate %zu bytes for lowered command segments", segment_count * sizeof(*lowered->segments));
-		rtvk_lowered_command_buffer_destroy(ctx, lowered);
-		return NULL;
-	}
-	lowered->segment_capacity = segment_count;
-	for (usize index = 0; index < segment_count; index++) {
-		rtvk_queue_lowered_command_buffer_add_segment(ctx, lowered);
-		if (rtvk_error() != RT_SUCCESS) {
-			rtvk_lowered_command_buffer_destroy(ctx, lowered);
-			return NULL;
-		}
-	}
-	return lowered;
-}
-
-void rtvk_queue_lowered_command_buffer_add_segment(struct rtvk_context* ctx, struct rtvk_lowered_command_buffer* lowered) {
-	struct rtvk_lowered_command_segment* segment = &lowered->segments[lowered->segment_count];
-
 	VkCommandBufferAllocateInfo allocate_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
 	allocate_info.commandPool = lowered->vk_command_pool;
 	allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
 	allocate_info.commandBufferCount = 1;
-	VkResult result = vkAllocateCommandBuffers(ctx->vk_device, &allocate_info, &segment->vk_command_buffer);
+	result = vkAllocateCommandBuffers(ctx->vk_device, &allocate_info, &lowered->vk_command_buffer);
 	if (result != VK_SUCCESS) {
 		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
-		return;
+		rtvk_lowered_command_buffer_destroy(ctx, lowered);
+		return NULL;
 	}
 
 	VkDescriptorPoolSize descriptor_sizes[] = {
@@ -342,21 +323,23 @@ void rtvk_queue_lowered_command_buffer_add_segment(struct rtvk_context* ctx, str
 	descriptor_pool_info.maxSets = 128;
 	descriptor_pool_info.poolSizeCount = (u32)(sizeof(descriptor_sizes) / sizeof(descriptor_sizes[0]));
 	descriptor_pool_info.pPoolSizes = descriptor_sizes;
-	result = vkCreateDescriptorPool(ctx->vk_device, &descriptor_pool_info, VK_ALLOCATOR, &segment->vk_descriptor_pool);
+	result = vkCreateDescriptorPool(ctx->vk_device, &descriptor_pool_info, VK_ALLOCATOR, &lowered->vk_descriptor_pool);
 	if (result != VK_SUCCESS) {
 		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
-		return;
+		rtvk_lowered_command_buffer_destroy(ctx, lowered);
+		return NULL;
 	}
 
 	VkCommandBufferBeginInfo begin_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
 	begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-	result = vkBeginCommandBuffer(segment->vk_command_buffer, &begin_info);
+	result = vkBeginCommandBuffer(lowered->vk_command_buffer, &begin_info);
 	if (result != VK_SUCCESS) {
 		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
-		return;
+		rtvk_lowered_command_buffer_destroy(ctx, lowered);
+		return NULL;
 	}
 
-	lowered->segment_count++;
+	return lowered;
 }
 
 u64 rtvk_queue_completed_value(struct rtvk_context* ctx, struct rtvk_queue* queue) {
@@ -531,15 +514,7 @@ rt_timepoint rtvk_queue_submit(struct rtvk_context* ctx, struct rtvk_queue* queu
 		}
 	}
 	if (command_buffer) {
-		usize command_wait_count = 0;
-		for (usize offset = 0; offset < command_buffer->ir_size; (void)0) {
-			struct rtvk_command_header* header = (struct rtvk_command_header*)(command_buffer->ir_data + offset);
-			if ((rtvk_command_opcode)header->opcode == RTVK_COMMAND_WAIT) {
-				command_wait_count++;
-			}
-			offset += rtvk_command_record_size((rtvk_command_opcode)header->opcode);
-		}
-		struct rtvk_lowered_command_buffer* lowered = rtvk_queue_create_lowered_command_buffer(ctx, queue, command_wait_count + 1);
+		struct rtvk_lowered_command_buffer* lowered = rtvk_queue_create_lowered_command_buffer(ctx, queue);
 		if (!lowered) {
 			return rtvk_timepoint_make(queue, queue->timeline_value);
 		}
@@ -547,23 +522,6 @@ rt_timepoint rtvk_queue_submit(struct rtvk_context* ctx, struct rtvk_queue* queu
 		if (rtvk_error() != RT_SUCCESS) {
 			rtvk_lowered_command_buffer_destroy(ctx, lowered);
 			return rtvk_timepoint_make(queue, queue->timeline_value);
-		}
-		for (usize index = 0; index < lowered->segment_count; index++) {
-			rt_timepoint wait = lowered->segments[index].wait;
-			struct rtvk_queue* source_queue = rtvk_timepoint_queue(ctx, wait);
-			u64 source_value = rtvk_timepoint_value(wait);
-			if (!source_queue || source_queue == queue || source_value == 0) {
-				continue;
-			}
-			rtvk_queue_lock_pair(queue, source_queue);
-			if (source_value > source_queue->submitted_value) {
-				rtvk_queue_flush(ctx, source_queue);
-			}
-			rtvk_queue_unlock_pair(queue, source_queue);
-			if (rtvk_error() != RT_SUCCESS) {
-				rtvk_lowered_command_buffer_destroy(ctx, lowered);
-				return rtvk_timepoint_make(queue, queue->timeline_value);
-			}
 		}
 		rt_mutex_lock(queue->lock);
 		rt_timepoint result = rtvk_queue_submit_lowered(ctx, queue, lowered, waits, count);
@@ -616,10 +574,8 @@ void rtvk_queue_unlock_pair(struct rtvk_queue* first, struct rtvk_queue* second)
 
 rt_timepoint rtvk_queue_submit_lowered(struct rtvk_context* ctx, struct rtvk_queue* queue, struct rtvk_lowered_command_buffer* lowered, rt_timepoint* wait_timepoints, usize wait_count) {
 	(void)ctx;
-	usize segment_count = lowered ? lowered->segment_count : 1;
-	u64 first_value = queue->timeline_value + 1;
-	u64 value = queue->timeline_value + segment_count;
-	struct rtvk_submitted_batch* batch = rtvk_queue_create_batch(lowered, wait_timepoints, wait_count, first_value, value);
+	u64 value = queue->timeline_value + 1;
+	struct rtvk_submitted_batch* batch = rtvk_queue_create_batch(lowered, wait_timepoints, wait_count, value, value);
 	if (!batch) {
 		rtvk_lowered_command_buffer_destroy(queue->base.ctx, lowered);
 		return rtvk_timepoint_make(queue, queue->timeline_value);
@@ -629,10 +585,8 @@ rt_timepoint rtvk_queue_submit_lowered(struct rtvk_context* ctx, struct rtvk_que
 	return rtvk_timepoint_make(queue, value);
 }
 
-void rtvk_queue_submit_segment(struct rtvk_context* ctx, struct rtvk_queue* queue, struct rtvk_submitted_batch* batch, VkCommandBuffer command_buffer, rt_timepoint command_wait, u64 value, bool first_segment, bool last_segment) {
-	struct rtvk_queue* source_queue = rtvk_timepoint_queue(ctx, command_wait);
-	u64 source_value = rtvk_timepoint_value(command_wait);
-	usize wait_capacity = (first_segment ? batch->wait_count + batch->binary_wait_count : 0) + (source_queue && source_value ? 1 : 0);
+void rtvk_queue_submit_command_buffer(struct rtvk_context* ctx, struct rtvk_queue* queue, struct rtvk_submitted_batch* batch, VkCommandBuffer command_buffer, u64 value) {
+	usize wait_capacity = batch->wait_count + batch->binary_wait_count;
 	VkSemaphore* wait_semaphores = NULL;
 	u64* wait_values = NULL;
 	VkPipelineStageFlags* wait_stages = NULL;
@@ -657,33 +611,25 @@ void rtvk_queue_submit_segment(struct rtvk_context* ctx, struct rtvk_queue* queu
 		}
 	}
 	usize wait_count = 0;
-	if (first_segment) {
-		for (usize index = 0; index < batch->wait_count; index++) {
-			rt_timepoint wait = batch->wait_timepoints[index];
-			struct rtvk_queue* wait_queue = rtvk_timepoint_queue(ctx, wait);
-			u64 wait_value = rtvk_timepoint_value(wait);
-			if (wait_queue && wait_value) {
-				wait_semaphores[wait_count] = wait_queue->vk_timeline;
-				wait_values[wait_count] = wait_value;
-				wait_stages[wait_count] = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
-				wait_count++;
-			}
-		}
-		for (usize index = 0; index < batch->binary_wait_count; index++) {
-			wait_semaphores[wait_count] = batch->binary_waits[index];
-			wait_values[wait_count] = 0;
+	for (usize index = 0; index < batch->wait_count; index++) {
+		rt_timepoint wait = batch->wait_timepoints[index];
+		struct rtvk_queue* wait_queue = rtvk_timepoint_queue(ctx, wait);
+		u64 wait_value = rtvk_timepoint_value(wait);
+		if (wait_queue && wait_value) {
+			wait_semaphores[wait_count] = wait_queue->vk_timeline;
+			wait_values[wait_count] = wait_value;
 			wait_stages[wait_count] = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
 			wait_count++;
 		}
 	}
-	if (source_queue && source_value) {
-		wait_semaphores[wait_count] = source_queue->vk_timeline;
-		wait_values[wait_count] = source_value;
+	for (usize index = 0; index < batch->binary_wait_count; index++) {
+		wait_semaphores[wait_count] = batch->binary_waits[index];
+		wait_values[wait_count] = 0;
 		wait_stages[wait_count] = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
 		wait_count++;
 	}
 
-	usize signal_capacity = 1 + (last_segment ? batch->binary_signal_count : 0);
+	usize signal_capacity = 1 + batch->binary_signal_count;
 	VkSemaphore* signal_semaphores = malloc(signal_capacity * sizeof(*signal_semaphores));
 	if (!signal_semaphores) {
 		free(wait_stages);
@@ -704,12 +650,10 @@ void rtvk_queue_submit_segment(struct rtvk_context* ctx, struct rtvk_queue* queu
 	usize signal_count = 1;
 	signal_semaphores[0] = queue->vk_timeline;
 	signal_values[0] = value;
-	if (last_segment) {
-		for (usize index = 0; index < batch->binary_signal_count; index++) {
-			signal_semaphores[signal_count] = batch->binary_signals[index];
-			signal_values[signal_count] = 0;
-			signal_count++;
-		}
+	for (usize index = 0; index < batch->binary_signal_count; index++) {
+		signal_semaphores[signal_count] = batch->binary_signals[index];
+		signal_values[signal_count] = 0;
+		signal_count++;
 	}
 
 	VkTimelineSemaphoreSubmitInfo timeline_info = { VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO };
@@ -748,7 +692,7 @@ rt_timepoint rtvk_queue_flush(struct rtvk_context* ctx, struct rtvk_queue* queue
 
 	for (struct rtvk_submitted_batch* batch = queue->pending_head; batch; batch = batch->next) {
 		if (!batch->lowered_command_buffer) {
-			rtvk_queue_submit_segment(ctx, queue, batch, VK_NULL_HANDLE, (rt_timepoint){ 0 }, batch->value, true, true);
+			rtvk_queue_submit_command_buffer(ctx, queue, batch, VK_NULL_HANDLE, batch->value);
 			if (rtvk_error() != RT_SUCCESS) {
 				return rtvk_timepoint_make(queue, queue->submitted_value);
 			}
@@ -756,14 +700,9 @@ rt_timepoint rtvk_queue_flush(struct rtvk_context* ctx, struct rtvk_queue* queue
 		}
 
 		struct rtvk_lowered_command_buffer* lowered = batch->lowered_command_buffer;
-		for (usize index = 0; index < lowered->segment_count; index++) {
-			struct rtvk_lowered_command_segment* segment = &lowered->segments[index];
-			bool first_segment = index == 0;
-			bool last_segment = index + 1 == lowered->segment_count;
-			rtvk_queue_submit_segment(ctx, queue, batch, segment->vk_command_buffer, segment->wait, batch->first_value + index, first_segment, last_segment);
-			if (rtvk_error() != RT_SUCCESS) {
-				return rtvk_timepoint_make(queue, queue->submitted_value);
-			}
+		rtvk_queue_submit_command_buffer(ctx, queue, batch, lowered->vk_command_buffer, batch->value);
+		if (rtvk_error() != RT_SUCCESS) {
+			return rtvk_timepoint_make(queue, queue->submitted_value);
 		}
 	}
 

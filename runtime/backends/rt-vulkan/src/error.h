@@ -15,7 +15,7 @@ RTVK_EXTERN_C_ENTER
 /*                                                                                               */
 /*===============================================================================================*/
 
-RTVK_API void rtSetOutput(PFN_rtOutput output, void* user_data);
+RTVK_API void rtSetOutput(rt_output output, void* user_data);
 RTVK_API enum rt_error rtError(void);
 RTVK_API const char* rtErrorMessage(void);
 RTVK_API void rtClearError(void);

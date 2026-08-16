@@ -98,7 +98,7 @@ are excluded from the default build.
 - `include/rutile.h` is the public loader and core API.
 - `include/rt_ext_*.h` files are optional extension packages.
 - `rt-vulkan` is the Vulkan backend.
-- `rt-directx12` is the DirectX 12 backend (Windows only).
+- `rt-d3d12` is the Direct3D 12 backend (Windows only).
 - `rt-validation-layer` is a validation layer.
 - `rt-logging-layer` is a logging layer.
 - `examples` contains standalone CMake projects that show how to use Rutile. They are not added by Rutile's top-level `CMakeLists.txt`.

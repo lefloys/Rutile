@@ -8,18 +8,11 @@ add_library(${PROJECT_NAME} SHARED)
 target_compile_definitions(${PROJECT_NAME} PRIVATE RT_BUILD_DLL)
 
 target_sources(${PROJECT_NAME} PRIVATE
-    "src/buffer.c"
-    "src/command_buffer.c"
-    "src/core.c"
     "src/entry.c"
-    "src/framebuffer.c"
-    "src/graphics_program.c"
+    "src/forward.c"
     "src/logger.c"
     "src/procs.h"
-    "src/queue.c"
     "src/state.c"
-    "src/swapchain.c"
-    "src/texture.c"
 )
 
 rutile_configure_shared_library(${PROJECT_NAME})

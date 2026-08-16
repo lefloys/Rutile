@@ -20,9 +20,9 @@ include("${CMAKE_CURRENT_SOURCE_DIR}/RTSL/cmake/Rtsl.cmake")
 add_subdirectory("RTSL" EXCLUDE_FROM_ALL)
 
 add_library(rutile STATIC
-    "source/rutile.c"
-    "source/rt_ext_swapchain.c"
-    "source/rt_ext_glfw.c"
+    "src/rutile.c"
+    "src/rt_ext_swapchain.c"
+    "src/rt_ext_glfw.c"
 )
 add_library(Rutile::rutile ALIAS rutile)
 

@@ -15,7 +15,6 @@
 RTVK_API rt_swapchain rtSwapchainCreate(void);
 RTVK_API void rtSwapchainDestroy(rt_swapchain swapchain);
 RTVK_API void rtSwapchainResize(rt_swapchain swapchain, u32 width, u32 height);
-
 RTVK_API rt_swapchain_acquire_result rtSwapchainAcquire(rt_swapchain swapchain);
 RTVK_API void rtSwapchainPresent(rt_swapchain swapchain, rt_timepoint rendered);
 
@@ -31,10 +30,25 @@ extern const u32 rtvk_swapchain_present_mode_preferences_count;
 struct rtvk_swapchain {
 	struct rtvk_resource_base base;
 
-	VkSurfaceKHR vk_surface;
-	VkSwapchainKHR vk_swapchain;
+	struct rtvk_swapchain_surface* surface;
+	struct rtvk_swapchain_generation* generation;
+	bool frame_acquired;
 
+	struct rt_mutex* frame_lock;
+	struct rt_condition* frame_condition;
+};
+
+struct rtvk_swapchain_surface {
+	struct rtvk_resource_base base;
+	VkSurfaceKHR vk_surface;
+};
+
+struct rtvk_swapchain_generation {
+	struct rtvk_resource_base base;
+
+	struct rtvk_swapchain_surface* surface;
 	struct rtvk_queue* present_queue;
+	VkSwapchainKHR vk_swapchain;
 	struct rtvk_swapchain_frame** frames;
 
 	VkExtent2D extent;
@@ -42,17 +56,14 @@ struct rtvk_swapchain {
 	u32 image_count;
 	u32 current_image_index;
 	u32 current_frame_index;
-	bool frame_acquired;
-
-	struct rt_mutex* frame_lock;
-	struct rt_condition* frame_condition;
 };
 
 struct rtvk_swapchain_frame {
 	struct rtvk_image_base base;
 
-	struct rtvk_framebuffer* framebuffer;
+	struct rtvk_swapchain_generation* generation;
 	struct rtvk_texture_view* color_view;
+	struct rtvk_framebuffer* framebuffer;
 	VkSemaphore image_available;
 	VkSemaphore present_ready;
 	VkCommandPool present_command_pool;
@@ -64,6 +75,8 @@ struct rtvk_swapchain_frame {
 
 void rtvk_swapchain_frame_init(struct rtvk_context* ctx, struct rtvk_swapchain_frame* frame);
 void rtvk_swapchain_frame_finish(struct rtvk_swapchain_frame* frame);
+void rtvk_swapchain_generation_finish(struct rtvk_swapchain_generation* generation);
+void rtvk_swapchain_surface_finish(struct rtvk_swapchain_surface* surface);
 
 RTVK_DECLARE_NEW_RESOURCE(swapchain)
 

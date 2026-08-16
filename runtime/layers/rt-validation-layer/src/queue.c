@@ -87,8 +87,8 @@ rt_timepoint rtval_queue_submit(struct rtval_queue* queue, struct rtval_command_
 		RTVAL_DROP("rtQueueSubmit: valid queue and command buffer required");
 		return (rt_timepoint){ 0 };
 	}
-	if (!command_buffer_state->executable || command_buffer_state->recording || command_buffer_state->rendering) {
-		RTVAL_DROP("rtQueueSubmit: completed command buffer required");
+	if (!command_buffer_state->executable || command_buffer_state->recording || command_buffer_state->rendering || command_buffer_state->continuation) {
+		RTVAL_DROP("rtQueueSubmit: completed direct command buffer required");
 		return (rt_timepoint){ 0 };
 	}
 	rt_timepoint timepoint = rtval_next_rtQueueSubmit(queue_state->backend, command_buffer_state->backend);

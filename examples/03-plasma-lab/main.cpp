@@ -14,6 +14,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <iostream>
 #include <vector>
 
 extern "C" const rtsl::ProgramBytes plasma_rtslp;
@@ -43,15 +44,23 @@ constexpr Vertex Vertices[] = {
 };
 
 constexpr rt_vertex_attribute Attributes[] = {
-	{ "position", 0, offsetof(Vertex, position), RT_RG32_SFLOAT },
-	{ "uv", 0, offsetof(Vertex, uv), RT_RG32_SFLOAT },
+	{ "position", offsetof(Vertex, position), RT_RG32_SFLOAT },
+	{ "uv", offsetof(Vertex, uv), RT_RG32_SFLOAT },
 };
 
-constexpr rt_vertex_stream Streams[] = {
-	{ sizeof(Vertex), RT_VERTEX_RATE_VERTEX },
+constexpr rt_vertex_input Inputs[] = {
+	{ Attributes, 2, sizeof(Vertex), RT_VERTEX_RATE_VERTEX },
 };
 
-constexpr rt_vertex_layout Layout = { Streams, Attributes, 1, 2 };
+constexpr rt_vertex_layout Layout = { Inputs, 1 };
+
+constexpr rt_texture_range PlasmaRange = {
+	RT_TEXTURE_ASPECT_COLOR,
+	0, 1,
+	0, 1,
+	{ PlasmaWidth, PlasmaHeight, 1 },
+	{ 0, 0, 0 },
+};
 
 void framebuffer_resized(GLFWwindow*, int width, int height) {
 	if (width <= 0 || height <= 0) {
@@ -113,7 +122,7 @@ void update_plasma(std::vector<std::uint8_t>& pixels, f32 time) {
 int main(int argc, char** argv) {
 	const ExampleOptions options = parse_cli(argc, argv);
 	if (rtLoad("rt-vulkan", nullptr, 0) != RT_SUCCESS) {
-		std::fprintf(stderr, "rtLoad failed\n");
+		std::cerr << "rtLoad failed\n";
 		return 1;
 	}
 	const char* features[] = { RT_FEATURE_PRESENTATION };
@@ -134,24 +143,31 @@ int main(int argc, char** argv) {
 	rt_queue queue = rtQueueCreate(RT_QUEUE_GRAPHICS);
 
 	rt_buffer vertex_buffer = rtBufferCreate();
-	rtBufferData(vertex_buffer, RT_BUFFER_STATIC, RT_BUFFER_USAGE_VERTEX, sizeof(Vertices), Vertices);
+	rtBufferResize(vertex_buffer, RT_DEVICE_MEMORY, sizeof(Vertices));
 	std::vector<std::uint8_t> pixels(static_cast<std::size_t>(PlasmaWidth) * PlasmaHeight * 4);
 	update_plasma(pixels, 0.0f);
 	rt_texture texture = rtTextureCreate();
-	rtTextureData(texture, RT_TEXTURE_2D, 0, PlasmaWidth, PlasmaHeight, 1, RT_RGBA8_UNORM, pixels.data());
-	rt_texture_view texture_view = rtTextureViewCreate();
-	rtTextureViewBind(texture_view, texture);
-	rtTextureViewFilter(texture_view, RT_FILTER_LINEAR, RT_FILTER_LINEAR, RT_MIP_FILTER_NONE);
-	rtTextureViewAddress(texture_view, RT_ADDRESS_CLAMP, RT_ADDRESS_CLAMP, RT_ADDRESS_CLAMP);
+	rtTextureResize(texture, RT_TEXTURE_2D, RT_RGBA8_UNORM, { PlasmaWidth, PlasmaHeight, 1 }, 1);
 
 	rt_graphics_program program = rtGraphicsProgramCreate();
-	rtGraphicsProgramSource(program, plasma_rtslp.data, plasma_rtslp.size);
-	rtGraphicsProgramLayout(program, &Layout);
+	rtGraphicsProgramSetSource(program, plasma_rtslp.data, plasma_rtslp.size);
+	rtGraphicsProgramSetLayout(program, &Layout);
 	rtGraphicsProgramFinalize(program);
-	rt_location plasma_location = rtGraphicsProgramLocation(program, "plasma");
-	rt_location position_location = rtGraphicsProgramLocation(program, "position");
-	rt_location uv_location = rtGraphicsProgramLocation(program, "uv");
+	rt_location plasma_location = rtGraphicsProgramUniformLocation(program, "plasma");
+	rt_location vertex_location = rtGraphicsProgramInputLocation(program, Attributes, 2);
 	rt_command_buffer command_buffer = rtCommandBufferCreate();
+	rtCommandBufferBegin(command_buffer);
+	rtCmdBufferData(command_buffer, vertex_buffer, { sizeof(Vertices), 0 }, reinterpret_cast<const u08*>(Vertices));
+	rtCmdTextureData(command_buffer, texture, PlasmaRange, reinterpret_cast<const u08*>(pixels.data()));
+	rtCommandBufferEnd(command_buffer);
+	rtTimepointWait(rtQueueSubmit(queue, command_buffer));
+	rtCommandBufferReset(command_buffer);
+	rtCommandBufferContinueRendering(command_buffer);
+	rtCmdUseGraphicsProgram(command_buffer, program);
+	rtCmdVertexBuffer(command_buffer, vertex_location, vertex_buffer, { sizeof(Vertices), 0 });
+	rtCmdDraw(command_buffer, 6, 0);
+	rtCommandBufferEnd(command_buffer);
+	rt_command_buffer primary = rtCommandBufferCreate();
 	const auto start = std::chrono::steady_clock::now();
 	u32 rendered_frames = 0;
 
@@ -159,32 +175,38 @@ int main(int argc, char** argv) {
 		glfwPollEvents();
 		const f32 time = std::chrono::duration<f32>(std::chrono::steady_clock::now() - start).count();
 		update_plasma(pixels, time);
-		rtTextureSubdata(texture, 0, { 0, 0, 0 }, { PlasmaWidth, PlasmaHeight, 1 }, pixels.data());
 		rt_swapchain_acquire_result acquired = rtSwapchainAcquire(swapchain);
 		if (!acquired.framebuffer) {
 			continue;
 		}
-		rtCmdReset(command_buffer);
-		rtCmdBegin(command_buffer);
-		rtCmdWait(command_buffer, acquired.timepoint);
-		rtCmdBeginRendering(command_buffer, acquired.framebuffer);
-		rtCmdClearColor(command_buffer, 0, 0.0f, 0.0f, 0.0f, 1.0f);
-		rtCmdUseGraphicsProgram(command_buffer, program);
-		rtCmdBindTexture(command_buffer, plasma_location, texture_view);
-		rtCmdVertexBuffer(command_buffer, position_location, vertex_buffer, 0);
-		rtCmdVertexBuffer(command_buffer, uv_location, vertex_buffer, 0);
-		rtCmdDraw(command_buffer, 6, 0);
-		rtCmdEndRendering(command_buffer);
-		rtCmdEnd(command_buffer);
-		rtSwapchainPresent(swapchain, rtQueueSubmit(queue, command_buffer));
+		rtQueueWait(queue, acquired.timepoint);
+		rtCommandBufferReset(primary);
+		rtCommandBufferBegin(primary);
+		rtCmdTextureData(primary, texture, PlasmaRange, reinterpret_cast<const u08*>(pixels.data()));
+		rtCmdTextureBarrier(primary, texture, PlasmaRange, { RT_STAGE_TRANSFER, RT_ACCESS_WRITE }, { RT_STAGE_FRAGMENT, RT_ACCESS_READ });
+		rt_texture_view texture_view = rtTextureViewCreate();
+		rtTextureViewSetTexture(texture_view, texture);
+		rtTextureViewSetFilter(texture_view, RT_FILTER_LINEAR, RT_FILTER_LINEAR, RT_MIP_FILTER_NONE);
+		rtTextureViewSetAddress(texture_view, RT_ADDRESS_CLAMP, RT_ADDRESS_CLAMP, RT_ADDRESS_CLAMP);
+		rtCmdBeginRendering(primary, acquired.framebuffer);
+		rtCmdClearColor(primary, RT_LOCATION_ZERO, 0.0f, 0.0f, 0.0f, 1.0f);
+		rtCmdClear(primary, RT_CLEAR_COLOR);
+		rtCmdSetViewport(primary, 0, 0, FramebufferWidth, FramebufferHeight, 0.0f, 1.0f);
+		rtCmdSetScissor(primary, 0, 0, FramebufferWidth, FramebufferHeight);
+		rtCmdBindTexture(primary, plasma_location, texture_view);
+		rtCmdExecute(primary, command_buffer);
+		rtCmdEndRendering(primary);
+		rtCommandBufferEnd(primary);
+		rtSwapchainPresent(swapchain, rtQueueSubmit(queue, primary));
+		rtTextureViewDestroy(texture_view);
 		rendered_frames++;
 	}
 
 	rtTimepointWait(rtQueueFlush(queue));
+	rtCommandBufferDestroy(primary);
 	rtCommandBufferDestroy(command_buffer);
 	rtQueueDestroy(queue);
 	rtGraphicsProgramDestroy(program);
-	rtTextureViewDestroy(texture_view);
 	rtTextureDestroy(texture);
 	rtBufferDestroy(vertex_buffer);
 	rtSwapchainDestroy(swapchain);

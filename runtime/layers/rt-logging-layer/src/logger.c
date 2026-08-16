@@ -19,7 +19,7 @@
 /*                                                                                               */
 /*===============================================================================================*/
 
-static PFN_rtOutput rtlog_output = NULL;
+static rt_output rtlog_output = NULL;
 static void* rtlog_output_user_data = NULL;
 
 static void rtlog_default_output(const char* message, void* user_data) {
@@ -30,7 +30,7 @@ static void rtlog_default_output(const char* message, void* user_data) {
 /*                                                                                               */
 /*===============================================================================================*/
 
-void rtlog_set_output(PFN_rtOutput output, void* user_data) {
+void rtlog_set_output(rt_output output, void* user_data) {
 	rtlog_output = output;
 	rtlog_output_user_data = user_data;
 }
@@ -38,7 +38,7 @@ void rtlog_set_output(PFN_rtOutput output, void* user_data) {
 void rtlog_printf(const char* format, ...) {
 	char message[1024];
 	va_list args;
-	PFN_rtOutput output = rtlog_output ? rtlog_output : rtlog_default_output;
+	rt_output output = rtlog_output ? rtlog_output : rtlog_default_output;
 
 	va_start(args, format);
 	vsnprintf(message, sizeof(message), format, args);

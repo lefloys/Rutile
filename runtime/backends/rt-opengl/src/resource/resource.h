@@ -53,7 +53,12 @@ bool rtgl_resource_ready_to_destroy(struct rtgl_resource_base* base);
 
 #define RTGL_ALLOC_RESOURCE(type) (type*)rtgl_alloc_resource(sizeof(type))
 #define RTGL_RESOURCE_BASE(resource) ((struct rtgl_resource_base*)&(resource)->base)
-#define rtgl_retain_resource(resource) rtgl_resource_retain((RTGL_RESOURCE_BASE(resource)))
+#define rtgl_retain_resource(resource)                 \
+	do {                                                 \
+		if (resource) {                                  \
+			rtgl_resource_retain(RTGL_RESOURCE_BASE(resource)); \
+		}                                                \
+	} while (0)
 #define rtgl_release_resource(resource)                            \
 	do {                                                           \
 		if (resource) {                                            \

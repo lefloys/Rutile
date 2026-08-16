@@ -9,6 +9,12 @@
 #include <stdlib.h>
 #include <string.h>
 
+VkFormat rtvk_format_to_vk(enum rt_format format);
+
+static u32 rtvk_texture_view_bytes_per_pixel(VkFormat format);
+static VkAccessFlags rtvk_texture_layout_access(VkImageLayout layout);
+static VkPipelineStageFlags rtvk_texture_layout_stage(VkImageLayout layout);
+
 /*===============================================================================================*/
 /*                                                                                               */
 /*===============================================================================================*/
@@ -25,11 +31,22 @@ void rtTextureDestroy(rt_texture texture) {
 	);
 }
 
+void rtTextureResize(rt_texture texture, enum rt_texture_type type, enum rt_format format, rt_extent_3d extent, usize mip_count) {
+	rtvk_texture_resize(
+		rtvk_get_current_context(),
+		rtvk_texture_from_handle(texture),
+		type,
+		format,
+		extent,
+		mip_count
+	);
+}
+
 rt_texture_view rtTextureViewCreate(void) {
 	return rtvk_texture_view_to_handle(rtvk_texture_view_create(rtvk_get_current_context()));
 }
 
-void rtTextureViewBind(rt_texture_view texture_view, rt_texture texture) {
+void rtTextureViewSetTexture(rt_texture_view texture_view, rt_texture texture) {
 	rtvk_texture_view_bind(
 		rtvk_get_current_context(),
 		rtvk_texture_view_from_handle(texture_view),
@@ -44,7 +61,7 @@ void rtTextureViewDestroy(rt_texture_view texture_view) {
 	);
 }
 
-void rtTextureViewFilter(rt_texture_view texture_view, enum rt_filter mag_filter, enum rt_filter min_filter, enum rt_mip_filter mip_filter) {
+void rtTextureViewSetFilter(rt_texture_view texture_view, enum rt_filter mag_filter, enum rt_filter min_filter, enum rt_mip_filter mip_filter) {
 	rtvk_texture_view_filter(
 		rtvk_texture_view_from_handle(texture_view),
 		mag_filter,
@@ -53,7 +70,7 @@ void rtTextureViewFilter(rt_texture_view texture_view, enum rt_filter mag_filter
 	);
 }
 
-void rtTextureViewAddress(rt_texture_view texture_view, enum rt_address_mode address_u, enum rt_address_mode address_v, enum rt_address_mode address_w) {
+void rtTextureViewSetAddress(rt_texture_view texture_view, enum rt_address_mode address_u, enum rt_address_mode address_v, enum rt_address_mode address_w) {
 	rtvk_texture_view_address(
 		rtvk_texture_view_from_handle(texture_view),
 		address_u,
@@ -62,14 +79,14 @@ void rtTextureViewAddress(rt_texture_view texture_view, enum rt_address_mode add
 	);
 }
 
-void rtTextureViewAnisotropy(rt_texture_view texture_view, u32 max_anisotropy) {
+void rtTextureViewSetAnisotropy(rt_texture_view texture_view, usize max_anisotropy) {
 	rtvk_texture_view_anisotropy(
 		rtvk_texture_view_from_handle(texture_view),
 		max_anisotropy
 	);
 }
 
-void rtTextureViewLod(rt_texture_view texture_view, f32 min_lod, f32 max_lod, f32 lod_bias) {
+void rtTextureViewSetLod(rt_texture_view texture_view, f32 min_lod, f32 max_lod, f32 lod_bias) {
 	rtvk_texture_view_lod(
 		rtvk_texture_view_from_handle(texture_view),
 		min_lod,
@@ -120,74 +137,10 @@ static VkSampler rtvk_sampler_create(struct rtvk_context* ctx, struct rtvk_textu
 	return sampler;
 }
 
-rt_timepoint rtTextureCopy(rt_texture src_texture, u32 src_mip, rt_texture dst_texture, u32 dst_mip) {
-	return rtvk_texture_copy(
-		rtvk_get_current_context(),
-		rtvk_texture_from_handle(src_texture),
-		src_mip,
-		rtvk_texture_from_handle(dst_texture),
-		dst_mip
-	);
-}
-rt_timepoint rtTextureData(rt_texture texture, enum rt_texture_type type, u32 mip, u32 width, u32 height, u32 depth, enum rt_format format, const void* data) {
-	return rtvk_texture_data(
-		rtvk_get_current_context(),
-		rtvk_texture_from_handle(texture),
-		type,
-		mip,
-		width,
-		height,
-		depth,
-		format,
-		data
-	);
-}
-rt_timepoint rtTextureSubcopy(rt_texture src_texture, u32 src_mip, rt_extent_3d src_offset, rt_texture dst_texture, u32 dst_mip, rt_extent_3d dst_offset, rt_extent_3d extent) {
-	return rtvk_texture_subcopy(
-		rtvk_get_current_context(),
-		rtvk_texture_from_handle(src_texture),
-		src_mip,
-		src_offset.width,
-		src_offset.height,
-		src_offset.depth,
-		rtvk_texture_from_handle(dst_texture),
-		dst_mip,
-		dst_offset.width,
-		dst_offset.height,
-		dst_offset.depth,
-		extent.width,
-		extent.height,
-		extent.depth
-	);
-}
-rt_timepoint rtTextureSubdata(rt_texture texture, u32 mip, rt_extent_3d offset, rt_extent_3d extent, const void* data) {
-	return rtvk_texture_subdata(
-		rtvk_get_current_context(),
-		rtvk_texture_from_handle(texture),
-		mip,
-		offset.width,
-		offset.height,
-		offset.depth,
-		extent.width,
-		extent.height,
-		extent.depth,
-		data
-	);
-}
-
-rt_timepoint rtTextureViewCopyToBuffer(rt_texture_view texture_view, rt_buffer buffer) {
-	return rtvk_texture_view_copy_to_buffer(
-		rtvk_get_current_context(),
-		rtvk_texture_view_from_handle(texture_view),
-		rtvk_buffer_from_handle(buffer)
-	);
-}
-
 rt_extent_3d rtTextureViewExtent(rt_texture_view texture_view) {
 	rt_extent_3d extent = { 0, 0, 0 };
 	struct rtvk_texture_view* view = rtvk_texture_view_from_handle(texture_view);
 	if (!view || !view->vk_image_view || !view->image) {
-		rtvk_throwf(RT_IMPROPER_USAGE, "texture view extent query backing is NULL");
 		return extent;
 	}
 	extent.width = view->image->width;
@@ -196,24 +149,226 @@ rt_extent_3d rtTextureViewExtent(rt_texture_view texture_view) {
 	return extent;
 }
 
+void rtTextureViewRead(rt_texture_view texture_view, rt_texture_range range, u08* data, usize data_size) {
+	struct rtvk_context* ctx = rtvk_get_current_context();
+	struct rtvk_texture_view* view = rtvk_texture_view_from_handle(texture_view);
+	if (!ctx || !view || !view->image || !data || !range.mip_count || !range.layer_count || !range.extent.width || !range.extent.height || !range.extent.depth) {
+		return;
+	}
+
+	u32 bytes_per_pixel = rtvk_texture_view_bytes_per_pixel(view->image->vk_format);
+	if (!bytes_per_pixel) {
+		return;
+	}
+
+	usize copy_count = range.mip_count * range.layer_count;
+	VkBufferImageCopy* copies = calloc(copy_count, sizeof(*copies));
+	usize* data_offsets = calloc(copy_count, sizeof(*data_offsets));
+	if (!copies || !data_offsets) {
+		free(copies);
+		free(data_offsets);
+		rtvk_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate %zu bytes for texture read regions", copy_count * (sizeof(*copies) + sizeof(*data_offsets)));
+		return;
+	}
+
+	VkImageAspectFlags aspect = 0;
+	if (range.aspects & RT_TEXTURE_ASPECT_COLOR) {
+		aspect |= VK_IMAGE_ASPECT_COLOR_BIT;
+	}
+	if (range.aspects & RT_TEXTURE_ASPECT_DEPTH) {
+		aspect |= VK_IMAGE_ASPECT_DEPTH_BIT;
+	}
+	if (range.aspects & RT_TEXTURE_ASPECT_STENCIL) {
+		aspect |= VK_IMAGE_ASPECT_STENCIL_BIT;
+	}
+	if (!aspect) {
+		aspect = rtvk_texture_format_aspect(view->image->vk_format);
+	}
+
+	usize packed_size = 0;
+	VkDeviceSize staging_size = 0;
+	for (usize mip = 0; mip < range.mip_count; mip++) {
+		for (usize layer = 0; layer < range.layer_count; layer++) {
+			usize index = mip * range.layer_count + layer;
+			usize region_size = range.extent.width * range.extent.height * range.extent.depth * bytes_per_pixel;
+			data_offsets[index] = packed_size;
+			copies[index].bufferOffset = staging_size;
+			copies[index].imageSubresource.aspectMask = aspect;
+			copies[index].imageSubresource.mipLevel = (u32)(range.base_mip + mip);
+			copies[index].imageSubresource.baseArrayLayer = (u32)(range.base_layer + layer);
+			copies[index].imageSubresource.layerCount = 1;
+			copies[index].imageOffset.x = (i32)range.offset.width;
+			copies[index].imageOffset.y = (i32)range.offset.height;
+			copies[index].imageOffset.z = (i32)range.offset.depth;
+			copies[index].imageExtent.width = (u32)range.extent.width;
+			copies[index].imageExtent.height = (u32)range.extent.height;
+			copies[index].imageExtent.depth = (u32)range.extent.depth;
+			packed_size += region_size;
+			staging_size = (VkDeviceSize)((staging_size + region_size + 3) & ~UINT64_C(3));
+		}
+	}
+	if (data_size < packed_size) {
+		free(copies);
+		free(data_offsets);
+		return;
+	}
+
+	struct rtvk_queue* queue = rtvk_queue_query(ctx, RT_QUEUE_TRANSFER);
+	if (!queue) {
+		queue = rtvk_queue_query(ctx, RT_QUEUE_GRAPHICS);
+	}
+	if (!queue) {
+		free(copies);
+		free(data_offsets);
+		return;
+	}
+
+	VkBuffer staging_buffer = VK_NULL_HANDLE;
+	VmaAllocation staging_allocation = NULL;
+	VkCommandPool command_pool = VK_NULL_HANDLE;
+	VkCommandBuffer command_buffer = VK_NULL_HANDLE;
+	VkFence fence = VK_NULL_HANDLE;
+	VkResult result = VK_SUCCESS;
+
+	rtvk_queue_lock_pair(queue, queue);
+	rtvk_queue_flush(ctx, queue);
+	if (rtvk_error() != RT_SUCCESS) {
+		goto finish;
+	}
+
+	VkBufferCreateInfo buffer_info = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+	buffer_info.size = staging_size;
+	buffer_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+	buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+	VmaAllocationCreateInfo allocation_info = { 0 };
+	allocation_info.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+	allocation_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
+	result = vmaCreateBuffer(ctx->vma_allocator, &buffer_info, &allocation_info, &staging_buffer, &staging_allocation, NULL);
+	if (result != VK_SUCCESS) {
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
+		goto finish;
+	}
+
+	VkCommandPoolCreateInfo pool_info = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
+	pool_info.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
+	pool_info.queueFamilyIndex = queue->family_index;
+	result = vkCreateCommandPool(ctx->vk_device, &pool_info, VK_ALLOCATOR, &command_pool);
+	if (result != VK_SUCCESS) {
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
+		goto finish;
+	}
+
+	VkCommandBufferAllocateInfo command_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
+	command_info.commandPool = command_pool;
+	command_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+	command_info.commandBufferCount = 1;
+	result = vkAllocateCommandBuffers(ctx->vk_device, &command_info, &command_buffer);
+	if (result != VK_SUCCESS) {
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
+		goto finish;
+	}
+
+	VkCommandBufferBeginInfo begin_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+	begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+	result = vkBeginCommandBuffer(command_buffer, &begin_info);
+	if (result != VK_SUCCESS) {
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
+		goto finish;
+	}
+
+	VkImageLayout original_layout = view->image->vk_layout;
+	VkImageMemoryBarrier barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
+	barrier.srcAccessMask = rtvk_texture_layout_access(original_layout);
+	barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+	barrier.oldLayout = original_layout;
+	barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	barrier.image = view->image->vk_image;
+	barrier.subresourceRange.aspectMask = aspect;
+	barrier.subresourceRange.baseMipLevel = (u32)range.base_mip;
+	barrier.subresourceRange.levelCount = (u32)range.mip_count;
+	barrier.subresourceRange.baseArrayLayer = (u32)range.base_layer;
+	barrier.subresourceRange.layerCount = (u32)range.layer_count;
+	vkCmdPipelineBarrier(command_buffer, rtvk_texture_layout_stage(original_layout), VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 0, NULL, 1, &barrier);
+	vkCmdCopyImageToBuffer(command_buffer, view->image->vk_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, staging_buffer, (u32)copy_count, copies);
+	barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+	barrier.dstAccessMask = rtvk_texture_layout_access(original_layout);
+	barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+	barrier.newLayout = original_layout;
+	vkCmdPipelineBarrier(command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, rtvk_texture_layout_stage(original_layout), 0, 0, NULL, 0, NULL, 1, &barrier);
+
+	result = vkEndCommandBuffer(command_buffer);
+	if (result != VK_SUCCESS) {
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
+		goto finish;
+	}
+
+	VkFenceCreateInfo fence_info = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
+	result = vkCreateFence(ctx->vk_device, &fence_info, VK_ALLOCATOR, &fence);
+	if (result != VK_SUCCESS) {
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
+		goto finish;
+	}
+	VkSubmitInfo submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
+	submit_info.commandBufferCount = 1;
+	submit_info.pCommandBuffers = &command_buffer;
+	result = vkQueueSubmit(queue->vk_queue, 1, &submit_info, fence);
+	if (result != VK_SUCCESS) {
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
+		goto finish;
+	}
+	result = vkWaitForFences(ctx->vk_device, 1, &fence, VK_TRUE, UINT64_MAX);
+	if (result != VK_SUCCESS) {
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
+		goto finish;
+	}
+
+	VmaAllocationInfo staging_info;
+	vmaGetAllocationInfo(ctx->vma_allocator, staging_allocation, &staging_info);
+	vmaInvalidateAllocation(ctx->vma_allocator, staging_allocation, 0, staging_size);
+	for (usize index = 0; index < copy_count; index++) {
+		usize region_size = range.extent.width * range.extent.height * range.extent.depth * bytes_per_pixel;
+		memcpy(data + data_offsets[index], (u08*)staging_info.pMappedData + copies[index].bufferOffset, region_size);
+	}
+
+finish:
+	if (fence) {
+		vkDestroyFence(ctx->vk_device, fence, VK_ALLOCATOR);
+	}
+	if (command_pool) {
+		vkDestroyCommandPool(ctx->vk_device, command_pool, VK_ALLOCATOR);
+	}
+	if (staging_buffer) {
+		vmaDestroyBuffer(ctx->vma_allocator, staging_buffer, staging_allocation);
+	}
+	rtvk_queue_unlock_pair(queue, queue);
+	free(copies);
+	free(data_offsets);
+}
+
 u32 rtvk_view_width(const struct rtvk_texture_view* view) {
-	if (!view || !view->image)
+	if (!view || !view->image) {
 		return 0;
+	}
 	return view->image->width;
 }
 u32 rtvk_view_height(const struct rtvk_texture_view* view) {
-	if (!view || !view->image)
+	if (!view || !view->image) {
 		return 0;
+	}
 	return view->image->height;
 }
 VkFormat rtvk_view_format(const struct rtvk_texture_view* view) {
-	if (!view || !view->image)
+	if (!view || !view->image) {
 		return VK_FORMAT_UNDEFINED;
+	}
 	return view->image->vk_format;
 }
 VkImageLayout rtvk_view_layout(const struct rtvk_texture_view* view) {
-	if (!view || !view->image)
+	if (!view || !view->image) {
 		return VK_IMAGE_LAYOUT_UNDEFINED;
+	}
 	return view->image->vk_layout;
 }
 
@@ -224,56 +379,66 @@ VkImageLayout rtvk_view_layout(const struct rtvk_texture_view* view) {
 RTVK_DEFINE_RESOURCE_PRIVATE(texture)
 RTVK_DEFINE_RESOURCE_PRIVATE(texture_view)
 
-static VkImageViewType rtvk_texture_view_type(enum rt_texture_type type) {
-	switch (type) {
-	case RT_TEXTURE_1D:
-		return VK_IMAGE_VIEW_TYPE_1D;
-	case RT_TEXTURE_2D:
-		return VK_IMAGE_VIEW_TYPE_2D;
-	case RT_TEXTURE_3D:
-		return VK_IMAGE_VIEW_TYPE_3D;
-	case RT_TEXTURE_1D_ARRAY:
-		return VK_IMAGE_VIEW_TYPE_1D_ARRAY;
-	case RT_TEXTURE_2D_ARRAY:
-		return VK_IMAGE_VIEW_TYPE_2D_ARRAY;
-	default:
-		return VK_IMAGE_VIEW_TYPE_2D;
-	}
-}
-
 static VkFormat rtvk_texture_format(enum rt_format format) {
-	switch (format) {
-	case RT_RGBA8_UNORM:
-		return VK_FORMAT_R8G8B8A8_UNORM;
-	case RT_D16_UNORM:
-		return VK_FORMAT_D16_UNORM;
-	case RT_D32_SFLOAT:
-		return VK_FORMAT_D32_SFLOAT;
-	case RT_S8_UINT:
-		return VK_FORMAT_S8_UINT;
-	case RT_D24_UNORM_S8_UINT:
-		return VK_FORMAT_D24_UNORM_S8_UINT;
-	case RT_D32_SFLOAT_S8_UINT:
-		return VK_FORMAT_D32_SFLOAT_S8_UINT;
-	default:
-		return VK_FORMAT_UNDEFINED;
-	}
+	return rtvk_format_to_vk(format);
 }
 
 static u32 rtvk_texture_format_bytes_per_pixel(enum rt_format format) {
 	switch (format) {
-	case RT_RGBA8_UNORM:
-		return 4;
-	case RT_D16_UNORM:
-		return 2;
-	case RT_D32_SFLOAT:
-		return 4;
+	case RT_R8_UNORM:
+	case RT_R8_SINT:
+	case RT_R8_UINT:
 	case RT_S8_UINT:
 		return 1;
+	case RT_RG8_UNORM:
+	case RT_RG8_SINT:
+	case RT_RG8_UINT:
+	case RT_R16_UNORM:
+	case RT_R16_SFLOAT:
+	case RT_R16_SINT:
+	case RT_R16_UINT:
+	case RT_D16_UNORM:
+		return 2;
+	case RT_RGB8_UNORM:
+	case RT_RGB8_SINT:
+	case RT_RGB8_UINT:
+		return 3;
+	case RT_RGBA8_UNORM:
+	case RT_RGBA8_SINT:
+	case RT_RGBA8_UINT:
+	case RT_RG16_UNORM:
+	case RT_RG16_SFLOAT:
+	case RT_RG16_SINT:
+	case RT_RG16_UINT:
+	case RT_R32_SFLOAT:
+	case RT_R32_SINT:
+	case RT_R32_UINT:
+	case RT_D32_SFLOAT:
 	case RT_D24_UNORM_S8_UINT:
 		return 4;
 	case RT_D32_SFLOAT_S8_UINT:
-		return 5;
+		return 8;
+	case RT_RGB16_UNORM:
+	case RT_RGB16_SFLOAT:
+	case RT_RGB16_SINT:
+	case RT_RGB16_UINT:
+		return 6;
+	case RT_RGBA16_UNORM:
+	case RT_RGBA16_SFLOAT:
+	case RT_RGBA16_SINT:
+	case RT_RGBA16_UINT:
+	case RT_RG32_SFLOAT:
+	case RT_RG32_SINT:
+	case RT_RG32_UINT:
+		return 8;
+	case RT_RGB32_SFLOAT:
+	case RT_RGB32_SINT:
+	case RT_RGB32_UINT:
+		return 12;
+	case RT_RGBA32_SFLOAT:
+	case RT_RGBA32_SINT:
+	case RT_RGBA32_UINT:
+		return 16;
 	default:
 		return 0;
 	}
@@ -300,11 +465,62 @@ VkImageAspectFlags rtvk_texture_format_aspect(VkFormat format) {
 
 static u32 rtvk_texture_view_bytes_per_pixel(VkFormat format) {
 	switch (format) {
+	case VK_FORMAT_R8_UNORM:
+	case VK_FORMAT_R8_SINT:
+	case VK_FORMAT_R8_UINT:
+	case VK_FORMAT_S8_UINT:
+		return 1;
+	case VK_FORMAT_R8G8_UNORM:
+	case VK_FORMAT_R8G8_SINT:
+	case VK_FORMAT_R8G8_UINT:
+	case VK_FORMAT_R16_UNORM:
+	case VK_FORMAT_R16_SFLOAT:
+	case VK_FORMAT_R16_SINT:
+	case VK_FORMAT_R16_UINT:
+	case VK_FORMAT_D16_UNORM:
+		return 2;
+	case VK_FORMAT_R8G8B8_UNORM:
+	case VK_FORMAT_R8G8B8_SINT:
+	case VK_FORMAT_R8G8B8_UINT:
+		return 3;
 	case VK_FORMAT_R8G8B8A8_UNORM:
+	case VK_FORMAT_R8G8B8A8_SINT:
+	case VK_FORMAT_R8G8B8A8_UINT:
 	case VK_FORMAT_R8G8B8A8_SRGB:
 	case VK_FORMAT_B8G8R8A8_UNORM:
 	case VK_FORMAT_B8G8R8A8_SRGB:
+	case VK_FORMAT_R16G16_UNORM:
+	case VK_FORMAT_R16G16_SFLOAT:
+	case VK_FORMAT_R16G16_SINT:
+	case VK_FORMAT_R16G16_UINT:
+	case VK_FORMAT_R32_SFLOAT:
+	case VK_FORMAT_R32_SINT:
+	case VK_FORMAT_R32_UINT:
+	case VK_FORMAT_D32_SFLOAT:
+	case VK_FORMAT_D24_UNORM_S8_UINT:
 		return 4;
+	case VK_FORMAT_R16G16B16_UNORM:
+	case VK_FORMAT_R16G16B16_SFLOAT:
+	case VK_FORMAT_R16G16B16_SINT:
+	case VK_FORMAT_R16G16B16_UINT:
+		return 6;
+	case VK_FORMAT_R16G16B16A16_UNORM:
+	case VK_FORMAT_R16G16B16A16_SFLOAT:
+	case VK_FORMAT_R16G16B16A16_SINT:
+	case VK_FORMAT_R16G16B16A16_UINT:
+	case VK_FORMAT_R32G32_SFLOAT:
+	case VK_FORMAT_R32G32_SINT:
+	case VK_FORMAT_R32G32_UINT:
+	case VK_FORMAT_D32_SFLOAT_S8_UINT:
+		return 8;
+	case VK_FORMAT_R32G32B32_SFLOAT:
+	case VK_FORMAT_R32G32B32_SINT:
+	case VK_FORMAT_R32G32B32_UINT:
+		return 12;
+	case VK_FORMAT_R32G32B32A32_SFLOAT:
+	case VK_FORMAT_R32G32B32A32_SINT:
+	case VK_FORMAT_R32G32B32A32_UINT:
+		return 16;
 	default:
 		return 0;
 	}
@@ -312,6 +528,7 @@ static u32 rtvk_texture_view_bytes_per_pixel(VkFormat format) {
 
 static void rtvk_texture_copy_region(struct rtvk_context* ctx, struct rtvk_queue* queue, struct rtvk_texture* src_texture, u32 src_x, u32 src_y, u32 src_z, u32 src_mip, struct rtvk_texture* dst_texture, u32 dst_x, u32 dst_y, u32 dst_z, u32 dst_mip, u32 width, u32 height, u32 depth);
 static void rtvk_texture_copy_buffer_command(struct rtvk_context* ctx, struct rtvk_queue* queue);
+struct rtvk_texture* rtvk_texture_node_create(struct rtvk_context* ctx);
 
 static bool rtvk_texture_view_needs_bgra_swizzle(VkFormat format) {
 	return format == VK_FORMAT_B8G8R8A8_UNORM || format == VK_FORMAT_B8G8R8A8_SRGB;
@@ -382,7 +599,7 @@ void rtvk_image_transition_layout(VkCommandBuffer command_buffer, struct rtvk_im
 	barrier.subresourceRange.baseMipLevel = 0;
 	barrier.subresourceRange.levelCount = image->mip_levels;
 	barrier.subresourceRange.baseArrayLayer = 0;
-	barrier.subresourceRange.layerCount = 1;
+	barrier.subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
 	vkCmdPipelineBarrier(
 		command_buffer,
 		rtvk_texture_layout_stage(image->vk_layout),
@@ -407,6 +624,253 @@ static struct rtvk_queue* rtvk_texture_graphics_queue(struct rtvk_context* ctx, 
 
 void rtvk_texture_init(struct rtvk_context* ctx, struct rtvk_texture* texture) {
 	rtvk_init_resource_base(ctx, RTVK_RESOURCE_BASE(texture), RT_RESOURCE_TEXTURE);
+}
+
+struct rtvk_texture* rtvk_texture_active_node(struct rtvk_texture* texture) {
+	if (!texture) {
+		return NULL;
+	}
+	return texture->active;
+}
+
+struct rtvk_texture* rtvk_texture_node_clone(struct rtvk_context* ctx, const struct rtvk_texture* source) {
+	if (!source) {
+		return NULL;
+	}
+
+	VkImageCreateInfo image_info = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
+	image_info.format = source->base.vk_format;
+	image_info.extent.width = source->base.width;
+	image_info.extent.height = source->base.height;
+	image_info.extent.depth = source->base.depth;
+	image_info.mipLevels = source->base.mip_levels;
+	image_info.arrayLayers = 1;
+	image_info.samples = VK_SAMPLE_COUNT_1_BIT;
+	image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+	image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+	image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+	switch (source->base.type) {
+	case RT_TEXTURE_1D:
+		image_info.imageType = VK_IMAGE_TYPE_1D;
+		image_info.extent.height = 1;
+		image_info.extent.depth = 1;
+		break;
+	case RT_TEXTURE_2D:
+		image_info.imageType = VK_IMAGE_TYPE_2D;
+		image_info.extent.depth = 1;
+		break;
+	case RT_TEXTURE_3D:
+		image_info.imageType = VK_IMAGE_TYPE_3D;
+		break;
+	case RT_TEXTURE_1D_ARRAY:
+		image_info.imageType = VK_IMAGE_TYPE_1D;
+		image_info.extent.height = 1;
+		image_info.extent.depth = 1;
+		image_info.arrayLayers = source->base.depth;
+		break;
+	case RT_TEXTURE_2D_ARRAY:
+		image_info.imageType = VK_IMAGE_TYPE_2D;
+		image_info.extent.depth = 1;
+		image_info.arrayLayers = source->base.depth;
+		break;
+	default:
+		return NULL;
+	}
+
+	VkFormatProperties properties;
+	vkGetPhysicalDeviceFormatProperties(ctx->vk_physical_device, image_info.format, &properties);
+	if (properties.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT) {
+		image_info.usage |= VK_IMAGE_USAGE_SAMPLED_BIT;
+	}
+	if (properties.optimalTilingFeatures & VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT) {
+		image_info.usage |= VK_IMAGE_USAGE_STORAGE_BIT;
+	}
+	if (properties.optimalTilingFeatures & VK_FORMAT_FEATURE_TRANSFER_SRC_BIT) {
+		image_info.usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+	}
+	if (properties.optimalTilingFeatures & VK_FORMAT_FEATURE_TRANSFER_DST_BIT) {
+		image_info.usage |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+	}
+	if (properties.optimalTilingFeatures & VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT) {
+		image_info.usage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+	}
+	if (properties.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT) {
+		image_info.usage |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+	}
+	if (!image_info.usage) {
+		rtvk_throwf(RT_UNSUPPORTED_FEATURE, "texture format has no Vulkan image usage");
+		return NULL;
+	}
+
+	struct rtvk_texture* target = rtvk_texture_node_create(ctx);
+	if (!target) {
+		return NULL;
+	}
+
+	VmaAllocationCreateInfo allocation_info = { 0 };
+	allocation_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+	VkResult result = vmaCreateImage(ctx->vma_allocator, &image_info, &allocation_info, &target->base.vk_image, &target->vma_allocation, NULL);
+	if (result != VK_SUCCESS) {
+		rtvk_resource_retire(RTVK_RESOURCE_BASE(target));
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
+		return NULL;
+	}
+
+	target->base.vk_format = source->base.vk_format;
+	target->base.vk_layout = VK_IMAGE_LAYOUT_UNDEFINED;
+	target->base.type = source->base.type;
+	target->base.width = image_info.extent.width;
+	target->base.height = image_info.extent.height;
+	target->base.depth = source->base.type == RT_TEXTURE_3D ? image_info.extent.depth : image_info.arrayLayers;
+	target->base.mip_levels = image_info.mipLevels;
+	return target;
+}
+
+struct rtvk_texture_write rtvk_texture_write_begin(struct rtvk_context* ctx, struct rtvk_texture* texture) {
+	struct rtvk_texture_write write = { 0 };
+	if (!texture) {
+		return write;
+	}
+
+	write.target = texture->active;
+	if (!write.target || (rtvk_atomic_load(&write.target->base.base.ref_count) == 1 && rtvk_atomic_load(&write.target->base.base.job_count) == 0)) {
+		return write;
+	}
+
+	write.source = write.target;
+	write.target = rtvk_texture_node_clone(ctx, write.source);
+	if (!write.target) {
+		write.source = NULL;
+	}
+	return write;
+}
+
+void rtvk_texture_write_commit(struct rtvk_texture* texture, struct rtvk_texture_write* write) {
+	if (!texture || !write || !write->source || !write->target) {
+		return;
+	}
+
+	rtvk_texture_recycle_node(texture, write->source);
+	texture->active = write->target;
+	write->source = NULL;
+	write->target = NULL;
+}
+
+void rtvk_texture_write_cancel(struct rtvk_texture* texture, struct rtvk_texture_write* write) {
+	if (!texture || !write || !write->source || !write->target) {
+		return;
+	}
+
+	rtvk_texture_recycle_node(texture, write->target);
+	write->source = NULL;
+	write->target = NULL;
+}
+
+void rtvk_texture_resize(struct rtvk_context* ctx, struct rtvk_texture* texture, enum rt_texture_type type, enum rt_format format, rt_extent_3d extent, usize mip_count) {
+	if (!texture) {
+		return;
+	}
+	rtvk_texture_collect_nodes(texture);
+
+	VkFormat vk_format = rtvk_texture_format(format);
+	if (vk_format == VK_FORMAT_UNDEFINED) {
+		rtvk_throwf(RT_UNSUPPORTED_FEATURE, "unsupported texture format");
+		return;
+	}
+
+	VkImageCreateInfo image_info = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
+	image_info.format = vk_format;
+	image_info.extent.width = (u32)extent.width;
+	image_info.extent.height = (u32)extent.height;
+	image_info.extent.depth = (u32)extent.depth;
+	image_info.mipLevels = (u32)mip_count;
+	image_info.arrayLayers = 1;
+	image_info.samples = VK_SAMPLE_COUNT_1_BIT;
+	image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+	image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+	image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+	switch (type) {
+	case RT_TEXTURE_1D:
+		image_info.imageType = VK_IMAGE_TYPE_1D;
+		image_info.extent.height = 1;
+		image_info.extent.depth = 1;
+		break;
+	case RT_TEXTURE_2D:
+		image_info.imageType = VK_IMAGE_TYPE_2D;
+		image_info.extent.depth = 1;
+		break;
+	case RT_TEXTURE_3D:
+		image_info.imageType = VK_IMAGE_TYPE_3D;
+		break;
+	case RT_TEXTURE_1D_ARRAY:
+		image_info.imageType = VK_IMAGE_TYPE_1D;
+		image_info.extent.height = 1;
+		image_info.extent.depth = 1;
+		image_info.arrayLayers = (u32)extent.depth;
+		break;
+	case RT_TEXTURE_2D_ARRAY:
+		image_info.imageType = VK_IMAGE_TYPE_2D;
+		image_info.extent.depth = 1;
+		image_info.arrayLayers = (u32)extent.depth;
+		break;
+	default:
+		return;
+	}
+
+	VkFormatProperties properties;
+	vkGetPhysicalDeviceFormatProperties(ctx->vk_physical_device, vk_format, &properties);
+	if (properties.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT) {
+		image_info.usage |= VK_IMAGE_USAGE_SAMPLED_BIT;
+	}
+	if (properties.optimalTilingFeatures & VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT) {
+		image_info.usage |= VK_IMAGE_USAGE_STORAGE_BIT;
+	}
+	if (properties.optimalTilingFeatures & VK_FORMAT_FEATURE_TRANSFER_SRC_BIT) {
+		image_info.usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+	}
+	if (properties.optimalTilingFeatures & VK_FORMAT_FEATURE_TRANSFER_DST_BIT) {
+		image_info.usage |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+	}
+	if (properties.optimalTilingFeatures & VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT) {
+		image_info.usage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+	}
+	if (properties.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT) {
+		image_info.usage |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+	}
+	if (!image_info.usage) {
+		rtvk_throwf(RT_UNSUPPORTED_FEATURE, "texture format has no Vulkan image usage");
+		return;
+	}
+
+	struct rtvk_texture* node = rtvk_texture_node_create(ctx);
+	if (!node) {
+		return;
+	}
+
+	VmaAllocationCreateInfo allocation_info = { 0 };
+	allocation_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+	VkResult result = vmaCreateImage(ctx->vma_allocator, &image_info, &allocation_info, &node->base.vk_image, &node->vma_allocation, NULL);
+	if (result != VK_SUCCESS) {
+		rtvk_resource_retire(RTVK_RESOURCE_BASE(node));
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
+		return;
+	}
+
+	node->base.vk_format = vk_format;
+	node->base.vk_layout = VK_IMAGE_LAYOUT_UNDEFINED;
+	node->base.type = type;
+	node->base.width = image_info.extent.width;
+	node->base.height = image_info.extent.height;
+	node->base.depth = type == RT_TEXTURE_3D ? image_info.extent.depth : image_info.arrayLayers;
+	node->base.mip_levels = image_info.mipLevels;
+
+	if (texture->active) {
+		rtvk_texture_recycle_node(texture, texture->active);
+	}
+	texture->active = node;
+	rtvk_texture_collect_nodes(texture);
 }
 
 void rtvk_texture_view_init(struct rtvk_context* ctx, struct rtvk_texture_view* view) {
@@ -443,7 +907,7 @@ void rtvk_texture_finish(struct rtvk_texture* texture) {
 	rtvk_finish_resource_base(RTVK_RESOURCE_BASE(texture));
 }
 
-static struct rtvk_texture* rtvk_texture_node_create(struct rtvk_context* ctx) {
+struct rtvk_texture* rtvk_texture_node_create(struct rtvk_context* ctx) {
 	struct rtvk_texture* node = calloc(1, sizeof(*node));
 	if (!node) {
 		rtvk_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate texture metadata");
@@ -513,7 +977,26 @@ void rtvk_texture_view_bind_image(struct rtvk_context* ctx, struct rtvk_texture_
 	view_info.pNext = NULL;
 	view_info.flags = 0;
 	view_info.image = image->vk_image;
-	view_info.viewType = rtvk_texture_view_type(image->type);
+	switch (image->type) {
+	case RT_TEXTURE_1D:
+		view_info.viewType = VK_IMAGE_VIEW_TYPE_1D;
+		break;
+	case RT_TEXTURE_2D:
+		view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+		break;
+	case RT_TEXTURE_3D:
+		view_info.viewType = VK_IMAGE_VIEW_TYPE_3D;
+		break;
+	case RT_TEXTURE_1D_ARRAY:
+		view_info.viewType = VK_IMAGE_VIEW_TYPE_1D_ARRAY;
+		break;
+	case RT_TEXTURE_2D_ARRAY:
+		view_info.viewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+		break;
+	default:
+		view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+		break;
+	}
 	view_info.format = image->vk_format;
 	view_info.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
 	view_info.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
@@ -592,7 +1075,7 @@ void rtvk_texture_view_address(struct rtvk_texture_view* texture_view, enum rt_a
 	rtvk_texture_view_recreate_sampler(texture_view);
 }
 
-void rtvk_texture_view_anisotropy(struct rtvk_texture_view* texture_view, u32 max_anisotropy) {
+void rtvk_texture_view_anisotropy(struct rtvk_texture_view* texture_view, usize max_anisotropy) {
 	if (texture_view->max_anisotropy == max_anisotropy) {
 		return;
 	}
@@ -1329,11 +1812,7 @@ rt_timepoint rtvk_texture_view_copy_to_buffer(struct rtvk_context* ctx, struct r
 		rtvk_throwf(RT_IMPROPER_USAGE, "texture view copy requires a valid destination buffer");
 		return timepoint;
 	}
-	if (!(buffer->usage & RT_BUFFER_USAGE_TRANSFER_DST) && !(buffer->usage & RT_BUFFER_USAGE_STAGING)) {
-		rtvk_throwf(RT_IMPROPER_USAGE, "destination buffer usage must allow transfer writes");
-		return timepoint;
-	}
-	if (buffer->mode != RT_BUFFER_DYNAMIC && !(buffer->usage & RT_BUFFER_USAGE_STAGING)) {
+	if (buffer->active && buffer->active->memory_type != RT_HOST_MEMORY) {
 		rtvk_throwf(RT_IMPROPER_USAGE, "texture view copy requires a host-visible destination buffer");
 		return timepoint;
 	}
@@ -1346,7 +1825,7 @@ rt_timepoint rtvk_texture_view_copy_to_buffer(struct rtvk_context* ctx, struct r
 
 	u64 total_size = (u64)image->width * image->height * bytes_per_pixel;
 	if (!buffer->active || buffer->active->size < total_size) {
-		rtvk_buffer_data(ctx, buffer, buffer->mode, buffer->usage, total_size, NULL);
+		rtvk_buffer_resize(ctx, buffer, RT_HOST_MEMORY, total_size);
 	}
 	if (!buffer->active) {
 		return timepoint;

@@ -13,46 +13,45 @@
 
 #include <string.h>
 
-static GLenum rtgl_buffer_gl_usage(enum rt_buffer_mode mode) {
-	return mode == RT_BUFFER_STATIC ? GL_STATIC_DRAW : GL_DYNAMIC_DRAW;
+static GLenum rtgl_buffer_gl_usage(void) {
+	return GL_DYNAMIC_DRAW;
 }
 
-void rtgl_execution_buffer_create(struct rtgl_context* ctx, struct rtgl_buffer* buffer) {
-	rtgl_execution_submit_sync(ctx, [buffer](struct rtgl_context*) {
-		glCreateBuffers(1, &buffer->gl_buffer);
-		glCreateTextures(GL_TEXTURE_BUFFER, 1, &buffer->gl_texture_buffer);
+void rtgl_execution_buffer_create(struct rtgl_context* ctx, struct rtgl_buffer_storage* storage) {
+	rtgl_execution_submit_sync(ctx, [storage](struct rtgl_context*) {
+		glCreateBuffers(1, &storage->gl_buffer);
+		glCreateTextures(GL_TEXTURE_BUFFER, 1, &storage->gl_texture_buffer);
 	});
 }
 
-void rtgl_execution_buffer_delete(struct rtgl_context* ctx, struct rtgl_buffer* buffer) {
-	rtgl_execution_submit_sync(ctx, [buffer](struct rtgl_context*) {
-		if (buffer->gl_buffer) {
-			glDeleteBuffers(1, &buffer->gl_buffer);
-			buffer->gl_buffer = 0;
+void rtgl_execution_buffer_delete(struct rtgl_context* ctx, struct rtgl_buffer_storage* storage) {
+	rtgl_execution_submit_sync(ctx, [storage](struct rtgl_context*) {
+		if (storage->gl_buffer) {
+			glDeleteBuffers(1, &storage->gl_buffer);
+			storage->gl_buffer = 0;
 		}
-		if (buffer->gl_texture_buffer) {
-			glDeleteTextures(1, &buffer->gl_texture_buffer);
-			buffer->gl_texture_buffer = 0;
+		if (storage->gl_texture_buffer) {
+			glDeleteTextures(1, &storage->gl_texture_buffer);
+			storage->gl_texture_buffer = 0;
 		}
 	});
 }
 
-void rtgl_execution_buffer_data(struct rtgl_context* ctx, struct rtgl_buffer* buffer, enum rt_buffer_mode mode, enum rt_buffer_usage usage, u64 size, const u08* bytes) {
-	(void)usage;
-	rtgl_execution_submit_sync(ctx, [buffer, mode, size, bytes](struct rtgl_context*) {
-		glNamedBufferData(buffer->gl_buffer, (GLsizeiptr)size, bytes, rtgl_buffer_gl_usage(mode));
+void rtgl_execution_buffer_data(struct rtgl_context* ctx, struct rtgl_buffer_storage* storage, usize size, const u08* bytes) {
+	rtgl_execution_submit_sync(ctx, [storage, size, bytes](struct rtgl_context*) {
+		glNamedBufferData(storage->gl_buffer, (GLsizeiptr)size, bytes, rtgl_buffer_gl_usage());
 	});
 }
 
-void rtgl_execution_buffer_subdata(struct rtgl_context* ctx, struct rtgl_buffer* buffer, u64 offset, u64 size, const u08* bytes) {
-	rtgl_execution_submit_sync(ctx, [buffer, offset, size, bytes](struct rtgl_context*) {
-		glNamedBufferSubData(buffer->gl_buffer, (GLintptr)offset, (GLsizeiptr)size, bytes);
+void rtgl_execution_buffer_subdata(struct rtgl_context* ctx, struct rtgl_buffer_storage* storage, u64 offset, u64 size, const u08* bytes) {
+	rtgl_execution_submit_sync(ctx, [storage, offset, size, bytes](struct rtgl_context*) {
+		glNamedBufferSubData(storage->gl_buffer, (GLintptr)offset, (GLsizeiptr)size, bytes);
 	});
 }
 
-void rtgl_execution_buffer_read(struct rtgl_context* ctx, struct rtgl_buffer* buffer, u64 offset, u64 size, u08* bytes) {
-	rtgl_execution_submit_sync(ctx, [buffer, offset, size, bytes](struct rtgl_context*) {
-		glGetNamedBufferSubData(buffer->gl_buffer, (GLintptr)offset, (GLsizeiptr)size, bytes);
+void rtgl_execution_buffer_read(struct rtgl_context* ctx, struct rtgl_buffer_storage* storage, u64 offset, u64 size, u08* bytes) {
+	rtgl_execution_submit_sync(ctx, [storage, offset, size, bytes](struct rtgl_context*) {
+		glGetNamedBufferSubData(storage->gl_buffer, (GLintptr)offset, (GLsizeiptr)size, bytes);
 	});
 }
 
@@ -257,6 +256,19 @@ void rtgl_execution_texture_delete(struct rtgl_context* ctx, struct rtgl_image_b
 	});
 }
 
+void rtgl_execution_framebuffer_attach_stencil(struct rtgl_context* ctx, struct rtgl_framebuffer* framebuffer, struct rtgl_texture_view* view) {
+	rtgl_execution_submit_sync(ctx, [framebuffer, view](struct rtgl_context*) {
+		GLuint texture = view && view->image ? view->image->gl_texture : 0;
+		glNamedFramebufferTexture(framebuffer->gl_framebuffer, GL_STENCIL_ATTACHMENT, texture, 0);
+		if (framebuffer->color_texture_count && texture) {
+			GLenum status = glCheckNamedFramebufferStatus(framebuffer->gl_framebuffer, GL_FRAMEBUFFER);
+			if (status != GL_FRAMEBUFFER_COMPLETE) {
+				rtgl_throwf(RT_INITIALIZATION_FAILED, "OpenGL framebuffer with stencil is incomplete: 0x%04x", status);
+			}
+		}
+	});
+}
+
 void rtgl_execution_texture_view_delete_sampler(struct rtgl_context* ctx, struct rtgl_texture_view* view) {
 	rtgl_execution_submit_sync(ctx, [view](struct rtgl_context*) {
 		if (view->gl_sampler) {
@@ -268,46 +280,119 @@ void rtgl_execution_texture_view_delete_sampler(struct rtgl_context* ctx, struct
 
 void rtgl_execution_texture_data(struct rtgl_context* ctx, struct rtgl_image_base* image, const void* data) {
 	rtgl_execution_submit_sync(ctx, [image, data](struct rtgl_context*) {
-		glTextureStorage2D(image->gl_texture, (GLsizei)image->mip_levels, image->gl_internal_format, (GLsizei)image->width, (GLsizei)image->height);
+		switch (image->type) {
+		case RT_TEXTURE_1D:
+			glTextureStorage1D(image->gl_texture, (GLsizei)image->mip_levels, image->gl_internal_format, (GLsizei)image->width);
+			break;
+		case RT_TEXTURE_1D_ARRAY:
+			glTextureStorage2D(image->gl_texture, (GLsizei)image->mip_levels, image->gl_internal_format, (GLsizei)image->width, (GLsizei)image->depth);
+			break;
+		case RT_TEXTURE_2D:
+			glTextureStorage2D(image->gl_texture, (GLsizei)image->mip_levels, image->gl_internal_format, (GLsizei)image->width, (GLsizei)image->height);
+			break;
+		case RT_TEXTURE_2D_ARRAY:
+		case RT_TEXTURE_3D:
+			glTextureStorage3D(image->gl_texture, (GLsizei)image->mip_levels, image->gl_internal_format, (GLsizei)image->width, (GLsizei)image->height, (GLsizei)image->depth);
+			break;
+		default:
+			return;
+		}
 		glTextureParameteri(image->gl_texture, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 		glTextureParameteri(image->gl_texture, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 		glTextureParameteri(image->gl_texture, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 		glTextureParameteri(image->gl_texture, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 		if (data) {
+			/* Initial uploads use the complete base level. */
+			const GLenum format = rtgl_texture_upload_format(image->format);
+			const GLenum type = rtgl_texture_upload_type(image->format);
 			glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-			glTextureSubImage2D(
-				image->gl_texture,
-				0,
-				0,
-				0,
-				(GLsizei)image->width,
-				(GLsizei)image->height,
-				rtgl_texture_upload_format(image->format),
-				rtgl_texture_upload_type(image->format),
-				data
-			);
+			switch (image->type) {
+			case RT_TEXTURE_1D: glTextureSubImage1D(image->gl_texture, 0, 0, (GLsizei)image->width, format, type, data); break;
+			case RT_TEXTURE_1D_ARRAY: glTextureSubImage2D(image->gl_texture, 0, 0, 0, (GLsizei)image->width, (GLsizei)image->depth, format, type, data); break;
+			case RT_TEXTURE_2D: glTextureSubImage2D(image->gl_texture, 0, 0, 0, (GLsizei)image->width, (GLsizei)image->height, format, type, data); break;
+			case RT_TEXTURE_2D_ARRAY:
+			case RT_TEXTURE_3D: glTextureSubImage3D(image->gl_texture, 0, 0, 0, 0, (GLsizei)image->width, (GLsizei)image->height, (GLsizei)image->depth, format, type, data); break;
+			default: break;
+			}
 			glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
 		}
 	});
 }
 
-void rtgl_execution_texture_subdata(struct rtgl_context* ctx, struct rtgl_image_base* image, u32 mip, u32 offset_x, u32 offset_y, u32 offset_z, u32 width, u32 height, u32 depth, const void* data) {
-	(void)offset_z;
-	(void)depth;
-	rtgl_execution_submit_sync(ctx, [image, mip, offset_x, offset_y, width, height, data](struct rtgl_context*) {
+static rt_texture_range rtgl_execution_texture_mip_range(rt_texture_range range, usize level) {
+	rt_texture_range mip = range;
+	mip.base_mip += level;
+	mip.mip_count = 1;
+	mip.offset.width >>= level;
+	mip.offset.height >>= level;
+	mip.offset.depth >>= level;
+	mip.extent.width >>= level;
+	mip.extent.height >>= level;
+	mip.extent.depth >>= level;
+	if (!mip.extent.width) mip.extent.width = 1;
+	if (!mip.extent.height) mip.extent.height = 1;
+	if (!mip.extent.depth) mip.extent.depth = 1;
+	return mip;
+}
+
+static usize rtgl_execution_texture_range_bytes(const struct rtgl_image_base* image, rt_texture_range range) {
+	const usize bytes = rtgl_texture_format_aspect_size(image->format, range.aspects);
+	const usize layers = image->type == RT_TEXTURE_1D_ARRAY || image->type == RT_TEXTURE_2D_ARRAY ? range.layer_count : 1;
+	return range.extent.width * range.extent.height * range.extent.depth * layers * bytes;
+}
+
+void rtgl_execution_texture_subdata(struct rtgl_context* ctx, struct rtgl_image_base* image, rt_texture_range range, const void* data) {
+	rtgl_execution_submit_sync(ctx, [image, range, data](struct rtgl_context*) {
 		glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-		glTextureSubImage2D(
-			image->gl_texture,
-			(GLint)mip,
-			(GLint)offset_x,
-			(GLint)offset_y,
-			(GLsizei)width,
-			(GLsizei)height,
-			rtgl_texture_upload_format(image->format),
-			rtgl_texture_upload_type(image->format),
-			data
-		);
+		const u08* bytes = (const u08*)data;
+		usize offset = 0;
+		for (usize level = 0; level < range.mip_count; level++) {
+			const rt_texture_range mip = rtgl_execution_texture_mip_range(range, level);
+			const void* mip_data = bytes + offset;
+			const GLenum format = rtgl_texture_upload_format_aspect(image->format, mip.aspects);
+			const GLenum type = rtgl_texture_upload_type_aspect(image->format, mip.aspects);
+			switch (image->type) {
+		case RT_TEXTURE_1D:
+			glTextureSubImage1D(image->gl_texture, (GLint)mip.base_mip, (GLint)mip.offset.width, (GLsizei)mip.extent.width, format, type, mip_data);
+			break;
+		case RT_TEXTURE_1D_ARRAY:
+			glTextureSubImage2D(image->gl_texture, (GLint)mip.base_mip, (GLint)mip.offset.width, (GLint)mip.base_layer, (GLsizei)mip.extent.width, (GLsizei)mip.layer_count, format, type, mip_data);
+			break;
+		case RT_TEXTURE_2D:
+			glTextureSubImage2D(image->gl_texture, (GLint)mip.base_mip, (GLint)mip.offset.width, (GLint)mip.offset.height, (GLsizei)mip.extent.width, (GLsizei)mip.extent.height, format, type, mip_data);
+			break;
+		case RT_TEXTURE_2D_ARRAY:
+			glTextureSubImage3D(image->gl_texture, (GLint)mip.base_mip, (GLint)mip.offset.width, (GLint)mip.offset.height, (GLint)mip.base_layer, (GLsizei)mip.extent.width, (GLsizei)mip.extent.height, (GLsizei)mip.layer_count, format, type, mip_data);
+			break;
+		case RT_TEXTURE_3D:
+			glTextureSubImage3D(image->gl_texture, (GLint)mip.base_mip, (GLint)mip.offset.width, (GLint)mip.offset.height, (GLint)mip.offset.depth, (GLsizei)mip.extent.width, (GLsizei)mip.extent.height, (GLsizei)mip.extent.depth, format, type, mip_data);
+			break;
+		default: break;
+		}
+			offset += rtgl_execution_texture_range_bytes(image, mip);
+		}
 		glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+	});
+}
+
+void rtgl_execution_texture_read(struct rtgl_context* ctx, struct rtgl_image_base* image, rt_texture_range range, u08* data, usize data_size) {
+	rtgl_execution_submit_sync(ctx, [image, range, data, data_size](struct rtgl_context*) {
+		usize offset = 0;
+		for (usize level = 0; level < range.mip_count; level++) {
+			const rt_texture_range mip = rtgl_execution_texture_mip_range(range, level);
+			GLint y = (GLint)mip.offset.height;
+			GLint z = (GLint)mip.offset.depth;
+			GLsizei width = (GLsizei)mip.extent.width;
+			GLsizei height = (GLsizei)mip.extent.height;
+			GLsizei depth = (GLsizei)mip.extent.depth;
+			if (image->type == RT_TEXTURE_1D_ARRAY) { y = (GLint)mip.base_layer; height = (GLsizei)mip.layer_count; depth = 1; }
+			if (image->type == RT_TEXTURE_2D_ARRAY) { z = (GLint)mip.base_layer; depth = (GLsizei)mip.layer_count; }
+			if (image->type == RT_TEXTURE_1D) { height = 1; depth = 1; }
+			if (image->type == RT_TEXTURE_2D) { depth = 1; }
+			const usize mip_bytes = rtgl_execution_texture_range_bytes(image, mip);
+			glGetTextureSubImage(image->gl_texture, (GLint)mip.base_mip, (GLint)mip.offset.width, y, z, width, height, depth, rtgl_texture_upload_format_aspect(image->format, mip.aspects), rtgl_texture_upload_type_aspect(image->format, mip.aspects), (GLsizei)(data_size - offset), data + offset);
+			offset += mip_bytes;
+		}
 	});
 }
 

@@ -14,12 +14,14 @@ RTGL_EXTERN_C_ENTER
 
 RTGL_API rt_graphics_program rtGraphicsProgramCreate(void);
 RTGL_API void rtGraphicsProgramDestroy(rt_graphics_program program);
-RTGL_API void rtGraphicsProgramLayout(rt_graphics_program program, const rt_vertex_layout* layout);
-RTGL_API void rtGraphicsProgramSource(rt_graphics_program program, const void* data, usize size);
-RTGL_API void rtGraphicsProgramRasterState(rt_graphics_program program, enum rt_cull_mode cull_mode, enum rt_front_face front_face, enum rt_fill_mode fill_mode);
-RTGL_API void rtGraphicsProgramBlendState(rt_graphics_program program, bool enabled, enum rt_blend_factor src_color, enum rt_blend_factor dst_color, enum rt_blend_op color_op, enum rt_blend_factor src_alpha, enum rt_blend_factor dst_alpha, enum rt_blend_op alpha_op);
+RTGL_API void rtGraphicsProgramSetLayout(rt_graphics_program program, const rt_vertex_layout* layout);
+RTGL_API void rtGraphicsProgramSetSource(rt_graphics_program program, const u08* data, usize size);
+RTGL_API void rtGraphicsProgramSetRasterState(rt_graphics_program program, enum rt_cull_mode cull_mode, enum rt_front_face front_face, enum rt_fill_mode fill_mode);
+RTGL_API void rtGraphicsProgramSetBlendState(rt_graphics_program program, bool enabled, enum rt_blend_factor src_color, enum rt_blend_factor dst_color, enum rt_blend_op color_op, enum rt_blend_factor src_alpha, enum rt_blend_factor dst_alpha, enum rt_blend_op alpha_op);
 RTGL_API void rtGraphicsProgramFinalize(rt_graphics_program program);
-RTGL_API rt_location rtGraphicsProgramLocation(rt_graphics_program program, const char* name);
+RTGL_API rt_location rtGraphicsProgramUniformLocation(rt_graphics_program program, const char* name);
+RTGL_API rt_location rtGraphicsProgramInputLocation(rt_graphics_program program, const rt_vertex_attribute* attributes, usize attribute_count);
+RTGL_API rt_location rtGraphicsProgramOutputLocation(rt_graphics_program program, const char* name);
 
 /*===============================================================================================*/
 /*                                                                                               */
@@ -51,7 +53,7 @@ struct rtgl_graphics_program {
 	rtgl_uniform_location uniform_locations[16];
 	u32 uniform_location_count;
 	rt_vertex_layout vertex_layout;
-	rt_vertex_stream vertex_streams[16];
+	rt_vertex_input vertex_inputs[16];
 	rt_vertex_attribute vertex_attributes[RTGL_MAX_VERTEX_ATTRIBUTES];
 	enum rt_cull_mode cull_mode;
 	enum rt_front_face front_face;

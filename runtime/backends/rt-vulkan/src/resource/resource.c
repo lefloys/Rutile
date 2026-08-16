@@ -100,6 +100,12 @@ void rtvk_resource_finalize(struct rtvk_resource_base* base) {
 	case RT_RESOURCE_SWAPCHAIN:
 		rtvk_swapchain_finish((struct rtvk_swapchain*)base);
 		break;
+	case RT_RESOURCE_SWAPCHAIN_GENERATION:
+		rtvk_swapchain_generation_finish((struct rtvk_swapchain_generation*)base);
+		break;
+	case RT_RESOURCE_SWAPCHAIN_SURFACE:
+		rtvk_swapchain_surface_finish((struct rtvk_swapchain_surface*)base);
+		break;
 	case RT_RESOURCE_SWAPCHAIN_FRAME:
 		rtvk_swapchain_frame_finish((struct rtvk_swapchain_frame*)base);
 		break;

@@ -3,6 +3,15 @@
 
 #include "rutile.h"
 
+#if defined(_WIN32)
+#define RT_API_PUBLIC __declspec(dllexport)
+#else
+#define RT_API_PUBLIC __attribute__((visibility("default")))
+#endif
+
+void rtlog_printf(const char* format, ...);
+void rtlog_error(const char* name);
+
 #define RTLOG_DECLARE_NEXT(return_type, name, parameters, arguments) extern return_type (*next_##name) parameters;
 RT_CORE_PROCEDURES(RTLOG_DECLARE_NEXT)
 #undef RTLOG_DECLARE_NEXT
