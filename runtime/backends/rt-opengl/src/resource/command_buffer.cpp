@@ -863,6 +863,8 @@ struct rtgl_command_buffer_submission {
 	struct rtgl_context* ctx;
 	rtgl_recorded_command* commands;
 	u32 command_count;
+	rt_timepoint* wait_timepoints;
+	usize wait_count;
 };
 
 static void rtgl_command_buffer_submission_destroy(struct rtgl_command_buffer_submission* submission) {
@@ -876,31 +878,56 @@ static void rtgl_command_buffer_submission_destroy(struct rtgl_command_buffer_su
 		rtgl_command_buffer_release_command(&command_buffer, &submission->commands[i]);
 	}
 	free(submission->commands);
+	free(submission->wait_timepoints);
 	free(submission);
 }
 
-rt_timepoint rtgl_command_buffer_submit(struct rtgl_context* ctx, struct rtgl_queue* queue, struct rtgl_command_buffer* command_buffer) {
-	rt_timepoint wait_timepoint = queue->pending_wait;
-	queue->pending_wait = { 0 };
-	rt_timepoint done = rtgl_queue_signal(queue);
-	if (!command_buffer) {
-		rtgl_execution_queue_complete(ctx, queue, rtgl_timepoint_queue_value(done));
-		return done;
+static void rtgl_command_buffer_mark_writes(struct rtgl_context* ctx, const rtgl_recorded_command* commands, u32 command_count, rt_timepoint timepoint) {
+	for (u32 index = 0; index < command_count; index++) {
+		const rtgl_recorded_command* command = &commands[index];
+		switch (command->kind) {
+		case RTGL_RECORDED_COMMAND_BUFFER_DATA:
+			rtgl_buffer_storage_mark_write(ctx, command->data.buffer_data.storage, timepoint);
+			break;
+		case RTGL_RECORDED_COMMAND_BUFFER_COPY:
+			rtgl_buffer_storage_mark_write(ctx, command->data.buffer_copy.dst, timepoint);
+			break;
+		case RTGL_RECORDED_COMMAND_TEXTURE_COPY_TO_BUFFER:
+			rtgl_buffer_storage_mark_write(ctx, command->data.texture_copy_to_buffer.dst, timepoint);
+			break;
+		default:
+			break;
+		}
 	}
+}
+
+rt_timepoint rtgl_command_buffer_submit(struct rtgl_context* ctx, struct rtgl_queue* queue, struct rtgl_command_buffer* command_buffer) {
+	rt_timepoint* wait_timepoints = queue->wait_timepoints;
+	const usize wait_count = queue->wait_count;
+	queue->wait_timepoints = NULL;
+	queue->wait_count = 0;
+	queue->wait_capacity = 0;
+	rt_timepoint done = rtgl_queue_signal(queue);
 
 	struct rtgl_command_buffer_submission* submission = (struct rtgl_command_buffer_submission*)calloc(1, sizeof(*submission));
 	if (!submission) {
 		RTGL_CHECK_ALLOC(submission, sizeof(*submission), "OpenGL command buffer submission");
 		rtgl_execution_queue_complete(ctx, queue, done.value);
+		free(wait_timepoints);
 		return done;
 	}
 	submission->ctx = ctx;
+	submission->wait_timepoints = wait_timepoints;
+	submission->wait_count = wait_count;
+	if (!command_buffer) {
+		goto submit;
+	}
 	submission->command_count = command_buffer->command_count;
 	if (submission->command_count) {
 		submission->commands = (rtgl_recorded_command*)calloc(submission->command_count, sizeof(*submission->commands));
 		if (!submission->commands) {
 			RTGL_CHECK_ALLOC(submission->commands, sizeof(*submission->commands) * (usize)submission->command_count, "OpenGL submitted commands");
-			free(submission);
+			rtgl_command_buffer_submission_destroy(submission);
 			rtgl_execution_queue_complete(ctx, queue, done.value);
 			return done;
 		}
@@ -913,19 +940,44 @@ rt_timepoint rtgl_command_buffer_submit(struct rtgl_context* ctx, struct rtgl_qu
 			}
 		}
 	}
+
+submit:
+	rtgl_command_buffer_mark_writes(ctx, submission->commands, submission->command_count, done);
 	rtgl_retain_resource(command_buffer);
-	if (!rtgl_execution_submit_async(ctx, [command_buffer, submission, queue, wait_timepoint, value = rtgl_timepoint_queue_value(done)](struct rtgl_context* exec_ctx) {
-			/* Execute a retained snapshot. The logical command buffer remains executable. */
-			struct rtgl_command_buffer command_view = *command_buffer;
-			command_view.commands = submission->commands;
-			command_view.command_count = submission->command_count;
-			rtgl_timepoint_wait(exec_ctx, wait_timepoint);
-			rtgl_command_buffer_execute(exec_ctx, &command_view, queue, value);
+	if (!rtgl_execution_submit_async(ctx, [command_buffer, submission, queue, value = rtgl_timepoint_queue_value(done)](struct rtgl_context* exec_ctx) {
+			for (usize index = 0; index < submission->wait_count; index++) {
+				if (!submission->wait_timepoints[index].value || rtgl_timepoint_reached(exec_ctx, submission->wait_timepoints[index])) {
+					continue;
+				}
+				if (!exec_ctx->execution.stopping) {
+					rtgl_execution_defer_current_command();
+					return;
+				}
+				rtgl_command_buffer_submission_destroy(submission);
+				if (command_buffer) {
+					rtgl_resource_release(RTGL_RESOURCE_BASE(command_buffer));
+				}
+				rtgl_execution_queue_complete(exec_ctx, queue, value);
+				return;
+			}
+			if (command_buffer) {
+				/* Execute a retained snapshot. The logical command buffer remains executable. */
+				struct rtgl_command_buffer command_view = *command_buffer;
+				command_view.commands = submission->commands;
+				command_view.command_count = submission->command_count;
+				rtgl_command_buffer_execute(exec_ctx, &command_view, queue, value);
+			} else {
+				rtgl_execution_queue_complete(exec_ctx, queue, value);
+			}
 			rtgl_command_buffer_submission_destroy(submission);
-			rtgl_resource_release(RTGL_RESOURCE_BASE(command_buffer));
+			if (command_buffer) {
+				rtgl_resource_release(RTGL_RESOURCE_BASE(command_buffer));
+			}
 		})) {
 		rtgl_command_buffer_submission_destroy(submission);
-		rtgl_resource_release(RTGL_RESOURCE_BASE(command_buffer));
+		if (command_buffer) {
+			rtgl_resource_release(RTGL_RESOURCE_BASE(command_buffer));
+		}
 		rtgl_execution_queue_complete(ctx, queue, rtgl_timepoint_queue_value(done));
 	}
 	return done;
@@ -1329,6 +1381,7 @@ void rtgl_command_buffer_execute(struct rtgl_context* ctx, struct rtgl_command_b
 			break;
 		case RTGL_RECORDED_COMMAND_BUFFER_COPY:
 			if (command->data.buffer_copy.src && command->data.buffer_copy.dst) {
+				glMemoryBarrier(GL_ALL_BARRIER_BITS);
 				if (command->data.buffer_copy.dst_copy_source) {
 					glMemoryBarrier(GL_ALL_BARRIER_BITS);
 					memcpy(command->data.buffer_copy.dst->shadow_data, command->data.buffer_copy.dst_copy_source->shadow_data, command->data.buffer_copy.dst->size);
@@ -1369,6 +1422,7 @@ void rtgl_command_buffer_execute(struct rtgl_context* ctx, struct rtgl_command_b
 		case RTGL_RECORDED_COMMAND_TEXTURE_COPY_TO_BUFFER:
 			if (command->data.texture_copy_to_buffer.src && command->data.texture_copy_to_buffer.dst) {
 				const rt_texture_range range = command->data.texture_copy_to_buffer.src_range;
+				glMemoryBarrier(GL_ALL_BARRIER_BITS);
 				if (command->data.texture_copy_to_buffer.dst_copy_source) {
 					glMemoryBarrier(GL_ALL_BARRIER_BITS);
 					memcpy(command->data.texture_copy_to_buffer.dst->shadow_data, command->data.texture_copy_to_buffer.dst_copy_source->shadow_data, command->data.texture_copy_to_buffer.dst->size);

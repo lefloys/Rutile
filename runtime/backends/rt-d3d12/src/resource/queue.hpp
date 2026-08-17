@@ -26,8 +26,9 @@ struct rtdx_submitted_batch {
 	u64 value;
 };
 
-struct rtdx_queue {
-	rtdx_resource_base base;
+struct rtdx_queue : rtdx_resource_base {
+	explicit rtdx_queue(rtdx_context* ctx) : rtdx_resource_base(ctx, rtdx_resource_type::queue) {}
+	void finish() override;
 
 	ID3D12CommandQueue* d3d_queue;
 	ID3D12Fence* d3d_fence;

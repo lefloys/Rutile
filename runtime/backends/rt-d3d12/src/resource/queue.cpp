@@ -43,7 +43,7 @@ bool rtTimepointReached(rt_timepoint timepoint) {
 /*===============================================================================================*/
 
 struct rtdx_queue* rtdx_queue_create(struct rtdx_context* ctx, enum rt_queue_capability capability) {
-	struct rtdx_queue* queue = RTDX_ALLOC_RESOURCE(rtdx_queue);
+	struct rtdx_queue* queue = RTDX_ALLOC_RESOURCE(rtdx_queue, ctx);
 	if (!queue) {
 		return NULL;
 	}
@@ -55,18 +55,18 @@ struct rtdx_queue* rtdx_queue_create(struct rtdx_context* ctx, enum rt_queue_cap
 		RTDX_FREE_RESOURCE(queue);
 		return NULL;
 	}
-	rtdx_queue** queues = new (std::nothrow) rtdx_queue*[ctx->queue_count + 1];
+	rtdx_queue** queues = new (std::nothrow) rtdx_queue*[256 + 1];
 	if (!queues) {
 		rt_mutex_unlock(ctx->queue_lock);
 		rtdx_queue_finish(ctx, queue);
 		RTDX_FREE_RESOURCE(queue);
-		rtdx_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate %zu bytes for DirectX queue handles", (ctx->queue_count + 1) * sizeof(*queues));
+		rtdx_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate %zu bytes for DirectX queue handles", (256 + 1) * sizeof(*queues));
 		return NULL;
 	}
-	for (u32 index = 0; index < ctx->queue_count; index++) {
-		queues[index] = ctx->queues[index];
+	for (u32 index = 0; index < 256; index++) {
+		queues[index] = ctx->timepoint_queues[index];
 	}
-	queues[ctx->queue_count++] = queue;
+	queues[256++] = queue;
 	delete[] ctx->queues;
 	ctx->queues = queues;
 	ctx->timepoint_queues[queue->timepoint_id] = queue;
@@ -81,10 +81,10 @@ void rtdx_queue_destroy(struct rtdx_context* ctx, struct rtdx_queue* queue) {
 		return;
 	}
 	rt_mutex_lock(ctx->queue_lock);
-	for (u32 index = 0; index < ctx->queue_count; index++) {
-		if (ctx->queues[index] == queue) {
-			ctx->queues[index] = ctx->queues[ctx->queue_count - 1];
-			ctx->queue_count--;
+	for (u32 index = 0; index < 256; index++) {
+		if (ctx->timepoint_queues[index] == queue) {
+			ctx->timepoint_queues[index] = ctx->timepoint_queues[256 - 1];
+			256--;
 			break;
 		}
 	}
@@ -93,7 +93,6 @@ void rtdx_queue_destroy(struct rtdx_context* ctx, struct rtdx_queue* queue) {
 }
 
 bool rtdx_queue_init(struct rtdx_context* ctx, struct rtdx_queue* queue, enum rt_queue_capability capability) {
-	rtdx_init_resource_base(ctx, RTDX_RESOURCE_BASE(queue), rtdx_resource_type::queue);
 	queue->upload_lock = rt_mutex_create();
 	if (!queue->upload_lock) {
 		rtdx_throwf(RT_PLATFORM_FAILURE, "failed to create DirectX upload synchronization");
@@ -151,9 +150,9 @@ void rtdx_queue_finish(struct rtdx_context* ctx, struct rtdx_queue* queue) {
 	 * command buffers can still retain D3D12 resources. */
 	rtdx_queue_wait_idle(ctx, queue);
 	rtdx_queue_collect(ctx, queue);
-	rtdx_release(&queue->upload_command_list);
-	rtdx_release(&queue->upload_allocator);
-	rtdx_release(&queue->upload_buffer);
+	rtdx_release(queue->upload_command_list);
+	rtdx_release(queue->upload_allocator);
+	rtdx_release(queue->upload_buffer);
 	rt_mutex_destroy(queue->upload_lock);
 	queue->upload_lock = NULL;
 	queue->upload_buffer_size = 0;
@@ -161,7 +160,6 @@ void rtdx_queue_finish(struct rtdx_context* ctx, struct rtdx_queue* queue) {
 	queue->fence_event = NULL;
 	queue->d3d_fence = NULL;
 	queue->d3d_queue = NULL;
-	rtdx_finish_resource_base(ctx, RTDX_RESOURCE_BASE(queue));
 }
 
 struct rtdx_queue* rtdx_context_queue(struct rtdx_context* ctx, enum rt_queue_capability capability) {
@@ -169,9 +167,9 @@ struct rtdx_queue* rtdx_context_queue(struct rtdx_context* ctx, enum rt_queue_ca
 		return NULL;
 	}
 	rt_mutex_lock(ctx->queue_lock);
-	for (u32 i = 0; i < ctx->queue_count; i++) {
-		if (ctx->queues[i]->capability == capability) {
-			rtdx_queue* queue = ctx->queues[i];
+	for (u32 i = 0; i < 256; i++) {
+		if (ctx->timepoint_queues[i]->capability == capability) {
+			rtdx_queue* queue = ctx->timepoint_queues[i];
 			rt_mutex_unlock(ctx->queue_lock);
 			return queue;
 		}
@@ -240,10 +238,10 @@ void rtdx_queue_collect_locked(struct rtdx_context* ctx, struct rtdx_queue* queu
 		if (!queue->submitted_head) {
 			queue->submitted_tail = NULL;
 		}
-		rtdx_release(&batch->d3d_command_list);
-		rtdx_release(&batch->d3d_allocator);
-		rtdx_release(&batch->d3d_resource_heap);
-		rtdx_release(&batch->d3d_sampler_heap);
+		rtdx_release(batch->d3d_command_list);
+		rtdx_release(batch->d3d_allocator);
+		rtdx_release(batch->d3d_resource_heap);
+		rtdx_release(batch->d3d_sampler_heap);
 		rtdx_command_buffer_snapshot_destroy(batch->command_snapshot);
 		RTDX_FREE_RESOURCE(batch);
 	}
@@ -273,7 +271,7 @@ bool rtdx_queue_acquire_upload_command(struct rtdx_context* ctx, struct rtdx_que
 
 	result = ctx->d3d_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, queue->upload_allocator, NULL, IID_PPV_ARGS(&queue->upload_command_list));
 	if (FAILED(result)) {
-		rtdx_release(&queue->upload_allocator);
+		rtdx_release(queue->upload_allocator);
 		rtdx_throwf(rtdx_error_from_hresult(result), "CreateCommandList failed: 0x%08x", (u32)result);
 		return false;
 	}
@@ -302,7 +300,7 @@ rt_timepoint rtdx_queue_submit_locked(struct rtdx_context* ctx, struct rtdx_queu
 
 	rtdx_queue_collect_locked(ctx, queue);
 
-	u64 value = ++ctx->next_fence_value;
+	u64 value = ++queue->fence_value;
 
 	for (u32 i = 0; i < queue->wait_count; i++) {
 		rt_timepoint wait = queue->wait_timepoints[i];
@@ -331,14 +329,14 @@ rt_timepoint rtdx_queue_submit_locked(struct rtdx_context* ctx, struct rtdx_queu
 		HRESULT result = ctx->d3d_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&allocator));
 		if (FAILED(result)) { rtdx_command_buffer_snapshot_destroy(snapshot); rtdx_throwf(rtdx_error_from_hresult(result), "CreateCommandAllocator failed: 0x%08x", (u32)result); return rtdx_queue_timepoint(queue, queue->fence_value); }
 		result = ctx->d3d_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator, NULL, IID_PPV_ARGS(&command_list));
-		if (FAILED(result)) { rtdx_release(&allocator); rtdx_command_buffer_snapshot_destroy(snapshot); rtdx_throwf(rtdx_error_from_hresult(result), "CreateCommandList failed: 0x%08x", (u32)result); return rtdx_queue_timepoint(queue, queue->fence_value); }
+		if (FAILED(result)) { rtdx_release(allocator); rtdx_command_buffer_snapshot_destroy(snapshot); rtdx_throwf(rtdx_error_from_hresult(result), "CreateCommandList failed: 0x%08x", (u32)result); return rtdx_queue_timepoint(queue, queue->fence_value); }
 		ID3D12DescriptorHeap* resource_heap = NULL;
 		ID3D12DescriptorHeap* sampler_heap = NULL;
 		rtdx_command_buffer_lower(ctx, snapshot, command_list, &resource_heap, &sampler_heap);
 		result = command_list->Close();
-		if (FAILED(result)) { rtdx_release(&command_list); rtdx_release(&allocator); rtdx_release(&resource_heap); rtdx_release(&sampler_heap); rtdx_command_buffer_snapshot_destroy(snapshot); rtdx_throwf(rtdx_error_from_hresult(result), "ID3D12GraphicsCommandList::Close failed: 0x%08x", (u32)result); return rtdx_queue_timepoint(queue, queue->fence_value); }
+		if (FAILED(result)) { rtdx_release(command_list); rtdx_release(allocator); rtdx_release(resource_heap); rtdx_release(sampler_heap); rtdx_command_buffer_snapshot_destroy(snapshot); rtdx_throwf(rtdx_error_from_hresult(result), "ID3D12GraphicsCommandList::Close failed: 0x%08x", (u32)result); return rtdx_queue_timepoint(queue, queue->fence_value); }
 		rtdx_submitted_batch* batch = rtdx_queue_create_batch(ctx, allocator, command_list, resource_heap, sampler_heap, snapshot, value);
-		if (!batch) { rtdx_release(&command_list); rtdx_release(&allocator); rtdx_release(&resource_heap); rtdx_release(&sampler_heap); rtdx_command_buffer_snapshot_destroy(snapshot); return rtdx_queue_timepoint(queue, queue->fence_value); }
+		if (!batch) { rtdx_release(command_list); rtdx_release(allocator); rtdx_release(resource_heap); rtdx_release(sampler_heap); rtdx_command_buffer_snapshot_destroy(snapshot); return rtdx_queue_timepoint(queue, queue->fence_value); }
 		ID3D12CommandList* lists[] = { command_list };
 		queue->d3d_queue->ExecuteCommandLists(1, lists);
 		first_batch = batch;
@@ -349,10 +347,10 @@ rt_timepoint rtdx_queue_submit_locked(struct rtdx_context* ctx, struct rtdx_queu
 		while (first_batch) {
 			rtdx_submitted_batch* batch = first_batch;
 			first_batch = batch->next;
-			rtdx_release(&batch->d3d_command_list);
-			rtdx_release(&batch->d3d_allocator);
-			rtdx_release(&batch->d3d_resource_heap);
-			rtdx_release(&batch->d3d_sampler_heap);
+			rtdx_release(batch->d3d_command_list);
+			rtdx_release(batch->d3d_allocator);
+			rtdx_release(batch->d3d_resource_heap);
+			rtdx_release(batch->d3d_sampler_heap);
 			rtdx_command_buffer_snapshot_destroy(batch->command_snapshot);
 			RTDX_FREE_RESOURCE(batch);
 		}
@@ -449,3 +447,6 @@ bool rtdx_is_timepoint_reached(struct rtdx_context* ctx, rt_timepoint timepoint)
 	rt_mutex_unlock(ctx->queue_lock);
 	return reached;
 }
+
+void rtdx_queue::finish() { rtdx_queue_finish(ctx, this); }
+

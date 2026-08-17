@@ -5,6 +5,15 @@
 #include "resource/queue.h"
 
 #include <assert.h>
+
+static thread_local rtgl_execution_command* rtgl_current_execution_command = NULL;
+
+void rtgl_execution_defer_current_command(void) {
+	if (rtgl_current_execution_command) {
+		rtgl_current_execution_command->deferred = true;
+	}
+}
+
 static void rtgl_debug_callback(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length, const GLchar* message, const void* user_param) {
 	(void)source;
 	(void)type;
@@ -37,6 +46,7 @@ void rtgl_execution_queue_complete_locked(struct rtgl_queue* queue, u64 value) {
 		if (queue->completion_condition) {
 			rt_condition_broadcast(queue->completion_condition);
 		}
+		rt_event_signal(queue->base.ctx->execution.work_event);
 	}
 }
 static bool rtgl_execution_accept_command(struct rtgl_context* ctx, rtgl_execution_command* command) {
@@ -79,13 +89,44 @@ static rtgl_execution_command* rtgl_execution_pop_command(struct rtgl_context* c
 		ctx->execution.work_first = command->next;
 		if (!ctx->execution.work_first) {
 			ctx->execution.work_last = NULL;
-			rt_event_reset(ctx->execution.work_event);
+			if (!ctx->execution.deferred_first) {
+				rt_event_reset(ctx->execution.work_event);
+			}
 		}
 	}
 	rt_mutex_unlock(ctx->execution.work_lock);
 	return command;
 }
+
+static void rtgl_execution_defer_command(struct rtgl_context* ctx, rtgl_execution_command* command) {
+	rt_mutex_lock(ctx->execution.work_lock);
+	command->next = NULL;
+	if (ctx->execution.deferred_last) {
+		ctx->execution.deferred_last->next = command;
+	} else {
+		ctx->execution.deferred_first = command;
+	}
+	ctx->execution.deferred_last = command;
+	rt_mutex_unlock(ctx->execution.work_lock);
+}
+
+static void rtgl_execution_wake_deferred(struct rtgl_context* ctx) {
+	rt_mutex_lock(ctx->execution.work_lock);
+	if (ctx->execution.deferred_first) {
+		if (ctx->execution.work_last) {
+			ctx->execution.work_last->next = ctx->execution.deferred_first;
+		} else {
+			ctx->execution.work_first = ctx->execution.deferred_first;
+		}
+		ctx->execution.work_last = ctx->execution.deferred_last;
+		ctx->execution.deferred_first = NULL;
+		ctx->execution.deferred_last = NULL;
+	}
+	rt_mutex_unlock(ctx->execution.work_lock);
+}
+
 static void rtgl_execution_run_commands(struct rtgl_context* ctx) {
+	rtgl_execution_wake_deferred(ctx);
 	rtgl_execution_command* command = rtgl_execution_pop_command(ctx);
 
 	if (!command) {
@@ -94,8 +135,15 @@ static void rtgl_execution_run_commands(struct rtgl_context* ctx) {
 
 	rtgl_make_glcontext_current(ctx->execution.gl_context, NULL);
 	do {
+		command->deferred = false;
+		rtgl_current_execution_command = command;
 		command->run(ctx, command);
-		command->finish(command);
+		rtgl_current_execution_command = NULL;
+		if (command->deferred) {
+			rtgl_execution_defer_command(ctx, command);
+		} else {
+			command->finish(command);
+		}
 		command = rtgl_execution_pop_command(ctx);
 	} while (command);
 	rtgl_release_current_context();
@@ -213,6 +261,8 @@ void rtgl_execution_finish(struct rtgl_context* ctx) {
 	}
 	ctx->execution.work_first = NULL;
 	ctx->execution.work_last = NULL;
+	ctx->execution.deferred_first = NULL;
+	ctx->execution.deferred_last = NULL;
 	ctx->execution.thread_id = 0;
 }
 

@@ -45,7 +45,6 @@ static bool rtdx_validate_init_features(const char* const* features, u32 feature
 void rtInit(const char* const* features, u32 feature_count) {
 	rtdx_context_flags flags;
 
-	rtClearError();
 	if (current_context) {
 		rtdx_throwf(RT_ALREADY_INITIALIZED, "rtInit called while rt-d3d12 is already initialized");
 		return;

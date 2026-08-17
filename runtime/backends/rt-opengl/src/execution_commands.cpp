@@ -39,18 +39,21 @@ void rtgl_execution_buffer_delete(struct rtgl_context* ctx, struct rtgl_buffer_s
 
 void rtgl_execution_buffer_data(struct rtgl_context* ctx, struct rtgl_buffer_storage* storage, usize size, const u08* bytes) {
 	rtgl_execution_submit_sync(ctx, [storage, size, bytes](struct rtgl_context*) {
+		glMemoryBarrier(GL_ALL_BARRIER_BITS);
 		glNamedBufferData(storage->gl_buffer, (GLsizeiptr)size, bytes, rtgl_buffer_gl_usage());
 	});
 }
 
 void rtgl_execution_buffer_subdata(struct rtgl_context* ctx, struct rtgl_buffer_storage* storage, u64 offset, u64 size, const u08* bytes) {
 	rtgl_execution_submit_sync(ctx, [storage, offset, size, bytes](struct rtgl_context*) {
+		glMemoryBarrier(GL_ALL_BARRIER_BITS);
 		glNamedBufferSubData(storage->gl_buffer, (GLintptr)offset, (GLsizeiptr)size, bytes);
 	});
 }
 
 void rtgl_execution_buffer_read(struct rtgl_context* ctx, struct rtgl_buffer_storage* storage, u64 offset, u64 size, u08* bytes) {
 	rtgl_execution_submit_sync(ctx, [storage, offset, size, bytes](struct rtgl_context*) {
+		glMemoryBarrier(GL_ALL_BARRIER_BITS);
 		glGetNamedBufferSubData(storage->gl_buffer, (GLintptr)offset, (GLsizeiptr)size, bytes);
 	});
 }
@@ -343,6 +346,7 @@ static usize rtgl_execution_texture_range_bytes(const struct rtgl_image_base* im
 
 void rtgl_execution_texture_subdata(struct rtgl_context* ctx, struct rtgl_image_base* image, rt_texture_range range, const void* data) {
 	rtgl_execution_submit_sync(ctx, [image, range, data](struct rtgl_context*) {
+		glMemoryBarrier(GL_ALL_BARRIER_BITS);
 		glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 		const u08* bytes = (const u08*)data;
 		usize offset = 0;
@@ -377,6 +381,7 @@ void rtgl_execution_texture_subdata(struct rtgl_context* ctx, struct rtgl_image_
 
 void rtgl_execution_texture_read(struct rtgl_context* ctx, struct rtgl_image_base* image, rt_texture_range range, u08* data, usize data_size) {
 	rtgl_execution_submit_sync(ctx, [image, range, data, data_size](struct rtgl_context*) {
+		glMemoryBarrier(GL_ALL_BARRIER_BITS);
 		usize offset = 0;
 		for (usize level = 0; level < range.mip_count; level++) {
 			const rt_texture_range mip = rtgl_execution_texture_mip_range(range, level);

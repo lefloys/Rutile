@@ -41,24 +41,6 @@ static bool rtdx_context_create_factory(rtdx_context* ctx) {
 	return true;
 }
 
-static void rtdx_context_query_present_features(rtdx_context* ctx) {
-	IDXGIFactory5* factory5 = nullptr;
-	if (FAILED(ctx->dxgi_factory->QueryInterface(IID_PPV_ARGS(&factory5)))) {
-		return;
-	}
-
-	ctx->allow_tearing = false;
-	BOOL allow_tearing = FALSE;
-	if (SUCCEEDED(factory5->CheckFeatureSupport(
-			DXGI_FEATURE_PRESENT_ALLOW_TEARING,
-			&allow_tearing,
-			static_cast<UINT>(sizeof(allow_tearing))
-		))) {
-		ctx->allow_tearing = allow_tearing == TRUE;
-	}
-	factory5->Release();
-}
-
 static bool rtdx_context_pick_adapter(rtdx_context* ctx) {
 	for (UINT i = 0;; i++) {
 		IDXGIAdapter1* adapter = nullptr;
@@ -108,14 +90,9 @@ static bool rtdx_context_create_device(rtdx_context* ctx) {
 }
 
 static void rtdx_context_destroy_queues(rtdx_context* ctx) {
-	while (ctx->queue_count) {
-		rtdx_queue_destroy(ctx, ctx->queues[ctx->queue_count - 1]);
-	}
-	delete[] ctx->queues;
-	ctx->queues = nullptr;
-	ctx->queue_count = 0;
 	for (usize index = 0; index < sizeof(ctx->timepoint_queues) / sizeof(*ctx->timepoint_queues); index++) {
 		if (ctx->timepoint_queues[index]) {
+			rtdx_queue_destroy(ctx, ctx->timepoint_queues[index]);
 			rtdx_resource_release(RTDX_RESOURCE_BASE(ctx->timepoint_queues[index]));
 			ctx->timepoint_queues[index] = NULL;
 		}
@@ -123,61 +100,51 @@ static void rtdx_context_destroy_queues(rtdx_context* ctx) {
 }
 
 rtdx_context* rtdx_create_context(rtdx_context_flags flags) {
-	auto* result = new (std::nothrow) rtdx_context{};
+	auto* result = new (std::nothrow) rtdx_context(flags);
 	if (!result) {
 		rtdx_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate DirectX 12 context");
 		return nullptr;
 	}
 
-	result->flags = flags;
-	rtdx_context_init(result);
 	if (rtError() != RT_SUCCESS) {
-		rtdx_context_destroy(result);
+		delete result;
 		return nullptr;
 	}
 
 	return result;
 }
 
-void rtdx_context_init(rtdx_context* ctx) {
+rtdx_context::rtdx_context(rtdx_context_flags context_flags) : flags(context_flags) {
+	initialize();
+}
+
+void rtdx_context::initialize() {
 	u64 start_ns = rtdx_now_ns();
-	ctx->queue_lock = rt_mutex_create();
-	if (!ctx->queue_lock) {
+	queue_lock = rt_mutex_create();
+	if (!queue_lock) {
 		rtdx_throwf(RT_PLATFORM_FAILURE, "failed to create DirectX queue synchronization");
 		return;
 	}
-	if (!rtdx_context_create_factory(ctx)) {
+	if (!rtdx_context_create_factory(this)) {
 		return;
 	}
-	rtdx_context_query_present_features(ctx);
-	if (!rtdx_context_pick_adapter(ctx)) {
+	if (!rtdx_context_pick_adapter(this)) {
 		return;
 	}
-	if (!rtdx_context_create_device(ctx)) {
+	if (!rtdx_context_create_device(this)) {
 		return;
 	}
 
 	rtdx_log_startup_time(start_ns);
 }
 
-void rtdx_context_finish(rtdx_context* ctx) {
-	if (!ctx) {
-		return;
-	}
-
-	ctx->shutting_down = true;
-	rtdx_context_destroy_queues(ctx);
-	rt_mutex_destroy(ctx->queue_lock);
-	ctx->queue_lock = nullptr;
-	if (ctx->graphics_fence_event) {
-		rt_event_destroy(ctx->graphics_fence_event);
-		ctx->graphics_fence_event = nullptr;
-	}
-	rtdx_release(&ctx->d3d_graphics_fence);
-	rtdx_release(&ctx->d3d_graphics_queue);
-	rtdx_release(&ctx->d3d_device);
-	rtdx_release(&ctx->dxgi_adapter);
-	rtdx_release(&ctx->dxgi_factory);
+ rtdx_context::~rtdx_context() {
+	rtdx_context_destroy_queues(this);
+	rt_mutex_destroy(queue_lock);
+	queue_lock = nullptr;
+	rtdx_release(dxgi_factory);
+	rtdx_release(dxgi_adapter);
+	rtdx_release(d3d_device);
 }
 
 void rtdx_context_destroy(rtdx_context* ctx) {
@@ -185,7 +152,6 @@ void rtdx_context_destroy(rtdx_context* ctx) {
 		return;
 	}
 
-	rtdx_context_finish(ctx);
 	delete ctx;
 }
 

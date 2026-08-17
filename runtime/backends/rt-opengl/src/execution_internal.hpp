@@ -11,14 +11,16 @@ struct rtgl_execution_command {
 	rtgl_execution_command* next;
 	void (*run)(struct rtgl_context* ctx, rtgl_execution_command* command);
 	void (*finish)(rtgl_execution_command* command);
+	bool deferred;
 
 	rtgl_execution_command(void (*next_run)(struct rtgl_context* ctx, rtgl_execution_command* command), void (*next_finish)(rtgl_execution_command* command))
-		: next(NULL), run(next_run), finish(next_finish) {}
+		: next(NULL), run(next_run), finish(next_finish), deferred(false) {}
 };
 
 bool rtgl_execution_submit_stack_command(struct rtgl_context* ctx, rtgl_execution_command* command);
 bool rtgl_execution_submit_heap_command(struct rtgl_context* ctx, rtgl_execution_command* command);
 void rtgl_execution_queue_complete_locked(struct rtgl_queue* queue, u64 value);
+void rtgl_execution_defer_current_command(void);
 
 template <class F>
 struct rtgl_async_command_t final : rtgl_execution_command {

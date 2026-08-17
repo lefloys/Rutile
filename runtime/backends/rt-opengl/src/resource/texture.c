@@ -1,5 +1,6 @@
 #include "texture.h"
 
+#include "atomic.h"
 #include "context.h"
 #include "error.h"
 #include "execution.h"
@@ -277,12 +278,12 @@ static struct rtgl_image_base* rtgl_texture_image_create(struct rtgl_context* ct
 
 void rtgl_texture_image_retain(struct rtgl_image_base* image) {
 	if (image && image->heap_owned) {
-		image->ref_count++;
+		rt_atomic_inc(&image->ref_count);
 	}
 }
 
 void rtgl_texture_image_release(struct rtgl_context* ctx, struct rtgl_image_base* image) {
-	if (!image || !image->heap_owned || !image->ref_count || --image->ref_count) {
+	if (!image || !image->heap_owned || !rt_atomic_load(&image->ref_count) || rt_atomic_dec(&image->ref_count)) {
 		return;
 	}
 	rtgl_execution_texture_delete(ctx, image);
@@ -305,7 +306,7 @@ static struct rtgl_image_base* rtgl_texture_take_reusable_image(struct rtgl_text
 	struct rtgl_image_base** link = &texture->reusable_images;
 	while (*link) {
 		struct rtgl_image_base* image = *link;
-		if (image->ref_count == 1 && image->type == type && image->mip_levels == mip_count && image->width == width && image->height == height && image->depth == depth && image->format == format) {
+		if (rt_atomic_load(&image->ref_count) == 1 && image->type == type && image->mip_levels == mip_count && image->width == width && image->height == height && image->depth == depth && image->format == format) {
 			*link = image->next;
 			image->next = NULL;
 			return image;
@@ -350,7 +351,7 @@ struct rtgl_image_base* rtgl_texture_prepare_write(struct rtgl_context* ctx, str
 	if (!texture || !texture->image) {
 		return NULL;
 	}
-	if (texture->image->ref_count == 1) {
+	if (rt_atomic_load(&texture->image->ref_count) == 1) {
 		return texture->image;
 	}
 	struct rtgl_image_base* source = texture->image;
@@ -526,5 +527,5 @@ void rtgl_texture_view_materialize(struct rtgl_context* ctx, struct rtgl_texture
 }
 
 bool rtgl_texture_view_valid(struct rtgl_texture_view* view) {
-	return view && !view->base.zombie && view->image && view->image->gl_texture;
+	return view && !rt_atomic_bool_load(&view->base.zombie) && view->image && view->image->gl_texture;
 }

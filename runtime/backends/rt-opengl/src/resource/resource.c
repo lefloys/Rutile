@@ -1,4 +1,5 @@
 #include "resource.h"
+#include "atomic.h"
 #include "buffer.h"
 #include "command_buffer.h"
 #include "error.h"
@@ -49,7 +50,7 @@ void rtgl_resource_retain(struct rtgl_resource_base* base) {
 		return;
 	}
 	assert(base);
-	base->ref_count++;
+	rt_atomic_inc(&base->ref_count);
 }
 
 void rtgl_resource_release(struct rtgl_resource_base* base) {
@@ -57,14 +58,14 @@ void rtgl_resource_release(struct rtgl_resource_base* base) {
 		return;
 	}
 	assert(base);
-	assert(base->ref_count > 0);
-	base->ref_count--;
+	assert(rt_atomic_load(&base->ref_count) > 0);
+	rt_atomic_dec(&base->ref_count);
 	rtgl_resource_try_free(base);
 }
 
 void rtgl_resource_retire(struct rtgl_resource_base* base) {
 	assert(base);
-	base->zombie = true;
+	rt_atomic_bool_store(&base->zombie, true);
 	rtgl_resource_release(base);
 }
 
@@ -105,5 +106,5 @@ void rtgl_resource_finalize(struct rtgl_resource_base* base) {
 
 bool rtgl_resource_ready_to_destroy(struct rtgl_resource_base* base) {
 	assert(base);
-	return base->zombie && base->ref_count == 0 && base->job_count == 0;
+	return rt_atomic_bool_load(&base->zombie) && rt_atomic_load(&base->ref_count) == 0 && rt_atomic_load(&base->job_count) == 0;
 }

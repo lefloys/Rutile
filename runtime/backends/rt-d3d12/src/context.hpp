@@ -16,6 +16,10 @@ struct rtdx_context_flags {
 struct rtdx_queue;
 
 struct rtdx_context {
+	explicit rtdx_context(rtdx_context_flags context_flags);
+	~rtdx_context();
+	void initialize();
+
 	IDXGIFactory6* dxgi_factory;
 	IDXGIAdapter1* dxgi_adapter;
 	ID3D12Device* d3d_device;
@@ -25,41 +29,33 @@ struct rtdx_context {
 	/* Owns the physical queue stream, its fence values, virtual-queue pending
 	 * waits, and resource-state transitions emitted while command IR lowers. */
 	rt_mutex* queue_lock;
-	rtdx_queue** queues;
 	rtdx_queue* timepoint_queues[UINT8_MAX + 1];
-	u64 next_fence_value;
-	u32 queue_count;
 	u08 next_queue_id;
 	rtdx_context_flags flags;
-	bool allow_tearing;
-	bool shutting_down;
 };
 
 extern rtdx_context* current_context;
 
 rtdx_context* rtdx_get_current_context();
 rtdx_context* rtdx_create_context(rtdx_context_flags flags);
-void rtdx_context_init(rtdx_context* ctx);
-void rtdx_context_finish(rtdx_context* ctx);
-void rtdx_context_destroy(rtdx_context* ctx);
 void rtdx_context_report_validation(rtdx_context* ctx);
 
 struct rtdx_physical_queue_scope {
-	rtdx_context* ctx;
+	rtdx_context& context;
 
-	explicit rtdx_physical_queue_scope(rtdx_context* context) : ctx(context) {
-		rt_mutex_lock(ctx->queue_lock);
+	explicit rtdx_physical_queue_scope(rtdx_context& value) : context(value) {
+		rt_mutex_lock(context.queue_lock);
 	}
 
 	~rtdx_physical_queue_scope() {
-		rt_mutex_unlock(ctx->queue_lock);
+		rt_mutex_unlock(context.queue_lock);
 	}
 };
 
 template <typename T>
-inline void rtdx_release(T** object) {
-	if (*object) {
-		(*object)->Release();
-		*object = nullptr;
+inline void rtdx_release(T*& object) {
+	if (object) {
+		object->Release();
+		object = nullptr;
 	}
 }

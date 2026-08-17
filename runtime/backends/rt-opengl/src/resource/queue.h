@@ -27,9 +27,11 @@ struct rtgl_queue {
 	struct rtgl_resource_base base;
 	struct rt_condition* completion_condition;
 	struct rt_mutex* submit_lock;
+	rt_timepoint* wait_timepoints;
+	usize wait_count;
+	usize wait_capacity;
 	u64 submitted_value;
 	u64 completed_value;
-	rt_timepoint pending_wait;
 	u08 identifier;
 	bool active;
 	enum rt_queue_capability capability;

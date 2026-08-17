@@ -2,6 +2,12 @@
 #include "context.hpp"
 #include "error.hpp"
 
+bool rtdx_presentation_resize(rtdx_context* ctx, rtdx_presentation* presentation, u32 width, u32 height, DXGI_FORMAT format, bool allow_tearing);
+bool rtdx_presentation_get_image(rtdx_context* ctx, rtdx_presentation* presentation, u32 index, ID3D12Resource** image);
+u32 rtdx_presentation_current_image_index(rtdx_presentation* presentation);
+bool rtdx_presentation_present(rtdx_presentation* presentation, bool vsync, bool allow_tearing);
+void rtdx_presentation_destroy(rtdx_context* ctx, rtdx_presentation* presentation);
+
 /*===============================================================================================*/
 /*                                                                                               */
 /*===============================================================================================*/
@@ -10,6 +16,8 @@ rt_swapchain rtSwapchainCreate(void) {
 	struct rtdx_swapchain* swapchain = rtdx_swapchain_create(rtdx_get_current_context());
 	return rtdx_swapchain_to_handle(swapchain);
 }
+
+void rtdx_swapchain::finish() { rtdx_swapchain_finish(ctx, this); }
 
 void rtSwapchainDestroy(rt_swapchain swapchain) {
 	rtdx_swapchain_destroy(rtdx_get_current_context(), rtdx_swapchain_from_handle(swapchain));
@@ -45,7 +53,6 @@ static bool rtdx_swapchain_prepare_present_command(struct rtdx_context* ctx, str
 static bool rtdx_swapchain_submit_present_transition(struct rtdx_context* ctx, struct rtdx_swapchain* swapchain, rt_timepoint rendered);
 
 void rtdx_swapchain_init(struct rtdx_context* ctx, struct rtdx_swapchain* swapchain) {
-	rtdx_init_resource_base(ctx, RTDX_RESOURCE_BASE(swapchain), rtdx_resource_type::swapchain);
 	swapchain->dxgi_format = DXGI_FORMAT_B8G8R8A8_UNORM;
 	swapchain->vsync = false;
 	swapchain->frame_lock = rt_mutex_create();
@@ -95,8 +102,8 @@ void rtdx_swapchain_wait_frame(struct rtdx_context* ctx, struct rtdx_swapchain_f
 }
 
 static void rtdx_swapchain_destroy_present_command(struct rtdx_swapchain_frame* frame) {
-	rtdx_release(&frame->present_command_list);
-	rtdx_release(&frame->present_allocator);
+	rtdx_release(frame->present_command_list);
+	rtdx_release(frame->present_allocator);
 }
 
 static void rtdx_swapchain_destroy_framebuffers(struct rtdx_context* ctx, struct rtdx_swapchain* swapchain) {
@@ -119,7 +126,7 @@ static void rtdx_swapchain_destroy_framebuffers(struct rtdx_context* ctx, struct
 		}
 		if (swapchain->textures[i]) {
 			if (swapchain->textures[i]->active) {
-				rtdx_release(&swapchain->textures[i]->active->d3d_resource);
+				rtdx_release(swapchain->textures[i]->active->d3d_resource);
 			}
 			rtdx_texture_destroy(ctx, swapchain->textures[i]);
 			swapchain->textures[i] = NULL;
@@ -128,7 +135,7 @@ static void rtdx_swapchain_destroy_framebuffers(struct rtdx_context* ctx, struct
 }
 
 bool rtdx_swapchain_resize(struct rtdx_context* ctx, struct rtdx_swapchain* swapchain, u32 width, u32 height) {
-	if (!swapchain || !swapchain->dxgi_swapchain) {
+	if (!swapchain || !swapchain->presentation) {
 		rtdx_throwf(RT_IMPROPER_USAGE, "swapchain resize requires a valid swapchain");
 		return false;
 	}
@@ -145,29 +152,16 @@ bool rtdx_swapchain_resize(struct rtdx_context* ctx, struct rtdx_swapchain* swap
 	}
 
 	rtdx_swapchain_destroy_framebuffers(ctx, swapchain);
-	rtdx_release(&swapchain->rtv_heap);
+	rtdx_release(swapchain->rtv_heap);
 
-	HRESULT result = swapchain->dxgi_swapchain->ResizeBuffers(
-		RTDX_MAX_FRAMES_IN_FLIGHT,
-		width,
-		height,
-		swapchain->dxgi_format,
-		ctx->allow_tearing ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0
-	);
-	if (FAILED(result)) {
+	if (!rtdx_presentation_resize(ctx, swapchain->presentation, width, height, swapchain->dxgi_format, ctx->allow_tearing)) {
 		rtdx_swapchain_unlock(swapchain);
-		rtdx_throwf(
-			rtdx_error_from_hresult(result),
-			"IDXGISwapChain3::ResizeBuffers failed: %s (0x%08x)",
-			rtdx_hresult_name(result),
-			(u32)result
-		);
 		return false;
 	}
 
 	swapchain->width = width;
 	swapchain->height = height;
-	swapchain->current_image_index = swapchain->dxgi_swapchain->GetCurrentBackBufferIndex();
+	swapchain->current_image_index = rtdx_presentation_current_image_index(swapchain->presentation);
 	bool ok = rtdx_swapchain_create_framebuffers(ctx, swapchain);
 	rtdx_swapchain_unlock(swapchain);
 	return ok;
@@ -188,15 +182,14 @@ void rtdx_swapchain_finish(struct rtdx_context* ctx, struct rtdx_swapchain* swap
 		rtdx_swapchain_wait_frame(ctx, &swapchain->frames[i]);
 	}
 	rtdx_swapchain_destroy_framebuffers(ctx, swapchain);
-	rtdx_release(&swapchain->rtv_heap);
-	rtdx_release(&swapchain->dxgi_swapchain);
+	rtdx_release(swapchain->rtv_heap);
+	rtdx_presentation_destroy(ctx, swapchain->presentation);
+	swapchain->presentation = NULL;
 	rtdx_swapchain_unlock(swapchain);
 	rtdx_swapchain_finish_sync(swapchain);
-	rtdx_finish_resource_base(ctx, RTDX_RESOURCE_BASE(swapchain));
 }
 
 bool rtdx_swapchain_create_framebuffers(struct rtdx_context* ctx, struct rtdx_swapchain* swapchain) {
-	rtClearError();
 	D3D12_DESCRIPTOR_HEAP_DESC heap_info = {};
 	heap_info.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
 	heap_info.NumDescriptors = RTDX_MAX_FRAMES_IN_FLIGHT;
@@ -214,9 +207,7 @@ bool rtdx_swapchain_create_framebuffers(struct rtdx_context* ctx, struct rtdx_sw
 	D3D12_CPU_DESCRIPTOR_HANDLE rtv = swapchain->rtv_heap->GetCPUDescriptorHandleForHeapStart();
 	for (u32 i = 0; i < RTDX_MAX_FRAMES_IN_FLIGHT; i++) {
 		ID3D12Resource* image = NULL;
-		result = swapchain->dxgi_swapchain->GetBuffer(i, IID_PPV_ARGS(&image));
-		if (FAILED(result)) {
-			rtdx_throwf(rtdx_error_from_hresult(result), "IDXGISwapChain3::GetBuffer failed: 0x%08x", (u32)result);
+		if (!rtdx_presentation_get_image(ctx, swapchain->presentation, i, &image)) {
 			return false;
 		}
 
@@ -260,13 +251,13 @@ bool rtdx_swapchain_create_framebuffers(struct rtdx_context* ctx, struct rtdx_sw
 
 rt_swapchain_acquire_result rtdx_swapchain_acquire(struct rtdx_context* ctx, struct rtdx_swapchain* swapchain) {
 	rt_swapchain_acquire_result empty = { RT_NULL_HANDLE, { 0 } };
-	if (!swapchain || !swapchain->dxgi_swapchain) {
+	if (!swapchain || !swapchain->presentation) {
 		rtdx_throwf(RT_IMPROPER_USAGE, "swapchain acquire requires a valid swapchain");
 		return empty;
 	}
 
 	rtdx_swapchain_lock_unacquired(swapchain);
-	swapchain->current_image_index = swapchain->dxgi_swapchain->GetCurrentBackBufferIndex();
+	swapchain->current_image_index = rtdx_presentation_current_image_index(swapchain->presentation);
 	/* The caller establishes the dependency before submitting work for this
 	 * image. Do not CPU-wait here: that would discard the frame completion
 	 * signal and prevent normal per-frame command-buffer reuse. */
@@ -385,11 +376,7 @@ void rtdx_swapchain_present(struct rtdx_context* ctx, struct rtdx_swapchain* swa
 		return;
 	}
 
-	const UINT sync_interval = swapchain->vsync ? 1u : 0u;
-	const UINT present_flags = !swapchain->vsync && ctx->allow_tearing ? DXGI_PRESENT_ALLOW_TEARING : 0u;
-	HRESULT result = swapchain->dxgi_swapchain->Present(sync_interval, present_flags);
-	if (FAILED(result)) {
-		rtdx_throwf(rtdx_error_from_hresult(result), "IDXGISwapChain::Present failed: 0x%08x", (u32)result);
+	if (!rtdx_presentation_present(swapchain->presentation, swapchain->vsync, ctx->allow_tearing)) {
 		rtdx_swapchain_mark_unacquired(swapchain);
 		return;
 	}

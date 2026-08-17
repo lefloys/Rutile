@@ -31,16 +31,19 @@ target_sources(${PROJECT_NAME} PRIVATE
     "src/resource/resource.hpp"
     "src/resource/swapchain.cpp"
     "src/resource/swapchain.hpp"
-    "src/resource/swapchain_win32.cpp"
-    "src/resource/swapchain_win32.hpp"
     "src/resource/texture.cpp"
     "src/resource/texture.hpp"
-    "src/glfw/glfw.cpp"
-    "src/glfw/glfw.hpp"
-    "src/glfw/swapchain.cpp"
-    "src/glfw/swapchain.hpp"
     "${RUTILE_SOURCE_DIR}/RTSL/transpilers/hlsl/src/hlsl.cpp"
 )
+
+if(XBOX_CONSOLE_TARGET)
+    message(FATAL_ERROR "rt-d3d12 does not yet have an Xbox GDK platform adapter; GLFW is not supported on Xbox")
+else()
+    target_sources(${PROJECT_NAME} PRIVATE
+        "src/windows/glfw.cpp"
+        "src/windows/glfw.hpp"
+    )
+endif()
 
 target_include_directories(${PROJECT_NAME} PRIVATE
     "src"

@@ -16,28 +16,27 @@ RTDX_API rt_swapchain_acquire_result rtSwapchainAcquire(rt_swapchain swapchain);
 RTDX_API void rtSwapchainPresent(rt_swapchain swapchain, rt_timepoint rendered);
 
 struct rtdx_swapchain_frame {
+	rtdx_image_base image;
+	rtdx_texture_view* color_view;
+	rtdx_framebuffer* framebuffer;
 	ID3D12CommandAllocator* present_allocator;
 	ID3D12GraphicsCommandList* present_command_list;
 
 	rt_timepoint present_timepoint;
 };
 
-struct rtdx_swapchain {
-	rtdx_resource_base base;
+struct rtdx_presentation;
 
-	IDXGISwapChain3* dxgi_swapchain;
-	ID3D12DescriptorHeap* rtv_heap;
+struct rtdx_swapchain : rtdx_resource_base {
+	explicit rtdx_swapchain(rtdx_context* ctx) : rtdx_resource_base(ctx, rtdx_resource_type::swapchain) {}
+	void finish() override;
 
-	rtdx_texture* textures[RTDX_MAX_FRAMES_IN_FLIGHT];
-	rtdx_texture_view* texture_views[RTDX_MAX_FRAMES_IN_FLIGHT];
-	rtdx_framebuffer* framebuffers[RTDX_MAX_FRAMES_IN_FLIGHT];
+	rtdx_presentation* presentation;
 	rtdx_swapchain_frame frames[RTDX_MAX_FRAMES_IN_FLIGHT];
-
-	UINT rtv_descriptor_size;
+	usize width;
+	usize height;
+	usize current_image_index;
 	DXGI_FORMAT dxgi_format;
-	u32 width;
-	u32 height;
-	u32 current_image_index;
 	bool frame_acquired;
 	bool vsync;
 	rt_mutex* frame_lock;
@@ -51,7 +50,7 @@ rtdx_swapchain* rtdx_swapchain_create(rtdx_context* ctx);
 void rtdx_swapchain_destroy(rtdx_context* ctx, rtdx_swapchain* swapchain);
 void rtdx_swapchain_init(rtdx_context* ctx, rtdx_swapchain* swapchain);
 void rtdx_swapchain_finish(rtdx_context* ctx, rtdx_swapchain* swapchain);
-bool rtdx_swapchain_create_for_dxgi_swapchain(rtdx_context* ctx, rtdx_swapchain* swapchain, IDXGISwapChain3* dxgi_swapchain, u32 width, u32 height);
+void rtdx_swapchain_attach_presentation(rtdx_context* ctx, rtdx_swapchain* swapchain, rtdx_presentation* presentation, u32 width, u32 height);
 bool rtdx_swapchain_create_framebuffers(rtdx_context* ctx, rtdx_swapchain* swapchain);
 bool rtdx_swapchain_resize(rtdx_context* ctx, rtdx_swapchain* swapchain, u32 width, u32 height);
 rt_swapchain_acquire_result rtdx_swapchain_acquire(rtdx_context* ctx, rtdx_swapchain* swapchain);

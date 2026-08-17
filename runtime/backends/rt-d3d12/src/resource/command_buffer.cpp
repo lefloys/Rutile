@@ -11,6 +11,16 @@
 
 static void rtdx_lower_texture_revision_copy(ID3D12GraphicsCommandList* command_list, rtdx_image_base* source, rtdx_image_base* target);
 
+static void rtdx_buffer_node_retain(rtdx_buffer* buffer) {
+	if (buffer) { rtdx_resource_retain(RTDX_RESOURCE_BASE(buffer)); }
+}
+
+void rtdx_command_buffer::finish() { rtdx_command_buffer_finish(ctx, this); }
+
+static void rtdx_buffer_node_release(rtdx_buffer* buffer) {
+	if (buffer) { rtdx_resource_release(RTDX_RESOURCE_BASE(buffer)); }
+}
+
 /*===============================================================================================*/
 /*                                                                                                */
 /*===============================================================================================*/
@@ -129,18 +139,18 @@ void rtCmdBufferBarrier(rt_command_buffer command_buffer, rt_buffer buffer, rt_b
 
 RTDX_DEFINE_RESOURCE_PRIVATE(command_buffer)
 
-void rtdx_command_transition_buffer(ID3D12GraphicsCommandList* command_list, rtdx_buffer_storage* storage, D3D12_RESOURCE_STATES state) {
-	if (!storage || !storage->d3d_resource || storage->state == state) {
+void rtdx_command_transition_buffer(ID3D12GraphicsCommandList* command_list, rtdx_buffer* buffer, D3D12_RESOURCE_STATES state) {
+	if (!buffer || !buffer->d3d_resource || buffer->state == state) {
 		return;
 	}
 	D3D12_RESOURCE_BARRIER barrier = {};
 	barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-	barrier.Transition.pResource = storage->d3d_resource;
+	barrier.Transition.pResource = buffer->d3d_resource;
 	barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-	barrier.Transition.StateBefore = storage->state;
+	barrier.Transition.StateBefore = buffer->state;
 	barrier.Transition.StateAfter = state;
 	command_list->ResourceBarrier(1, &barrier);
-	storage->state = state;
+	buffer->state = state;
 }
 
 void rtdx_command_transition_image(ID3D12GraphicsCommandList* command_list, rtdx_image_base* image, D3D12_RESOURCE_STATES state) {
@@ -184,14 +194,12 @@ void rtdx_command_transition_image_range(ID3D12GraphicsCommandList* command_list
 }
 
 void rtdx_command_buffer_init(rtdx_context* ctx, rtdx_command_buffer* command_buffer) {
-	rtdx_init_resource_base(ctx, RTDX_RESOURCE_BASE(command_buffer), rtdx_resource_type::command_buffer);
 	command_buffer->clear_depth_value = 1.0f;
 }
 
 void rtdx_command_buffer_finish(rtdx_context* ctx, rtdx_command_buffer* command_buffer) {
 	rtdx_command_buffer_release_resources(command_buffer);
 	free(command_buffer->ir_data);
-	rtdx_finish_resource_base(ctx, RTDX_RESOURCE_BASE(command_buffer));
 }
 
 usize rtdx_command_record_size(rtdx_command_opcode opcode) {
@@ -254,13 +262,13 @@ void rtdx_command_buffer_release_resources(rtdx_command_buffer* command_buffer) 
 			rtdx_ir_framebuffer* command = static_cast<rtdx_ir_framebuffer*>(payload);
 			rtdx_framebuffer* framebuffer = command->framebuffer;
 			if (framebuffer) { rtdx_resource_release(RTDX_RESOURCE_BASE(framebuffer)); }
-			for (usize i = 0; i < command->color_count; ++i) { if (command->color_copy_sources[i]) { rtdx_resource_release(RTDX_RESOURCE_BASE(command->color_copy_sources[i])); } if (command->color_images[i]) { rtdx_resource_release(RTDX_RESOURCE_BASE(command->color_images[i])); } rtdx_release(&command->color_rtv_heaps[i]); }
+			for (usize i = 0; i < command->color_count; ++i) { if (command->color_copy_sources[i]) { rtdx_resource_release(RTDX_RESOURCE_BASE(command->color_copy_sources[i])); } if (command->color_images[i]) { rtdx_resource_release(RTDX_RESOURCE_BASE(command->color_images[i])); } rtdx_release(command->color_rtv_heaps[i]); }
 			if (command->depth_copy_source) { rtdx_resource_release(RTDX_RESOURCE_BASE(command->depth_copy_source)); }
 			if (command->depth_image) { rtdx_resource_release(RTDX_RESOURCE_BASE(command->depth_image)); }
-			rtdx_release(&command->depth_dsv_heap);
+			rtdx_release(command->depth_dsv_heap);
 			if (command->stencil_copy_source && command->stencil_copy_source != command->depth_copy_source) { rtdx_resource_release(RTDX_RESOURCE_BASE(command->stencil_copy_source)); }
 			if (command->stencil_image && command->stencil_image != command->depth_image) { rtdx_resource_release(RTDX_RESOURCE_BASE(command->stencil_image)); }
-			rtdx_release(&command->stencil_dsv_heap);
+			rtdx_release(command->stencil_dsv_heap);
 			break;
 		}
 		case rtdx_command_opcode::use_graphics_program: {
@@ -270,7 +278,7 @@ void rtdx_command_buffer_release_resources(rtdx_command_buffer* command_buffer) 
 		}
 		case rtdx_command_opcode::bind_buffer: {
 			rtdx_ir_buffer* command = static_cast<rtdx_ir_buffer*>(payload);
-			rtdx_buffer_storage_release(command->storage);
+			rtdx_buffer_node_release(command->buffer);
 			rtdx_location* location = rtdx_location_from_handle(command->location);
 			if (location) { rtdx_resource_release(RTDX_RESOURCE_BASE(location->program)); }
 			break;
@@ -280,42 +288,42 @@ void rtdx_command_buffer_release_resources(rtdx_command_buffer* command_buffer) 
 			rtdx_texture_view* texture_view = command->texture_view;
 			if (texture_view) { rtdx_resource_release(RTDX_RESOURCE_BASE(texture_view)); }
 			if (command->image) { rtdx_resource_release(RTDX_RESOURCE_BASE(command->image)); }
-			rtdx_release(&command->sampler_heap);
+			rtdx_release(command->sampler_heap);
 			rtdx_location* location = rtdx_location_from_handle(command->location);
 			if (location) { rtdx_resource_release(RTDX_RESOURCE_BASE(location->program)); }
 			break;
 		}
 		case rtdx_command_opcode::vertex_buffer: {
 			rtdx_ir_vertex_buffer* command = static_cast<rtdx_ir_vertex_buffer*>(payload);
-			rtdx_buffer_storage_release(command->storage);
+			rtdx_buffer_node_release(command->buffer);
 			rtdx_location* location = rtdx_location_from_handle(command->location);
 			if (location) { rtdx_resource_release(RTDX_RESOURCE_BASE(location->program)); }
 			break;
 		}
 		case rtdx_command_opcode::index_buffer: {
-			rtdx_buffer_storage_release(static_cast<rtdx_ir_index_buffer*>(payload)->storage);
+			rtdx_buffer_node_release(static_cast<rtdx_ir_index_buffer*>(payload)->buffer);
 			break;
 		}
 		case rtdx_command_opcode::buffer_data: {
 			rtdx_ir_buffer_data* command = static_cast<rtdx_ir_buffer_data*>(payload);
-			rtdx_buffer_storage_release(command->copy_source);
-			rtdx_buffer_storage_release(command->target);
-			rtdx_release(&command->upload);
+			rtdx_buffer_node_release(command->copy_source);
+			rtdx_buffer_node_release(command->target);
+			rtdx_release(command->upload);
 			break;
 		}
 		case rtdx_command_opcode::buffer_copy: {
 			rtdx_ir_buffer_copy* command = static_cast<rtdx_ir_buffer_copy*>(payload);
-			rtdx_buffer_storage_release(command->source);
-			rtdx_buffer_storage_release(command->target_copy_source);
-			rtdx_buffer_storage_release(command->target);
+			rtdx_buffer_node_release(command->source);
+			rtdx_buffer_node_release(command->target_copy_source);
+			rtdx_buffer_node_release(command->target);
 			break;
 		}
 		case rtdx_command_opcode::buffer_barrier:
-			rtdx_buffer_storage_release(static_cast<rtdx_ir_buffer_barrier*>(payload)->storage);
+			rtdx_buffer_node_release(static_cast<rtdx_ir_buffer_barrier*>(payload)->buffer);
 			break;
 		case rtdx_command_opcode::buffer_copy_to_texture: {
 			rtdx_ir_buffer_copy_to_texture* command = static_cast<rtdx_ir_buffer_copy_to_texture*>(payload);
-			rtdx_buffer_storage_release(command->source); if (command->source_texture) { rtdx_resource_release(RTDX_RESOURCE_BASE(command->source_texture)); } if (command->target_copy_source) { rtdx_resource_release(RTDX_RESOURCE_BASE(command->target_copy_source)); } if (command->target) { rtdx_resource_release(RTDX_RESOURCE_BASE(command->target)); } rtdx_release(&command->upload);
+			rtdx_buffer_node_release(command->source); if (command->target_copy_source) { rtdx_resource_release(RTDX_RESOURCE_BASE(command->target_copy_source)); } if (command->target) { rtdx_resource_release(RTDX_RESOURCE_BASE(command->target)); } rtdx_release(command->staging);
 			break;
 		}
 		case rtdx_command_opcode::texture_copy: {
@@ -325,12 +333,12 @@ void rtdx_command_buffer_release_resources(rtdx_command_buffer* command_buffer) 
 		}
 		case rtdx_command_opcode::texture_data: {
 			rtdx_ir_texture_data* command = static_cast<rtdx_ir_texture_data*>(payload);
-			if (command->copy_source) { rtdx_resource_release(RTDX_RESOURCE_BASE(command->copy_source)); } if (command->target) { rtdx_resource_release(RTDX_RESOURCE_BASE(command->target)); } free(command->data); rtdx_release(&command->upload);
+			if (command->copy_source) { rtdx_resource_release(RTDX_RESOURCE_BASE(command->copy_source)); } if (command->target) { rtdx_resource_release(RTDX_RESOURCE_BASE(command->target)); } free(command->data); rtdx_release(command->upload);
 			break;
 		}
 		case rtdx_command_opcode::texture_copy_to_buffer: {
 			rtdx_ir_texture_copy_to_buffer* command = static_cast<rtdx_ir_texture_copy_to_buffer*>(payload);
-			if (command->source) { rtdx_resource_release(RTDX_RESOURCE_BASE(command->source)); } rtdx_buffer_storage_release(command->target_copy_source); rtdx_buffer_storage_release(command->target); rtdx_release(&command->staging);
+			if (command->source) { rtdx_resource_release(RTDX_RESOURCE_BASE(command->source)); } rtdx_buffer_node_release(command->target_copy_source); rtdx_buffer_node_release(command->target); rtdx_release(command->staging);
 			break;
 		}
 		case rtdx_command_opcode::texture_barrier:
@@ -390,7 +398,7 @@ static void rtdx_command_buffer_retain_payload(rtdx_command_opcode opcode, void*
 	}
 	case rtdx_command_opcode::bind_buffer: {
 		rtdx_ir_buffer* command = static_cast<rtdx_ir_buffer*>(payload);
-		rtdx_buffer_storage_retain(command->storage);
+		rtdx_buffer_node_retain(command->buffer);
 		rtdx_location* location = rtdx_location_from_handle(command->location);
 		if (location) { rtdx_resource_retain(RTDX_RESOURCE_BASE(location->program)); }
 		break;
@@ -406,35 +414,35 @@ static void rtdx_command_buffer_retain_payload(rtdx_command_opcode opcode, void*
 	}
 	case rtdx_command_opcode::vertex_buffer: {
 		rtdx_ir_vertex_buffer* command = static_cast<rtdx_ir_vertex_buffer*>(payload);
-		rtdx_buffer_storage_retain(command->storage);
+		rtdx_buffer_node_retain(command->buffer);
 		rtdx_location* location = rtdx_location_from_handle(command->location);
 		if (location) { rtdx_resource_retain(RTDX_RESOURCE_BASE(location->program)); }
 		break;
 	}
 	case rtdx_command_opcode::index_buffer:
-		rtdx_buffer_storage_retain(static_cast<rtdx_ir_index_buffer*>(payload)->storage);
+		rtdx_buffer_node_retain(static_cast<rtdx_ir_index_buffer*>(payload)->buffer);
 		break;
 	case rtdx_command_opcode::buffer_data: {
 		rtdx_ir_buffer_data* command = static_cast<rtdx_ir_buffer_data*>(payload);
-		rtdx_buffer_storage_retain(command->copy_source);
-		rtdx_buffer_storage_retain(command->target);
+		rtdx_buffer_node_retain(command->copy_source);
+		rtdx_buffer_node_retain(command->target);
 		if (command->upload) { command->upload->AddRef(); }
 		break;
 	}
 	case rtdx_command_opcode::buffer_copy: {
 		rtdx_ir_buffer_copy* command = static_cast<rtdx_ir_buffer_copy*>(payload);
-		rtdx_buffer_storage_retain(command->source);
-		rtdx_buffer_storage_retain(command->target_copy_source);
-		rtdx_buffer_storage_retain(command->target);
+		rtdx_buffer_node_retain(command->source);
+		rtdx_buffer_node_retain(command->target_copy_source);
+		rtdx_buffer_node_retain(command->target);
 		break;
 	}
 	case rtdx_command_opcode::buffer_barrier:
-		rtdx_buffer_storage_retain(static_cast<rtdx_ir_buffer_barrier*>(payload)->storage);
+		rtdx_buffer_node_retain(static_cast<rtdx_ir_buffer_barrier*>(payload)->buffer);
 		break;
-	case rtdx_command_opcode::buffer_copy_to_texture: { rtdx_ir_buffer_copy_to_texture* c = static_cast<rtdx_ir_buffer_copy_to_texture*>(payload); rtdx_buffer_storage_retain(c->source); if (c->source_texture) { rtdx_resource_retain(RTDX_RESOURCE_BASE(c->source_texture)); } if (c->target_copy_source) { rtdx_resource_retain(RTDX_RESOURCE_BASE(c->target_copy_source)); } if (c->target) { rtdx_resource_retain(RTDX_RESOURCE_BASE(c->target)); } if (c->upload) { c->upload->AddRef(); } break; }
+	case rtdx_command_opcode::buffer_copy_to_texture: { rtdx_ir_buffer_copy_to_texture* c = static_cast<rtdx_ir_buffer_copy_to_texture*>(payload); rtdx_buffer_node_retain(c->source); if (c->target_copy_source) { rtdx_resource_retain(RTDX_RESOURCE_BASE(c->target_copy_source)); } if (c->target) { rtdx_resource_retain(RTDX_RESOURCE_BASE(c->target)); } if (c->staging) { c->staging->AddRef(); } break; }
 	case rtdx_command_opcode::texture_copy: { rtdx_ir_texture_copy* c = static_cast<rtdx_ir_texture_copy*>(payload); if (c->source) { rtdx_resource_retain(RTDX_RESOURCE_BASE(c->source)); } if (c->target_copy_source) { rtdx_resource_retain(RTDX_RESOURCE_BASE(c->target_copy_source)); } if (c->target) { rtdx_resource_retain(RTDX_RESOURCE_BASE(c->target)); } break; }
 	case rtdx_command_opcode::texture_data: { rtdx_ir_texture_data* c = static_cast<rtdx_ir_texture_data*>(payload); if (c->copy_source) { rtdx_resource_retain(RTDX_RESOURCE_BASE(c->copy_source)); } if (c->target) { rtdx_resource_retain(RTDX_RESOURCE_BASE(c->target)); } if (c->upload) { c->upload->AddRef(); } if (c->data_size) { u08* copy = static_cast<u08*>(malloc(c->data_size)); if (!copy) { rtdx_throwf(RT_OUT_OF_HOST_MEMORY, "failed to clone texture upload bytes"); c->data_size = 0; c->data = NULL; } else { memcpy(copy, c->data, c->data_size); c->data = copy; } } break; }
-	case rtdx_command_opcode::texture_copy_to_buffer: { rtdx_ir_texture_copy_to_buffer* c = static_cast<rtdx_ir_texture_copy_to_buffer*>(payload); if (c->source) { rtdx_resource_retain(RTDX_RESOURCE_BASE(c->source)); } rtdx_buffer_storage_retain(c->target_copy_source); rtdx_buffer_storage_retain(c->target); if (c->staging) { c->staging->AddRef(); } break; }
+	case rtdx_command_opcode::texture_copy_to_buffer: { rtdx_ir_texture_copy_to_buffer* c = static_cast<rtdx_ir_texture_copy_to_buffer*>(payload); if (c->source) { rtdx_resource_retain(RTDX_RESOURCE_BASE(c->source)); } rtdx_buffer_node_retain(c->target_copy_source); rtdx_buffer_node_retain(c->target); if (c->staging) { c->staging->AddRef(); } break; }
 	case rtdx_command_opcode::texture_barrier: { rtdx_image_base* image = static_cast<rtdx_ir_texture_barrier*>(payload)->image; if (image) { rtdx_resource_retain(RTDX_RESOURCE_BASE(image)); } break; }
 	default:
 		break;
@@ -501,7 +509,7 @@ void rtdx_command_buffer_begin_rendering(rtdx_command_buffer* command_buffer, rt
 	for (usize i = 0; i < command->color_count; ++i) {
 		rtdx_texture_view* view = framebuffer->color_views[i];
 		if (!rtdx_texture_view_refresh(rtdx_get_current_context(), view)) { return; }
-		rtdx_texture_write write = rtdx_texture_write_begin(rtdx_get_current_context(), view->texture);
+		rtdx_texture_write write{ nullptr, view->image };
 		if (!write.target || !rtdx_texture_view_refresh(rtdx_get_current_context(), view)) { return; }
 		command->color_copy_sources[i] = write.source;
 		command->color_images[i] = write.target;
@@ -515,7 +523,7 @@ void rtdx_command_buffer_begin_rendering(rtdx_command_buffer* command_buffer, rt
 	rtdx_texture_view* stencil_view = framebuffer->stencil_view;
 	if (depth_view) {
 		if (!rtdx_texture_view_refresh(rtdx_get_current_context(), depth_view)) { return; }
-		rtdx_texture_write write = rtdx_texture_write_begin(rtdx_get_current_context(), depth_view->texture);
+		rtdx_texture_write write{ nullptr, depth_view->image };
 		if (!write.target || !rtdx_texture_view_refresh(rtdx_get_current_context(), depth_view)) { return; }
 		command->depth_copy_source = write.source;
 		command->depth_image = write.target;
@@ -527,12 +535,12 @@ void rtdx_command_buffer_begin_rendering(rtdx_command_buffer* command_buffer, rt
 	}
 	if (stencil_view) {
 		rtdx_texture_write write = {};
-		if (depth_view && stencil_view->texture == depth_view->texture) {
+		if (depth_view && stencil_view->image == depth_view->image) {
 			write.source = command->depth_copy_source;
 			write.target = command->depth_image;
 		} else {
 			if (!rtdx_texture_view_refresh(rtdx_get_current_context(), stencil_view)) { return; }
-			write = rtdx_texture_write_begin(rtdx_get_current_context(), stencil_view->texture);
+			write = rtdx_texture_write{ nullptr, stencil_view->image };
 			if (!write.target) { return; }
 		}
 		if (!rtdx_texture_view_refresh(rtdx_get_current_context(), stencil_view)) { return; }
@@ -555,10 +563,10 @@ void rtdx_command_buffer_set_viewport(rtdx_command_buffer* command_buffer, usize
 void rtdx_command_buffer_set_scissor(rtdx_command_buffer* command_buffer, usize x, usize y, usize width, usize height) { rtdx_ir_scissor* command = static_cast<rtdx_ir_scissor*>(rtdx_command_append(command_buffer, rtdx_command_opcode::set_scissor)); if (!command) { return; } *command = { x, y, width, height }; }
 void rtdx_command_buffer_end_rendering(rtdx_command_buffer* command_buffer) { if (!command_buffer || command_buffer->continuation || !command_buffer->rendering) { return; } rtdx_command_append(command_buffer, rtdx_command_opcode::end_rendering); command_buffer->rendering = false; command_buffer->active_framebuffer = NULL; }
 void rtdx_command_buffer_use_graphics_program(rtdx_command_buffer* command_buffer, rtdx_graphics_program* program) { rtdx_ir_program* command = static_cast<rtdx_ir_program*>(rtdx_command_append(command_buffer, rtdx_command_opcode::use_graphics_program)); if (!command) { return; } command->program = program; if (program) { rtdx_resource_retain(RTDX_RESOURCE_BASE(program)); } }
-void rtdx_command_buffer_bind_buffer(rtdx_command_buffer* command_buffer, rt_location location, rtdx_buffer* buffer, usize offset, usize size) { rtdx_ir_buffer* command = static_cast<rtdx_ir_buffer*>(rtdx_command_append(command_buffer, rtdx_command_opcode::bind_buffer)); if (!command) { return; } rtdx_buffer_storage* storage = buffer ? buffer->storage : NULL; *command = { location, storage, offset, size }; rtdx_buffer_storage_retain(storage); rtdx_location* private_location = rtdx_location_from_handle(location); if (private_location) { rtdx_resource_retain(RTDX_RESOURCE_BASE(private_location->program)); } }
+void rtdx_command_buffer_bind_buffer(rtdx_command_buffer* command_buffer, rt_location location, rtdx_buffer* buffer, usize offset, usize size) { rtdx_ir_buffer* command = static_cast<rtdx_ir_buffer*>(rtdx_command_append(command_buffer, rtdx_command_opcode::bind_buffer)); if (!command) { return; } rtdx_buffer* node = buffer ? buffer->active : NULL; *command = { location, node, offset, size }; rtdx_buffer_node_retain(node); rtdx_location* private_location = rtdx_location_from_handle(location); if (private_location) { rtdx_resource_retain(RTDX_RESOURCE_BASE(private_location->program)); } }
 void rtdx_command_buffer_bind_texture(rtdx_command_buffer* command_buffer, rt_location location, rtdx_texture_view* texture_view) { if (!command_buffer || !command_buffer->recording || !texture_view || !rtdx_texture_view_refresh(rtdx_get_current_context(), texture_view) || !rtdx_texture_view_prepare_sampler(rtdx_get_current_context(), texture_view)) { return; } rtdx_image_base* image = texture_view->image; rtdx_ir_texture* command = static_cast<rtdx_ir_texture*>(rtdx_command_append(command_buffer, rtdx_command_opcode::bind_texture)); if (!command) { return; } *command = { location, texture_view, image, texture_view->d3d_sampler_heap, texture_view->sampler_cpu }; rtdx_resource_retain(RTDX_RESOURCE_BASE(texture_view)); if (image) { rtdx_resource_retain(RTDX_RESOURCE_BASE(image)); } if (command->sampler_heap) { command->sampler_heap->AddRef(); } rtdx_location* private_location = rtdx_location_from_handle(location); if (private_location) { rtdx_resource_retain(RTDX_RESOURCE_BASE(private_location->program)); } }
-void rtdx_command_buffer_vertex_buffer(rtdx_command_buffer* command_buffer, rt_location location, rtdx_buffer* buffer, usize offset) { rtdx_ir_vertex_buffer* command = static_cast<rtdx_ir_vertex_buffer*>(rtdx_command_append(command_buffer, rtdx_command_opcode::vertex_buffer)); if (!command) { return; } rtdx_buffer_storage* storage = buffer ? buffer->storage : NULL; *command = { location, storage, offset }; rtdx_buffer_storage_retain(storage); rtdx_location* private_location = rtdx_location_from_handle(location); if (private_location) { rtdx_resource_retain(RTDX_RESOURCE_BASE(private_location->program)); } }
-void rtdx_command_buffer_index_buffer(rtdx_command_buffer* command_buffer, rtdx_buffer* buffer, usize offset, rt_index_format format) { rtdx_ir_index_buffer* command = static_cast<rtdx_ir_index_buffer*>(rtdx_command_append(command_buffer, rtdx_command_opcode::index_buffer)); if (!command) { return; } rtdx_buffer_storage* storage = buffer ? buffer->storage : NULL; *command = { storage, offset, format }; rtdx_buffer_storage_retain(storage); }
+void rtdx_command_buffer_vertex_buffer(rtdx_command_buffer* command_buffer, rt_location location, rtdx_buffer* buffer, usize offset) { rtdx_ir_vertex_buffer* command = static_cast<rtdx_ir_vertex_buffer*>(rtdx_command_append(command_buffer, rtdx_command_opcode::vertex_buffer)); if (!command) { return; } rtdx_buffer* node = buffer ? buffer->active : NULL; *command = { location, node, offset }; rtdx_buffer_node_retain(node); rtdx_location* private_location = rtdx_location_from_handle(location); if (private_location) { rtdx_resource_retain(RTDX_RESOURCE_BASE(private_location->program)); } }
+void rtdx_command_buffer_index_buffer(rtdx_command_buffer* command_buffer, rtdx_buffer* buffer, usize offset, rt_index_format format) { rtdx_ir_index_buffer* command = static_cast<rtdx_ir_index_buffer*>(rtdx_command_append(command_buffer, rtdx_command_opcode::index_buffer)); if (!command) { return; } rtdx_buffer* node = buffer ? buffer->active : NULL; *command = { node, offset, format }; rtdx_buffer_node_retain(node); }
 void rtdx_command_buffer_draw(rtdx_command_buffer* command_buffer, usize count, usize first) { rtdx_ir_draw* command = static_cast<rtdx_ir_draw*>(rtdx_command_append(command_buffer, rtdx_command_opcode::draw)); if (!command) { return; } *command = { count, first }; }
 void rtdx_command_buffer_draw_instanced(rtdx_command_buffer* command_buffer, usize count, usize instances, usize first, usize first_instance) { rtdx_ir_draw_instanced* command = static_cast<rtdx_ir_draw_instanced*>(rtdx_command_append(command_buffer, rtdx_command_opcode::draw_instanced)); if (!command) { return; } *command = { count, instances, first, first_instance }; }
 void rtdx_command_buffer_draw_indexed(rtdx_command_buffer* command_buffer, usize count, usize first, usize vertex_offset) { rtdx_ir_draw_indexed* command = static_cast<rtdx_ir_draw_indexed*>(rtdx_command_append(command_buffer, rtdx_command_opcode::draw_indexed)); if (!command) { return; } *command = { count, first, vertex_offset }; }
@@ -582,48 +590,45 @@ static ID3D12Resource* rtdx_command_buffer_upload(rtdx_context* ctx, const u08* 
 	if (FAILED(result)) { rtdx_throwf(rtdx_error_from_hresult(result), "CreateCommittedResource(command upload) failed: 0x%08x", (u32)result); return NULL; }
 	void* mapped = NULL;
 	result = upload->Map(0, NULL, &mapped);
-	if (FAILED(result)) { rtdx_release(&upload); rtdx_throwf(rtdx_error_from_hresult(result), "ID3D12Resource::Map(command upload) failed: 0x%08x", (u32)result); return NULL; }
+	if (FAILED(result)) { rtdx_release(upload); rtdx_throwf(rtdx_error_from_hresult(result), "ID3D12Resource::Map(command upload) failed: 0x%08x", (u32)result); return NULL; }
 	memcpy(mapped, data, size);
 	upload->Unmap(0, NULL);
 	return upload;
 }
 
 void rtdx_command_buffer_buffer_data(rtdx_command_buffer* command_buffer, rtdx_buffer* buffer, rt_buffer_range range, const u08* data) {
-	if (!command_buffer || !command_buffer->recording || !buffer || !buffer->storage || !data || !range.size || range.offset > buffer->storage->size || range.size > buffer->storage->size - range.offset) { return; }
+	if (!command_buffer || !command_buffer->recording || !buffer || !buffer->active || !data || !range.size || range.offset > buffer->active->size || range.size > buffer->active->size - range.offset) { return; }
 	rtdx_buffer_write write = rtdx_buffer_write_begin(rtdx_get_current_context(), buffer);
 	if (!write.target) { return; }
 	ID3D12Resource* upload = rtdx_command_buffer_upload(rtdx_get_current_context(), data, range.size);
 	if (!upload) { return; }
 	rtdx_ir_buffer_data* command = static_cast<rtdx_ir_buffer_data*>(rtdx_command_append(command_buffer, rtdx_command_opcode::buffer_data));
-	if (!command) { rtdx_release(&upload); return; }
+	if (!command) { rtdx_release(upload); return; }
 	*command = { write.source, write.target, range, upload };
-	rtdx_buffer_storage_retain(write.source);
-	rtdx_buffer_storage_retain(write.target);
-	if (write.target->shadow_data) { memcpy(static_cast<u08*>(write.target->shadow_data) + range.offset, data, range.size); }
-	rtdx_buffer_storage_mark_shadow_valid(write.target, range);
-	rtdx_buffer_storage_invalidate_texture_source(write.target, range);
+	rtdx_buffer_node_retain(write.source);
+	rtdx_buffer_node_retain(write.target);
+	rtdx_buffer_write_commit(buffer, &write);
 }
 
 void rtdx_command_buffer_buffer_copy(rtdx_command_buffer* command_buffer, rtdx_buffer* src, rt_buffer_range src_range, rtdx_buffer* dst, rt_buffer_range dst_range) {
-	if (!command_buffer || !command_buffer->recording || !src || !dst || !src->storage || !dst->storage || !src_range.size || src_range.size != dst_range.size || src_range.offset > src->storage->size || src_range.size > src->storage->size - src_range.offset || dst_range.offset > dst->storage->size || dst_range.size > dst->storage->size - dst_range.offset) { return; }
+	if (!command_buffer || !command_buffer->recording || !src || !dst || !src->active || !dst->active || !src_range.size || src_range.size != dst_range.size || src_range.offset > src->active->size || src_range.size > src->active->size - src_range.offset || dst_range.offset > dst->active->size || dst_range.size > dst->active->size - dst_range.offset) { return; }
 	rtdx_buffer_write write = rtdx_buffer_write_begin(rtdx_get_current_context(), dst);
 	if (!write.target) { return; }
 	rtdx_ir_buffer_copy* command = static_cast<rtdx_ir_buffer_copy*>(rtdx_command_append(command_buffer, rtdx_command_opcode::buffer_copy));
 	if (!command) { return; }
-	*command = { src->storage, src_range, write.source, write.target, dst_range };
-	rtdx_buffer_storage_retain(command->source);
-	rtdx_buffer_storage_retain(command->target_copy_source);
-	rtdx_buffer_storage_retain(command->target);
-	if (command->target->shadow_data && command->source->shadow_data && rtdx_buffer_storage_shadow_range_valid(command->source, src_range)) { memcpy(static_cast<u08*>(command->target->shadow_data) + dst_range.offset, static_cast<u08*>(command->source->shadow_data) + src_range.offset, src_range.size); rtdx_buffer_storage_mark_shadow_valid(command->target, dst_range); } else { rtdx_buffer_storage_mark_shadow_invalid(command->target, dst_range); }
-	rtdx_buffer_storage_invalidate_texture_source(command->target, dst_range);
+	*command = { src->active, src_range, write.source, write.target, dst_range };
+	rtdx_buffer_node_retain(command->source);
+	rtdx_buffer_node_retain(command->target_copy_source);
+	rtdx_buffer_node_retain(command->target);
+	rtdx_buffer_write_commit(dst, &write);
 }
 
 void rtdx_command_buffer_buffer_barrier(rtdx_command_buffer* command_buffer, rtdx_buffer* buffer, rt_buffer_range range, rt_access src, rt_access dst) {
-	if (!command_buffer || !command_buffer->recording || !buffer || !buffer->storage || range.offset > buffer->storage->size || range.size > buffer->storage->size - range.offset) { return; }
+	if (!command_buffer || !command_buffer->recording || !buffer || !buffer->active || range.offset > buffer->active->size || range.size > buffer->active->size - range.offset) { return; }
 	rtdx_ir_buffer_barrier* command = static_cast<rtdx_ir_buffer_barrier*>(rtdx_command_append(command_buffer, rtdx_command_opcode::buffer_barrier));
 	if (!command) { return; }
-	*command = { buffer->storage, src, dst };
-	rtdx_buffer_storage_retain(command->storage);
+	*command = { buffer->active, src, dst };
+	rtdx_buffer_node_retain(command->buffer);
 }
 
 static bool rtdx_texture_range_valid(rtdx_image_base* image, rt_texture_range range) {
@@ -662,14 +667,10 @@ static usize rtdx_command_texture_range_bytes(const rtdx_image_base* image, rt_t
 
 void rtdx_command_buffer_buffer_copy_to_texture(rtdx_command_buffer* cb, rtdx_buffer* src, rt_buffer_range src_range, rtdx_texture* dst, rt_texture_range dst_range) {
 	rtdx_image_base* original = dst ? dst->active : NULL;
-	if (!cb || !cb->recording || !src || !src->storage || !rtdx_texture_range_valid(original, dst_range) || !rtdx_texture_range_copy_supported(original, dst_range) || src_range.offset > src->storage->size || src_range.size > src->storage->size - src_range.offset) { return; }
+	if (!cb || !cb->recording || !src || !src->active || !rtdx_texture_range_valid(original, dst_range) || !rtdx_texture_range_copy_supported(original, dst_range) || src_range.offset > src->active->size || src_range.size > src->active->size - src_range.offset) { return; }
 	rtdx_texture_write write = rtdx_texture_write_begin(rtdx_get_current_context(), dst); if (!write.target) { return; }
-	rtdx_image_base* source_texture = NULL; rt_texture_range source_texture_range = {};
-	for (const rtdx_buffer_texture_source& source : src->storage->texture_sources) {
-		if (source.destination_range.offset == src_range.offset && source.destination_range.size == src_range.size) { source_texture = source.image; source_texture_range = source.source_range; break; }
-	}
 	rtdx_ir_buffer_copy_to_texture* c = static_cast<rtdx_ir_buffer_copy_to_texture*>(rtdx_command_append(cb, rtdx_command_opcode::buffer_copy_to_texture)); if (!c) { return; }
-	*c = { src->storage, src_range, source_texture, source_texture_range, write.source, write.target, dst_range, NULL }; rtdx_buffer_storage_retain(c->source); if (source_texture) { rtdx_resource_retain(RTDX_RESOURCE_BASE(source_texture)); } if (write.source) { rtdx_resource_retain(RTDX_RESOURCE_BASE(write.source)); } rtdx_resource_retain(RTDX_RESOURCE_BASE(write.target));
+	*c = { src->active, src_range, write.source, write.target, dst_range, NULL }; rtdx_buffer_node_retain(c->source); if (write.source) { rtdx_resource_retain(RTDX_RESOURCE_BASE(write.source)); } rtdx_resource_retain(RTDX_RESOURCE_BASE(write.target));
 }
 
 void rtdx_command_buffer_texture_copy(rtdx_command_buffer* cb, rtdx_texture* src, rt_texture_range src_range, rtdx_texture* dst, rt_texture_range dst_range) {
@@ -696,13 +697,11 @@ void rtdx_command_buffer_texture_data(rtdx_command_buffer* cb, rtdx_texture* tex
 void rtdx_command_buffer_texture_copy_to_buffer(rtdx_command_buffer* cb, rtdx_texture* src, rt_texture_range src_range, rtdx_buffer* dst, rt_buffer_range dst_range) {
 	rtdx_image_base* source = src ? src->active : NULL;
 	const usize packed_size = source ? rtdx_command_texture_range_bytes(source, src_range) : 0;
-	if (!cb || !cb->recording || !dst || !dst->storage || !rtdx_texture_range_valid(source, src_range) || !rtdx_texture_range_copy_supported(source, src_range) || !packed_size || dst_range.offset > dst->storage->size || dst_range.size < packed_size || packed_size > dst->storage->size - dst_range.offset) { return; }
-	rt_buffer_range packed_dst_range = { packed_size, dst_range.offset };
+	if (!cb || !cb->recording || !dst || !dst->active || !rtdx_texture_range_valid(source, src_range) || !rtdx_texture_range_copy_supported(source, src_range) || !packed_size || dst_range.offset > dst->active->size || dst_range.size < packed_size || packed_size > dst->active->size - dst_range.offset) { return; }
+	rt_buffer_range packed_dst_range = { dst_range.offset, packed_size };
 	rtdx_buffer_write write = rtdx_buffer_write_begin(rtdx_get_current_context(), dst); if (!write.target) { return; }
 	rtdx_ir_texture_copy_to_buffer* c = static_cast<rtdx_ir_texture_copy_to_buffer*>(rtdx_command_append(cb, rtdx_command_opcode::texture_copy_to_buffer)); if (!c) { return; }
-	*c = { source, src_range, write.source, write.target, packed_dst_range, NULL }; rtdx_resource_retain(RTDX_RESOURCE_BASE(source)); rtdx_buffer_storage_retain(write.source); rtdx_buffer_storage_retain(c->target);
-	rtdx_buffer_storage_mark_shadow_invalid(write.target, packed_dst_range);
-	rtdx_buffer_storage_set_texture_source(write.target, source, src_range, packed_dst_range);
+	*c = { source, src_range, write.source, write.target, packed_dst_range, NULL }; rtdx_resource_retain(RTDX_RESOURCE_BASE(source)); rtdx_buffer_node_retain(write.source); rtdx_buffer_node_retain(c->target);
 }
 
 void rtdx_command_buffer_texture_barrier(rtdx_command_buffer* cb, rtdx_texture* texture, rt_texture_range range, rt_access src, rt_access dst) {
@@ -825,14 +824,14 @@ void rtdx_lower_use_graphics_program(rtdx_context* ctx, rtdx_command_lower_state
 
 void rtdx_lower_bind_buffer(rtdx_context* ctx, rtdx_command_lower_state* state, ID3D12GraphicsCommandList* command_list, const rtdx_ir_buffer* command) {
 	rtdx_location* location = rtdx_location_from_handle(command->location);
-	if (!command->storage || !location || command->offset > command->storage->size || !command->size || command->size > command->storage->size - command->offset) {
+	if (!command->buffer || !location || command->offset > command->buffer->size || !command->size || command->size > command->buffer->size - command->offset) {
 		return;
 	}
 	rtdx_lower_remember_buffer_binding(state, command);
 	if (location->program != state->program) {
 		return;
 	}
-	if (!state->resource_heap || !command->storage->d3d_resource) {
+	if (!state->resource_heap || !command->buffer->d3d_resource) {
 		return;
 	}
 	D3D12_CPU_DESCRIPTOR_HANDLE cpu = state->resource_heap->GetCPUDescriptorHandleForHeapStart();
@@ -844,20 +843,20 @@ void rtdx_lower_bind_buffer(rtdx_context* ctx, rtdx_command_lower_state* state, 
 		 * The public range is logical, but it must fit in the physical backing
 		 * after D3D12's rounding. */
 		const u64 cbv_size = (u64)(command->size + 255u) & ~UINT64_C(255);
-		const u64 allocation_size = command->storage->d3d_resource->GetDesc().Width;
+		const u64 allocation_size = command->buffer->d3d_resource->GetDesc().Width;
 		if (command->offset % 256u || cbv_size > UINT_MAX || command->offset > allocation_size || cbv_size > allocation_size - command->offset) {
 			rtdx_throwf(RT_IMPROPER_USAGE, "uniform buffer range is not representable as a D3D12 constant-buffer view");
 			return;
 		}
-		rtdx_command_transition_buffer(command_list, command->storage, D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER);
+		rtdx_command_transition_buffer(command_list, command->buffer, D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER);
 		D3D12_CONSTANT_BUFFER_VIEW_DESC desc = {
-			command->storage->d3d_resource->GetGPUVirtualAddress() + command->offset,
+			command->buffer->d3d_resource->GetGPUVirtualAddress() + command->offset,
 			(UINT)cbv_size,
 		};
 		ctx->d3d_device->CreateConstantBufferView(&desc, cpu);
 		command_list->SetGraphicsRootDescriptorTable(location->root_parameter, gpu);
 	} else if (location->kind == rtdx_location_kind::storage_buffer && location->storage_stride && command->offset % location->storage_stride == 0 && command->size % location->storage_stride == 0) {
-		rtdx_command_transition_buffer(command_list, command->storage, D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
+		rtdx_command_transition_buffer(command_list, command->buffer, D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
 		D3D12_SHADER_RESOURCE_VIEW_DESC desc = {};
 		desc.Format = DXGI_FORMAT_UNKNOWN;
 		desc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
@@ -865,7 +864,7 @@ void rtdx_lower_bind_buffer(rtdx_context* ctx, rtdx_command_lower_state* state, 
 		desc.Buffer.FirstElement = command->offset / location->storage_stride;
 		desc.Buffer.NumElements = command->size / location->storage_stride;
 		desc.Buffer.StructureByteStride = location->storage_stride;
-		ctx->d3d_device->CreateShaderResourceView(command->storage->d3d_resource, &desc, cpu);
+		ctx->d3d_device->CreateShaderResourceView(command->buffer->d3d_resource, &desc, cpu);
 		command_list->SetGraphicsRootDescriptorTable(location->root_parameter, gpu);
 	}
 }
@@ -918,12 +917,12 @@ void rtdx_lower_bind_texture(rtdx_context* ctx, rtdx_command_lower_state* state,
 
 void rtdx_lower_vertex_buffer(ID3D12GraphicsCommandList* command_list, const rtdx_ir_vertex_buffer* command) {
 	rtdx_location* location = rtdx_location_from_handle(command->location);
-	if (!command->storage || !location || location->kind != rtdx_location_kind::vertex_input || location->vertex_input >= location->program->vertex_layout.input_count) {
+	if (!command->buffer || !location || location->kind != rtdx_location_kind::vertex_input || location->vertex_input >= location->program->vertex_layout.input_count) {
 		return;
 	}
 
-	rtdx_command_transition_buffer(command_list, command->storage, D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER);
-	D3D12_VERTEX_BUFFER_VIEW view = command->storage->vertex_view;
+	rtdx_command_transition_buffer(command_list, command->buffer, D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER);
+	D3D12_VERTEX_BUFFER_VIEW view = command->buffer->vertex_view;
 	view.BufferLocation += command->offset;
 	view.SizeInBytes -= static_cast<UINT>(command->offset);
 	view.StrideInBytes = static_cast<UINT>(location->program->vertex_layout.inputs[location->vertex_input].stride);
@@ -931,14 +930,14 @@ void rtdx_lower_vertex_buffer(ID3D12GraphicsCommandList* command_list, const rtd
 }
 
 void rtdx_lower_index_buffer(ID3D12GraphicsCommandList* command_list, const rtdx_ir_index_buffer* command) {
-	if (!command->storage) {
+	if (!command->buffer) {
 		return;
 	}
 
-	rtdx_command_transition_buffer(command_list, command->storage, D3D12_RESOURCE_STATE_INDEX_BUFFER);
+	rtdx_command_transition_buffer(command_list, command->buffer, D3D12_RESOURCE_STATE_INDEX_BUFFER);
 	D3D12_INDEX_BUFFER_VIEW view = {
-		command->storage->d3d_resource->GetGPUVirtualAddress() + command->offset,
-		(UINT)(command->storage->size - command->offset),
+		command->buffer->d3d_resource->GetGPUVirtualAddress() + command->offset,
+		(UINT)(command->buffer->size - command->offset),
 		command->format == RT_INDEX_U16 ? DXGI_FORMAT_R16_UINT : DXGI_FORMAT_R32_UINT,
 	};
 	command_list->IASetIndexBuffer(&view);
@@ -1039,13 +1038,13 @@ static void rtdx_lower_uav_barrier(ID3D12GraphicsCommandList* command_list, ID3D
 }
 
 static void rtdx_lower_buffer_barrier(ID3D12GraphicsCommandList* command_list, const rtdx_ir_buffer_barrier* command) {
-	if (!command || !command->storage) { return; }
+	if (!command || !command->buffer) { return; }
 	/* A transition carries layout/access state. A UAV barrier additionally makes
 	 * preceding unordered writes visible when the source access says write. */
 	if (command->src.type == RT_ACCESS_WRITE && rtdx_access_state(command->src) == D3D12_RESOURCE_STATE_UNORDERED_ACCESS) {
-		rtdx_lower_uav_barrier(command_list, command->storage->d3d_resource);
+		rtdx_lower_uav_barrier(command_list, command->buffer->d3d_resource);
 	}
-	rtdx_command_transition_buffer(command_list, command->storage, rtdx_access_state(command->dst));
+	rtdx_command_transition_buffer(command_list, command->buffer, rtdx_access_state(command->dst));
 }
 
 static void rtdx_lower_texture_barrier(ID3D12GraphicsCommandList* command_list, const rtdx_ir_texture_barrier* command) {
@@ -1099,23 +1098,8 @@ void rtdx_lower_texture_data(rtdx_context* ctx, ID3D12GraphicsCommandList* comma
 }
 
 void rtdx_lower_buffer_copy_to_texture(rtdx_context* ctx, ID3D12GraphicsCommandList* command_list, rtdx_ir_buffer_copy_to_texture* command) {
-	if (!command || !command->source || !command->source->d3d_resource || !command->target || command->upload) { return; }
+	if (!command || !command->source || !command->source->d3d_resource || !command->target || command->staging) { return; }
 	rtdx_lower_texture_revision_copy(command_list, command->target_copy_source, command->target);
-	/* A texture-to-buffer command immediately followed by this command refers to
-	 * the just-produced physical bytes. Preserve that chain as a direct image
-	 * copy instead of reading the buffer's upload shadow. */
-	if (command->source_texture) {
-		if (command->source_texture->dxgi_format != command->target->dxgi_format || command->source_texture_range.mip_count != command->dst_range.mip_count || command->source_texture_range.layer_count != command->dst_range.layer_count || command->source_texture_range.extent.width != command->dst_range.extent.width || command->source_texture_range.extent.height != command->dst_range.extent.height || command->source_texture_range.extent.depth != command->dst_range.extent.depth) { rtdx_throwf(RT_IMPROPER_USAGE, "texture-buffer-texture transfer ranges or formats are incompatible"); return; }
-		rtdx_command_transition_image_range(command_list, command->source_texture, command->source_texture_range, D3D12_RESOURCE_STATE_COPY_SOURCE);
-		rtdx_command_transition_image_range(command_list, command->target, command->dst_range, D3D12_RESOURCE_STATE_COPY_DEST);
-		for (usize mip = 0; mip < command->dst_range.mip_count; ++mip) for (usize layer = 0; layer < command->dst_range.layer_count; ++layer) {
-			D3D12_TEXTURE_COPY_LOCATION src = {}; src.pResource = command->source_texture->d3d_resource; src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX; src.SubresourceIndex = rtdx_command_texture_subresource(command->source_texture, command->source_texture_range.base_mip + mip, command->source_texture_range.base_layer + layer);
-			D3D12_TEXTURE_COPY_LOCATION dst = {}; dst.pResource = command->target->d3d_resource; dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX; dst.SubresourceIndex = rtdx_command_texture_subresource(command->target, command->dst_range.base_mip + mip, command->dst_range.base_layer + layer);
-			D3D12_BOX box = { (UINT)command->source_texture_range.offset.width, (UINT)command->source_texture_range.offset.height, (UINT)command->source_texture_range.offset.depth, (UINT)(command->source_texture_range.offset.width + command->source_texture_range.extent.width), (UINT)(command->source_texture_range.offset.height + command->source_texture_range.extent.height), (UINT)(command->source_texture_range.offset.depth + command->source_texture_range.extent.depth) };
-			command_list->CopyTextureRegion(&dst, (UINT)command->dst_range.offset.width, (UINT)command->dst_range.offset.height, (UINT)command->dst_range.offset.depth, &src, &box);
-		}
-		return;
-	}
 	u32 bpp = rtdx_command_texture_bpp(command->target->dxgi_format); const usize packed_size = rtdx_command_texture_range_bytes(command->target, command->dst_range); if (!bpp || command->src_range.size < packed_size) { rtdx_throwf(RT_IMPROPER_USAGE, "buffer source range is too small for texture copy"); return; }
 	const usize region_count = command->dst_range.mip_count * command->dst_range.layer_count;
 	const usize region_bytes = packed_size / region_count;
@@ -1123,22 +1107,21 @@ void rtdx_lower_buffer_copy_to_texture(rtdx_context* ctx, ID3D12GraphicsCommandL
 	const u64 region_size = row_pitch * command->dst_range.extent.height * command->dst_range.extent.depth;
 	const u64 total = region_size * region_count;
 	D3D12_HEAP_PROPERTIES heap = {}; heap.Type = D3D12_HEAP_TYPE_UPLOAD; D3D12_RESOURCE_DESC buffer = {}; buffer.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER; buffer.Width = total; buffer.Height = 1; buffer.DepthOrArraySize = 1; buffer.MipLevels = 1; buffer.SampleDesc.Count = 1; buffer.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-	HRESULT result = ctx->d3d_device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &buffer, D3D12_RESOURCE_STATE_GENERIC_READ, NULL, IID_PPV_ARGS(&command->upload)); if (FAILED(result)) { rtdx_throwf(rtdx_error_from_hresult(result), "CreateCommittedResource(buffer texture upload) failed: 0x%08x", (u32)result); return; }
-	void* mapped = NULL; result = command->upload->Map(0, NULL, &mapped); if (FAILED(result)) { rtdx_throwf(rtdx_error_from_hresult(result), "Map(buffer texture upload) failed: 0x%08x", (u32)result); return; }
-	const u08* source = command->source->shadow_data && rtdx_buffer_storage_shadow_range_valid(command->source, command->src_range) ? static_cast<const u08*>(command->source->shadow_data) + command->src_range.offset : NULL;
+	HRESULT result = ctx->d3d_device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &buffer, D3D12_RESOURCE_STATE_GENERIC_READ, NULL, IID_PPV_ARGS(&command->staging)); if (FAILED(result)) { rtdx_throwf(rtdx_error_from_hresult(result), "CreateCommittedResource(buffer texture upload) failed: 0x%08x", (u32)result); return; }
+	void* mapped = NULL; result = command->staging->Map(0, NULL, &mapped); if (FAILED(result)) { rtdx_throwf(rtdx_error_from_hresult(result), "Map(buffer texture upload) failed: 0x%08x", (u32)result); return; }
+	if (command->source->memory_type != RT_HOST_MEMORY) { command->staging->Unmap(0, NULL); rtdx_throwf(RT_UNSUPPORTED_FEATURE, "device-memory buffer to texture copies require a host-visible source"); return; }
+	const u08* source = NULL;
 	void* mapped_source = NULL;
-	if (!source) {
-		D3D12_RANGE read_range = { (SIZE_T)command->src_range.offset, (SIZE_T)(command->src_range.offset + command->src_range.size) };
-		result = command->source->d3d_resource->Map(0, &read_range, &mapped_source);
-		if (FAILED(result)) { command->upload->Unmap(0, NULL); rtdx_throwf(rtdx_error_from_hresult(result), "Map(host buffer texture source) failed: 0x%08x", (u32)result); return; }
-		source = static_cast<const u08*>(mapped_source) + command->src_range.offset;
-	}
+	D3D12_RANGE read_range = { (SIZE_T)command->src_range.offset, (SIZE_T)(command->src_range.offset + command->src_range.size) };
+	result = command->source->d3d_resource->Map(0, &read_range, &mapped_source);
+	if (FAILED(result)) { command->staging->Unmap(0, NULL); rtdx_throwf(rtdx_error_from_hresult(result), "Map(host buffer texture source) failed: 0x%08x", (u32)result); return; }
+	source = static_cast<const u08*>(mapped_source) + command->src_range.offset;
 	for (usize region = 0; region < region_count; ++region) for (usize z = 0; z < command->dst_range.extent.depth; ++z) for (usize y = 0; y < command->dst_range.extent.height; ++y) { memcpy(static_cast<u08*>(mapped) + region * region_size + (z * command->dst_range.extent.height + y) * row_pitch, source + region * region_bytes + (z * command->dst_range.extent.height + y) * command->dst_range.extent.width * bpp, command->dst_range.extent.width * bpp); }
-	command->upload->Unmap(0, NULL);
+	command->staging->Unmap(0, NULL);
 	if (mapped_source) { D3D12_RANGE write_range = { 0, 0 }; command->source->d3d_resource->Unmap(0, &write_range); }
 	rtdx_command_transition_image_range(command_list, command->target, command->dst_range, D3D12_RESOURCE_STATE_COPY_DEST);
 	usize region = 0;
-	for (usize mip = 0; mip < command->dst_range.mip_count; ++mip) for (usize layer = 0; layer < command->dst_range.layer_count; ++layer, ++region) { D3D12_TEXTURE_COPY_LOCATION src = {}; src.pResource = command->upload; src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT; src.PlacedFootprint = rtdx_command_texture_footprint(command->target, command->dst_range, region * region_size); D3D12_TEXTURE_COPY_LOCATION dst = {}; dst.pResource = command->target->d3d_resource; dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX; dst.SubresourceIndex = rtdx_command_texture_subresource(command->target, command->dst_range.base_mip + mip, command->dst_range.base_layer + layer); command_list->CopyTextureRegion(&dst, (UINT)command->dst_range.offset.width, (UINT)command->dst_range.offset.height, (UINT)command->dst_range.offset.depth, &src, NULL); }
+	for (usize mip = 0; mip < command->dst_range.mip_count; ++mip) for (usize layer = 0; layer < command->dst_range.layer_count; ++layer, ++region) { D3D12_TEXTURE_COPY_LOCATION src = {}; src.pResource = command->staging; src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT; src.PlacedFootprint = rtdx_command_texture_footprint(command->target, command->dst_range, region * region_size); D3D12_TEXTURE_COPY_LOCATION dst = {}; dst.pResource = command->target->d3d_resource; dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX; dst.SubresourceIndex = rtdx_command_texture_subresource(command->target, command->dst_range.base_mip + mip, command->dst_range.base_layer + layer); command_list->CopyTextureRegion(&dst, (UINT)command->dst_range.offset.width, (UINT)command->dst_range.offset.height, (UINT)command->dst_range.offset.depth, &src, NULL); }
 }
 
 void rtdx_lower_texture_copy_to_buffer(rtdx_context* ctx, ID3D12GraphicsCommandList* command_list, rtdx_ir_texture_copy_to_buffer* command) {

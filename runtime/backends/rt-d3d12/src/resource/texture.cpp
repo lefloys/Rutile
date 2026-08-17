@@ -300,20 +300,20 @@ static bool rtdx_texture_view_read_direct(rtdx_context* ctx, rtdx_texture_view* 
 	ID3D12Resource* readback = NULL; HRESULT result = ctx->d3d_device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &buffer, D3D12_RESOURCE_STATE_COPY_DEST, NULL, IID_PPV_ARGS(&readback));
 	if (FAILED(result)) { rtdx_throwf(rtdx_error_from_hresult(result), "CreateCommittedResource(texture readback) failed: 0x%08x", (u32)result); return false; }
 	ID3D12CommandAllocator* allocator = NULL; result = ctx->d3d_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&allocator));
-	if (FAILED(result)) { rtdx_release(&readback); rtdx_throwf(rtdx_error_from_hresult(result), "CreateCommandAllocator(texture readback) failed: 0x%08x", (u32)result); return false; }
+	if (FAILED(result)) { rtdx_release(readback); rtdx_throwf(rtdx_error_from_hresult(result), "CreateCommandAllocator(texture readback) failed: 0x%08x", (u32)result); return false; }
 	ID3D12GraphicsCommandList* list = NULL; result = ctx->d3d_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator, NULL, IID_PPV_ARGS(&list));
-	if (FAILED(result)) { rtdx_release(&allocator); rtdx_release(&readback); rtdx_throwf(rtdx_error_from_hresult(result), "CreateCommandList(texture readback) failed: 0x%08x", (u32)result); return false; }
+	if (FAILED(result)) { rtdx_release(allocator); rtdx_release(readback); rtdx_throwf(rtdx_error_from_hresult(result), "CreateCommandList(texture readback) failed: 0x%08x", (u32)result); return false; }
 	for (const rtdx_read_region& region : regions) if (region.state != D3D12_RESOURCE_STATE_COPY_SOURCE) { D3D12_RESOURCE_BARRIER barrier = {}; barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION; barrier.Transition.pResource = view->image->d3d_resource; barrier.Transition.Subresource = region.subresource; barrier.Transition.StateBefore = region.state; barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE; list->ResourceBarrier(1, &barrier); }
 	for (const rtdx_read_region& region : regions) { D3D12_TEXTURE_COPY_LOCATION src = {}; src.pResource = view->image->d3d_resource; src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX; src.SubresourceIndex = region.subresource; D3D12_TEXTURE_COPY_LOCATION dst = {}; dst.pResource = readback; dst.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT; dst.PlacedFootprint = region.footprint; D3D12_BOX box = { (UINT)range.offset.width, (UINT)range.offset.height, (UINT)range.offset.depth, (UINT)(range.offset.width + range.extent.width), (UINT)(range.offset.height + range.extent.height), (UINT)(range.offset.depth + range.extent.depth) }; list->CopyTextureRegion(&dst, 0, 0, 0, &src, &box); }
 	for (const rtdx_read_region& region : regions) if (region.state != D3D12_RESOURCE_STATE_COPY_SOURCE) { D3D12_RESOURCE_BARRIER barrier = {}; barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION; barrier.Transition.pResource = view->image->d3d_resource; barrier.Transition.Subresource = region.subresource; barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE; barrier.Transition.StateAfter = region.state; list->ResourceBarrier(1, &barrier); }
-	result = list->Close(); if (FAILED(result)) { rtdx_release(&list); rtdx_release(&allocator); rtdx_release(&readback); rtdx_throwf(rtdx_error_from_hresult(result), "Close(texture readback) failed: 0x%08x", (u32)result); return false; }
-	rtdx_queue* queue = rtdx_texture_upload_queue(ctx); if (!queue) { rtdx_release(&list); rtdx_release(&allocator); rtdx_release(&readback); rtdx_throwf(RT_IMPROPER_USAGE, "texture read requires a queue"); return false; }
+	result = list->Close(); if (FAILED(result)) { rtdx_release(list); rtdx_release(allocator); rtdx_release(readback); rtdx_throwf(rtdx_error_from_hresult(result), "Close(texture readback) failed: 0x%08x", (u32)result); return false; }
+	rtdx_queue* queue = rtdx_texture_upload_queue(ctx); if (!queue) { rtdx_release(list); rtdx_release(allocator); rtdx_release(readback); rtdx_throwf(RT_IMPROPER_USAGE, "texture read requires a queue"); return false; }
 	rtdx_wait_for_timepoint(ctx, rtdx_queue_timepoint(queue, queue->fence_value));
-	{ rtdx_physical_queue_scope physical_queue(ctx); ID3D12CommandList* lists[] = { list }; queue->d3d_queue->ExecuteCommandLists(1, lists); u64 fence = ++ctx->next_fence_value; result = queue->d3d_queue->Signal(queue->d3d_fence, fence); if (FAILED(result)) { rtdx_release(&list); rtdx_release(&allocator); rtdx_release(&readback); rtdx_throwf(rtdx_error_from_hresult(result), "Signal(texture readback) failed: 0x%08x", (u32)result); return false; } queue->fence_value = fence; rtdx_wait_for_timepoint(ctx, rtdx_queue_timepoint(queue, fence)); }
-	D3D12_RANGE read = { 0, (SIZE_T)offset }; void* mapped = NULL; result = readback->Map(0, &read, &mapped); if (FAILED(result)) { rtdx_release(&list); rtdx_release(&allocator); rtdx_release(&readback); rtdx_throwf(rtdx_error_from_hresult(result), "Map(texture readback) failed: 0x%08x", (u32)result); return false; }
+	{ rtdx_physical_queue_scope physical_queue(*ctx); ID3D12CommandList* lists[] = { list }; queue->d3d_queue->ExecuteCommandLists(1, lists); u64 fence = ++queue->fence_value; result = queue->d3d_queue->Signal(queue->d3d_fence, fence); if (FAILED(result)) { rtdx_release(list); rtdx_release(allocator); rtdx_release(readback); rtdx_throwf(rtdx_error_from_hresult(result), "Signal(texture readback) failed: 0x%08x", (u32)result); return false; } queue->fence_value = fence; rtdx_wait_for_timepoint(ctx, rtdx_queue_timepoint(queue, fence)); }
+	D3D12_RANGE read = { 0, (SIZE_T)offset }; void* mapped = NULL; result = readback->Map(0, &read, &mapped); if (FAILED(result)) { rtdx_release(list); rtdx_release(allocator); rtdx_release(readback); rtdx_throwf(rtdx_error_from_hresult(result), "Map(texture readback) failed: 0x%08x", (u32)result); return false; }
 	for (usize index = 0; index < regions.size(); ++index) for (usize z = 0; z < range.extent.depth; ++z) for (usize y = 0; y < range.extent.height; ++y) memcpy(data + index * packed_region + (z * range.extent.height + y) * range.extent.width * bpp, static_cast<const u08*>(mapped) + regions[index].footprint.Offset + (z * range.extent.height + y) * regions[index].footprint.Footprint.RowPitch, range.extent.width * bpp);
 	D3D12_RANGE write = { 0, 0 }; readback->Unmap(0, &write);
-	rtdx_release(&list); rtdx_release(&allocator); rtdx_release(&readback);
+	rtdx_release(list); rtdx_release(allocator); rtdx_release(readback);
 	return true;
 }
 
@@ -367,7 +367,7 @@ static bool rtdx_texture_copy_region(
 	rtdx_queue_upload_scope upload_scope(queue);
 	rtdx_wait_for_timepoint(ctx, rtdx_queue_timepoint(queue, queue->upload_fence_value));
 	rtdx_queue_collect(ctx, queue);
-	rtdx_physical_queue_scope physical_queue(ctx);
+	rtdx_physical_queue_scope physical_queue(*ctx);
 	if (!rtdx_queue_acquire_upload_command(ctx, queue)) {
 		return false;
 	}
@@ -432,7 +432,7 @@ static bool rtdx_texture_copy_region(
 
 	ID3D12CommandList* lists[] = { command_list };
 	queue->d3d_queue->ExecuteCommandLists(1, lists);
-	u64 fence_value = ++ctx->next_fence_value;
+	u64 fence_value = ++queue->fence_value;
 	result = queue->d3d_queue->Signal(queue->d3d_fence, fence_value);
 	if (FAILED(result)) {
 		rtdx_throwf(rtdx_error_from_hresult(result), "ID3D12CommandQueue::Signal failed: 0x%08x", (u32)result);
@@ -445,11 +445,9 @@ static bool rtdx_texture_copy_region(
 }
 
 void rtdx_texture_init(struct rtdx_context* ctx, struct rtdx_texture* texture) {
-	rtdx_init_resource_base(ctx, RTDX_RESOURCE_BASE(texture), rtdx_resource_type::texture);
 }
 
 void rtdx_texture_view_init(struct rtdx_context* ctx, struct rtdx_texture_view* view) {
-	rtdx_init_resource_base(ctx, RTDX_RESOURCE_BASE(view), rtdx_resource_type::texture_view);
 	rtdx_texture_view_normalize_sampler(view);
 }
 
@@ -465,18 +463,17 @@ void rtdx_texture_finish(struct rtdx_context* ctx, struct rtdx_texture* texture)
 		node = next;
 	}
 	texture->next = NULL;
-	rtdx_release(&texture->d3d_resource);
+	rtdx_release(texture->d3d_resource);
 	free(texture->states);
 	texture->states = NULL;
-	rtdx_finish_resource_base(ctx, RTDX_RESOURCE_BASE(texture));
 }
 
 void rtdx_texture_view_finish(struct rtdx_context* ctx, struct rtdx_texture_view* view) {
-	rtdx_release(&view->d3d_sampler_heap);
-	rtdx_release(&view->d3d_srv_heap);
-	rtdx_release(&view->d3d_rtv_heap);
-	rtdx_release(&view->d3d_dsv_heap);
-	if (view->texture) { rtdx_resource_release(RTDX_RESOURCE_BASE(view->texture)); view->texture = NULL; }
+	rtdx_release(view->d3d_sampler_heap);
+	rtdx_release(view->d3d_srv_heap);
+	rtdx_release(view->d3d_rtv_heap);
+	rtdx_release(view->d3d_dsv_heap);
+	if (view->image) { rtdx_resource_release(RTDX_RESOURCE_BASE(view->image)); view->image = NULL; }
 	view->image = NULL;
 	view->rtv.ptr = 0;
 	view->dsv.ptr = 0;
@@ -484,18 +481,15 @@ void rtdx_texture_view_finish(struct rtdx_context* ctx, struct rtdx_texture_view
 	view->sampler_gpu.ptr = 0;
 	view->srv_cpu.ptr = 0;
 	view->srv_gpu.ptr = 0;
-	rtdx_finish_resource_base(ctx, RTDX_RESOURCE_BASE(view));
 }
 
 static struct rtdx_texture* rtdx_texture_node_create(struct rtdx_context* ctx) {
-	struct rtdx_texture* node = RTDX_ALLOC_RESOURCE(rtdx_texture);
+	struct rtdx_texture* node = RTDX_ALLOC_RESOURCE(rtdx_texture, ctx);
 	if (!node) {
 		rtdx_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate texture metadata");
 		return NULL;
 	}
-
-	rtdx_init_resource_base(ctx, RTDX_RESOURCE_BASE(node), rtdx_resource_type::texture);
-	rtdx_atomic_bool_store(&node->zombie, true);
+	node->zombie.store(true, std::memory_order_relaxed);
 	node->state = D3D12_RESOURCE_STATE_COMMON;
 	return node;
 }
@@ -553,21 +547,21 @@ static bool rtdx_texture_desc(rt_texture_type type, DXGI_FORMAT format, rt_exten
 	return true;
 }
 
-bool rtdx_texture_resize(rtdx_context* ctx, rtdx_texture* texture, rt_texture_type type, rt_format format, rt_extent_3d extent, usize mip_count) {
-	if (!ctx || !texture) { rtdx_throwf(RT_IMPROPER_USAGE, "texture resize target is invalid"); return false; }
+void rtdx_texture_resize(rtdx_context* ctx, rtdx_texture* texture, rt_texture_type type, rt_format format, rt_extent_3d extent, usize mip_count) {
+	if (!ctx || !texture) { rtdx_throwf(RT_IMPROPER_USAGE, "texture resize target is invalid"); return; }
 	DXGI_FORMAT dxgi_format = rtdx_texture_format(format);
 	D3D12_RESOURCE_DESC desc = {};
 	usize layers = 0;
-	if (!rtdx_texture_desc(type, dxgi_format, extent, mip_count, &desc, &layers)) { rtdx_throwf(RT_IMPROPER_USAGE, "texture resize description is invalid or unsupported"); return false; }
+	if (!rtdx_texture_desc(type, dxgi_format, extent, mip_count, &desc, &layers)) { rtdx_throwf(RT_IMPROPER_USAGE, "texture resize description is invalid or unsupported"); return; }
 	rtdx_texture* node = rtdx_texture_node_create(ctx);
-	if (!node) { return false; }
+	if (!node) { return; }
 	D3D12_HEAP_PROPERTIES heap = {};
 	heap.Type = D3D12_HEAP_TYPE_DEFAULT;
 	D3D12_CLEAR_VALUE clear_value = {};
 	clear_value.Format = dxgi_format;
 	clear_value.DepthStencil.Depth = 1.0f;
 	HRESULT result = ctx->d3d_device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_COMMON, rtdx_texture_format_is_depth(dxgi_format) ? &clear_value : NULL, IID_PPV_ARGS(&node->d3d_resource));
-	if (FAILED(result)) { rtdx_resource_release(RTDX_RESOURCE_BASE(node)); rtdx_throwf(rtdx_error_from_hresult(result), "CreateCommittedResource(texture) failed: 0x%08x", (u32)result); return false; }
+	if (FAILED(result)) { rtdx_resource_release(RTDX_RESOURCE_BASE(node)); rtdx_throwf(rtdx_error_from_hresult(result), "CreateCommittedResource(texture) failed: 0x%08x", (u32)result); return; }
 	node->width = extent.width;
 	node->height = extent.height;
 	node->depth = extent.depth;
@@ -577,11 +571,11 @@ bool rtdx_texture_resize(rtdx_context* ctx, rtdx_texture* texture, rt_texture_ty
 	node->type = type;
 	node->state = D3D12_RESOURCE_STATE_COMMON;
 	node->states = static_cast<D3D12_RESOURCE_STATES*>(calloc(mip_count * layers, sizeof(*node->states)));
-	if (!node->states) { rtdx_resource_release(RTDX_RESOURCE_BASE(node)); rtdx_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate texture subresource state"); return false; }
+	if (!node->states) { rtdx_resource_release(RTDX_RESOURCE_BASE(node)); rtdx_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate texture subresource state"); return; }
 	for (usize i = 0; i < mip_count * layers; ++i) { node->states[i] = D3D12_RESOURCE_STATE_COMMON; }
 	rtdx_texture_recycle_node(texture, texture->active);
 	texture->active = node;
-	return true;
+	return;
 }
 
 static bool rtdx_texture_view_rebuild_descriptors(struct rtdx_context* ctx, struct rtdx_texture_view* view) {
@@ -590,9 +584,9 @@ static bool rtdx_texture_view_rebuild_descriptors(struct rtdx_context* ctx, stru
 		return false;
 	}
 
-	rtdx_release(&view->d3d_rtv_heap);
-	rtdx_release(&view->d3d_dsv_heap);
-	rtdx_release(&view->d3d_srv_heap);
+	rtdx_release(view->d3d_rtv_heap);
+	rtdx_release(view->d3d_dsv_heap);
+	rtdx_release(view->d3d_srv_heap);
 	view->rtv.ptr = 0;
 	view->dsv.ptr = 0;
 	view->srv_cpu.ptr = 0;
@@ -693,7 +687,7 @@ static struct rtdx_texture* rtdx_texture_take_reusable_node(struct rtdx_texture*
 	while (*link) {
 		struct rtdx_texture* node = *link;
 		D3D12_RESOURCE_DESC candidate = node->d3d_resource ? node->d3d_resource->GetDesc() : D3D12_RESOURCE_DESC{};
-		if (rtdx_atomic_load(&node->ref_count) == 1 && candidate.Dimension == desc.Dimension && candidate.Width == desc.Width && candidate.Height == desc.Height && candidate.DepthOrArraySize == desc.DepthOrArraySize && candidate.MipLevels == desc.MipLevels && candidate.Format == desc.Format && candidate.Flags == desc.Flags) {
+		if (node->ref_count.load(std::memory_order_relaxed) == 1 && candidate.Dimension == desc.Dimension && candidate.Width == desc.Width && candidate.Height == desc.Height && candidate.DepthOrArraySize == desc.DepthOrArraySize && candidate.MipLevels == desc.MipLevels && candidate.Format == desc.Format && candidate.Flags == desc.Flags) {
 			*link = node->next;
 			node->next = NULL;
 			return node;
@@ -711,7 +705,7 @@ rtdx_texture_write rtdx_texture_write_begin(struct rtdx_context* ctx, struct rtd
 	 * dependency that makes its one physical image writable again; it must never
 	 * be copy-on-written into an unrelated private render target. */
 	if (texture->active->swapchain_image) { return write; }
-	if (rtdx_atomic_load(&texture->active->ref_count) == 1) { return write; }
+	if (texture->active->ref_count.load(std::memory_order_relaxed) == 1) { return write; }
 	struct rtdx_texture* source = texture->active;
 	D3D12_RESOURCE_DESC desc = source->d3d_resource->GetDesc();
 	struct rtdx_texture* target = rtdx_texture_take_reusable_node(texture, desc);
@@ -761,7 +755,7 @@ static void rtdx_texture_collect_nodes(struct rtdx_texture* texture) {
 	struct rtdx_texture** link = &texture->next;
 	while (*link) {
 		struct rtdx_texture* node = *link;
-		if (rtdx_atomic_load(&node->ref_count) == 1) {
+		if (node->ref_count.load(std::memory_order_relaxed) == 1) {
 			*link = node->next;
 			node->next = NULL;
 			rtdx_release_resource(node);
@@ -813,8 +807,7 @@ struct rtdx_texture_view* rtdx_texture_view_create_for_texture(struct rtdx_conte
 		return NULL;
 	}
 
-	rtdx_resource_retain(RTDX_RESOURCE_BASE(texture));
-	view->texture = texture;
+	rtdx_resource_retain(RTDX_RESOURCE_BASE(node));
 	view->image = node;
 	view->rtv = rtv;
 	if (!rtdx_texture_view_rebuild_descriptors(ctx, view)) {
@@ -830,30 +823,26 @@ void rtdx_texture_view_bind(struct rtdx_context* ctx, struct rtdx_texture_view* 
 		rtdx_throwf(RT_IMPROPER_USAGE, "texture view bind source texture is invalid");
 		return;
 	}
-	if (view->texture == texture && view->image == node) {
+	if (view->image == node) {
 		return;
 	}
-	if (view->texture) { rtdx_resource_release(RTDX_RESOURCE_BASE(view->texture)); view->texture = NULL; }
-	rtdx_release(&view->d3d_rtv_heap);
-	rtdx_release(&view->d3d_dsv_heap);
-	rtdx_release(&view->d3d_srv_heap);
-	rtdx_release(&view->d3d_sampler_heap);
-	rtdx_resource_retain(RTDX_RESOURCE_BASE(texture));
-	view->texture = texture;
+	if (view->image) { rtdx_resource_release(RTDX_RESOURCE_BASE(view->image)); view->image = NULL; }
+	rtdx_release(view->d3d_rtv_heap);
+	rtdx_release(view->d3d_dsv_heap);
+	rtdx_release(view->d3d_srv_heap);
+	rtdx_release(view->d3d_sampler_heap);
+	rtdx_resource_retain(RTDX_RESOURCE_BASE(node));
 	view->image = node;
 	if (!rtdx_texture_view_rebuild_descriptors(ctx, view)) {
-		rtdx_resource_release(RTDX_RESOURCE_BASE(view->texture));
-		view->texture = NULL;
+		rtdx_resource_release(RTDX_RESOURCE_BASE(view->image));
+		view->image = NULL;
 		view->image = NULL;
 		return;
 	}
 }
 
 bool rtdx_texture_view_refresh(rtdx_context* ctx, rtdx_texture_view* view) {
-	if (!view || !view->texture || !view->texture->active || !view->texture->active->d3d_resource) { return false; }
-	if (view->image == view->texture->active) { return true; }
-	view->image = view->texture->active;
-	return rtdx_texture_view_rebuild_descriptors(ctx, view);
+	return view && view->image && view->image->d3d_resource && rtdx_texture_view_rebuild_descriptors(ctx, view);
 }
 
 struct rtdx_texture_view* rtdx_texture_view_create_for_swapchain(struct rtdx_context* ctx, struct rtdx_texture* texture, D3D12_CPU_DESCRIPTOR_HANDLE rtv) {
@@ -905,7 +894,7 @@ bool rtdx_texture_view_prepare_sampler(struct rtdx_context* ctx, struct rtdx_tex
 }
 
 static bool rtdx_texture_view_recreate_sampler(struct rtdx_texture_view* texture_view) {
-	struct rtdx_context* ctx = texture_view->base.ctx;
+	struct rtdx_context* ctx = texture_view->ctx;
 	if (!rtdx_texture_view_prepare_sampler_heap(ctx, texture_view)) {
 		return false;
 	}
@@ -1022,7 +1011,7 @@ static bool rtdx_texture_upload_staging(struct rtdx_context* ctx, struct rtdx_qu
 
 	rtdx_wait_for_timepoint(ctx, rtdx_queue_timepoint(queue, queue->upload_fence_value));
 	queue->upload_fence_value = 0;
-	rtdx_release(&queue->upload_buffer);
+	rtdx_release(queue->upload_buffer);
 	queue->upload_buffer_size = 0;
 
 	D3D12_HEAP_PROPERTIES upload_heap = {};
@@ -1169,7 +1158,7 @@ rt_timepoint rtdx_texture_data(struct rtdx_context* ctx, struct rtdx_texture* te
 		queue->upload_buffer->Unmap(0, NULL);
 	}
 
-	rtdx_physical_queue_scope physical_queue(ctx);
+	rtdx_physical_queue_scope physical_queue(*ctx);
 	if (!rtdx_queue_acquire_upload_command(ctx, queue)) {
 		rtdx_release_resource(node);
 		return timepoint;
@@ -1206,7 +1195,7 @@ rt_timepoint rtdx_texture_data(struct rtdx_context* ctx, struct rtdx_texture* te
 
 	ID3D12CommandList* lists[] = { command_list };
 	queue->d3d_queue->ExecuteCommandLists(1, lists);
-	u64 fence_value = ++ctx->next_fence_value;
+	u64 fence_value = ++queue->fence_value;
 	result = queue->d3d_queue->Signal(queue->d3d_fence, fence_value);
 	if (FAILED(result)) {
 		rtdx_release_resource(node);
@@ -1301,7 +1290,7 @@ rt_timepoint rtdx_texture_subdata(struct rtdx_context* ctx, struct rtdx_texture*
 	}
 	queue->upload_buffer->Unmap(0, NULL);
 
-	rtdx_physical_queue_scope physical_queue(ctx);
+	rtdx_physical_queue_scope physical_queue(*ctx);
 	if (!rtdx_queue_acquire_upload_command(ctx, queue)) {
 		return timepoint;
 	}
@@ -1346,7 +1335,7 @@ rt_timepoint rtdx_texture_subdata(struct rtdx_context* ctx, struct rtdx_texture*
 
 	ID3D12CommandList* lists[] = { command_list };
 	queue->d3d_queue->ExecuteCommandLists(1, lists);
-	u64 fence_value = ++ctx->next_fence_value;
+	u64 fence_value = ++queue->fence_value;
 	result = queue->d3d_queue->Signal(queue->d3d_fence, fence_value);
 	if (FAILED(result)) {
 		rtdx_throwf(rtdx_error_from_hresult(result), "ID3D12CommandQueue::Signal failed: 0x%08x", (u32)result);
@@ -1374,10 +1363,10 @@ rt_timepoint rtdx_texture_view_copy_to_buffer(struct rtdx_context* ctx, struct r
 	}
 
 	u64 packed_size = (u64)texture_view->image->width * texture_view->image->height * bytes_per_pixel;
-	if (!buffer->storage || buffer->storage->size < packed_size) {
+	if (!buffer->active || buffer->active->size < packed_size) {
 		rtdx_buffer_resize(ctx, buffer, RT_DEVICE_MEMORY, (usize)packed_size);
 	}
-	if (!buffer->storage) {
+	if (!buffer->active) {
 		return timepoint;
 	}
 
@@ -1419,7 +1408,7 @@ rt_timepoint rtdx_texture_view_copy_to_buffer(struct rtdx_context* ctx, struct r
 	ID3D12CommandAllocator* allocator = NULL;
 	result = ctx->d3d_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&allocator));
 	if (FAILED(result)) {
-		rtdx_release(&readback);
+		rtdx_release(readback);
 		rtdx_throwf(rtdx_error_from_hresult(result), "CreateCommandAllocator failed: 0x%08x", (u32)result);
 		return timepoint;
 	}
@@ -1427,14 +1416,14 @@ rt_timepoint rtdx_texture_view_copy_to_buffer(struct rtdx_context* ctx, struct r
 	ID3D12GraphicsCommandList* command_list = NULL;
 	result = ctx->d3d_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator, NULL, IID_PPV_ARGS(&command_list));
 	if (FAILED(result)) {
-		rtdx_release(&allocator);
-		rtdx_release(&readback);
+		rtdx_release(allocator);
+		rtdx_release(readback);
 		rtdx_throwf(rtdx_error_from_hresult(result), "CreateCommandList failed: 0x%08x", (u32)result);
 		return timepoint;
 	}
 
 	{
-	rtdx_physical_queue_scope physical_queue(ctx);
+	rtdx_physical_queue_scope physical_queue(*ctx);
 	D3D12_RESOURCE_STATES original_state = texture_view->image->state;
 	if (original_state != D3D12_RESOURCE_STATE_COPY_SOURCE) {
 		D3D12_RESOURCE_BARRIER barrier = {};
@@ -1469,21 +1458,21 @@ rt_timepoint rtdx_texture_view_copy_to_buffer(struct rtdx_context* ctx, struct r
 
 	result = command_list->Close();
 	if (FAILED(result)) {
-		rtdx_release(&command_list);
-		rtdx_release(&allocator);
-		rtdx_release(&readback);
+		rtdx_release(command_list);
+		rtdx_release(allocator);
+		rtdx_release(readback);
 		rtdx_throwf(rtdx_error_from_hresult(result), "ID3D12GraphicsCommandList::Close failed: 0x%08x", (u32)result);
 		return timepoint;
 	}
 
 	ID3D12CommandList* lists[] = { command_list };
 	queue->d3d_queue->ExecuteCommandLists(1, lists);
-	u64 fence_value = ++ctx->next_fence_value;
+	u64 fence_value = ++queue->fence_value;
 	result = queue->d3d_queue->Signal(queue->d3d_fence, fence_value);
 	if (FAILED(result)) {
-		rtdx_release(&command_list);
-		rtdx_release(&allocator);
-		rtdx_release(&readback);
+		rtdx_release(command_list);
+		rtdx_release(allocator);
+		rtdx_release(readback);
 		rtdx_throwf(rtdx_error_from_hresult(result), "ID3D12CommandQueue::Signal failed: 0x%08x", (u32)result);
 		return timepoint;
 	}
@@ -1496,9 +1485,9 @@ rt_timepoint rtdx_texture_view_copy_to_buffer(struct rtdx_context* ctx, struct r
 	void* mapped = NULL;
 	result = readback->Map(0, &read_range, &mapped);
 	if (FAILED(result)) {
-		rtdx_release(&command_list);
-		rtdx_release(&allocator);
-		rtdx_release(&readback);
+		rtdx_release(command_list);
+		rtdx_release(allocator);
+		rtdx_release(readback);
 		rtdx_throwf(rtdx_error_from_hresult(result), "ID3D12Resource::Map failed: 0x%08x", (u32)result);
 		return timepoint;
 	}
@@ -1521,9 +1510,14 @@ rt_timepoint rtdx_texture_view_copy_to_buffer(struct rtdx_context* ctx, struct r
 		}
 	}
 
-	rtdx_buffer_subdata(ctx, buffer, 0, packed_size, packed.data());
-	rtdx_release(&command_list);
-	rtdx_release(&allocator);
-	rtdx_release(&readback);
+rtdx_buffer_subdata(ctx, buffer, 0, packed_size, packed.data());
+	rtdx_release(command_list);
+	rtdx_release(allocator);
+	rtdx_release(readback);
 	return timepoint;
 }
+
+void rtdx_texture::finish() { rtdx_texture_finish(ctx, this); }
+void rtdx_texture_view::finish() { rtdx_texture_view_finish(ctx, this); }
+
+

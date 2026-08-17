@@ -39,6 +39,7 @@ struct rtgl_buffer_storage {
 	enum rt_memory_type memory_type;
 	u08* shadow_data;
 	u32 ref_count;
+	rt_timepoint last_write;
 };
 
 RTGL_EXTERN_C_ENTER
@@ -50,6 +51,8 @@ u08* rtgl_buffer_map(struct rtgl_context* ctx, struct rtgl_buffer* buffer, rt_bu
 void rtgl_buffer_unmap(struct rtgl_context* ctx, struct rtgl_buffer* buffer);
 void rtgl_buffer_storage_retain(struct rtgl_buffer_storage* storage);
 void rtgl_buffer_storage_release(struct rtgl_buffer_storage* storage);
+void rtgl_buffer_storage_wait(struct rtgl_context* ctx, struct rtgl_buffer_storage* storage);
+void rtgl_buffer_storage_mark_write(struct rtgl_context* ctx, struct rtgl_buffer_storage* storage, rt_timepoint timepoint);
 RTGL_EXTERN_C_EXIT
 
 #endif /* RTGL_BUFFER_H */

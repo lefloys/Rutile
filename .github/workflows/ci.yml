@@ -46,6 +46,8 @@ jobs:
         run: |
           cmake --version
           ninja --version
+          where.exe cl
+          cl /? | Select-Object -First 3
           if (!(Test-Path "$env:VCPKG_ROOT\scripts\buildsystems\vcpkg.cmake")) {
             throw "vcpkg toolchain not found at $env:VCPKG_ROOT"
           }

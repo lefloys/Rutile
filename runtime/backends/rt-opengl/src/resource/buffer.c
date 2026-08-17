@@ -1,8 +1,10 @@
 #include "buffer.h"
 
+#include "atomic.h"
 #include "context.h"
 #include "error.h"
 #include "execution.h"
+#include "resource/queue.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -70,6 +72,7 @@ static struct rtgl_buffer_storage* rtgl_buffer_storage_create(struct rtgl_contex
 	storage->memory_type = memory_type;
 	storage->size = size;
 	storage->ref_count = 1;
+	storage->last_write = (rt_timepoint){ 0 };
 	if (size) {
 		storage->shadow_data = (u08*)calloc(size, 1);
 		RTGL_CHECK_ALLOC(storage->shadow_data, size, "OpenGL buffer shadow data");
@@ -85,12 +88,12 @@ static struct rtgl_buffer_storage* rtgl_buffer_storage_create(struct rtgl_contex
 
 void rtgl_buffer_storage_retain(struct rtgl_buffer_storage* storage) {
 	if (storage) {
-		storage->ref_count++;
+		rt_atomic_inc(&storage->ref_count);
 	}
 }
 
 void rtgl_buffer_storage_release(struct rtgl_buffer_storage* storage) {
-	if (!storage || --storage->ref_count) {
+	if (!storage || rt_atomic_dec(&storage->ref_count)) {
 		return;
 	}
 	rtgl_execution_buffer_delete(storage->ctx, storage);
@@ -110,7 +113,7 @@ static struct rtgl_buffer_storage* rtgl_buffer_take_reusable_storage(struct rtgl
 	struct rtgl_buffer_storage** link = &buffer->reusable_storage;
 	while (*link) {
 		struct rtgl_buffer_storage* storage = *link;
-		if (storage->memory_type == memory_type && storage->size == size && storage->ref_count == 1) {
+		if (storage->memory_type == memory_type && storage->size == size && rt_atomic_load(&storage->ref_count) == 1) {
 			*link = storage->next;
 			storage->next = NULL;
 			return storage;
@@ -122,6 +125,7 @@ static struct rtgl_buffer_storage* rtgl_buffer_take_reusable_storage(struct rtgl
 
 static struct rtgl_buffer_storage* rtgl_buffer_copy_storage(struct rtgl_context* ctx, struct rtgl_buffer* buffer) {
 	struct rtgl_buffer_storage* source = buffer->storage;
+	rtgl_buffer_storage_wait(ctx, source);
 	struct rtgl_buffer_storage* target = rtgl_buffer_take_reusable_storage(buffer, source->memory_type, source->size);
 	if (!target) {
 		target = rtgl_buffer_storage_create(ctx, source->memory_type, source->size);
@@ -154,7 +158,7 @@ struct rtgl_buffer_storage* rtgl_buffer_prepare_write(struct rtgl_context* ctx, 
 	if (!buffer || !buffer->storage) {
 		return NULL;
 	}
-	if (buffer->storage->ref_count > 1 && !rtgl_buffer_copy_storage(ctx, buffer)) {
+	if (rt_atomic_load(&buffer->storage->ref_count) > 1 && !rtgl_buffer_copy_storage(ctx, buffer)) {
 		return NULL;
 	}
 	return buffer->storage;
@@ -183,6 +187,7 @@ void rtgl_buffer_read(struct rtgl_context* ctx, struct rtgl_buffer* buffer, rt_b
 		rtgl_throwf(RT_IMPROPER_USAGE, "buffer read range is out of bounds");
 		return;
 	}
+	rtgl_buffer_storage_wait(ctx, buffer->storage);
 	memcpy(data, buffer->storage->shadow_data + range.offset, range.size);
 }
 
@@ -193,6 +198,7 @@ u08* rtgl_buffer_map(struct rtgl_context* ctx, struct rtgl_buffer* buffer, rt_bu
 	if (!rtgl_buffer_prepare_write(ctx, buffer)) {
 		return NULL;
 	}
+	rtgl_buffer_storage_wait(ctx, buffer->storage);
 	buffer->mapped_range = range;
 	buffer->mapped = true;
 	return buffer->storage->shadow_data + range.offset;
@@ -204,4 +210,24 @@ void rtgl_buffer_unmap(struct rtgl_context* ctx, struct rtgl_buffer* buffer) {
 	}
 	rtgl_execution_buffer_subdata(ctx, buffer->storage, buffer->mapped_range.offset, buffer->mapped_range.size, buffer->storage->shadow_data + buffer->mapped_range.offset);
 	buffer->mapped = false;
+}
+
+void rtgl_buffer_storage_wait(struct rtgl_context* ctx, struct rtgl_buffer_storage* storage) {
+	rt_timepoint last_write;
+	if (!ctx || !storage) {
+		return;
+	}
+	rtgl_execution_lock(ctx);
+	last_write = storage->last_write;
+	rtgl_execution_unlock(ctx);
+	rtgl_timepoint_wait(ctx, last_write);
+}
+
+void rtgl_buffer_storage_mark_write(struct rtgl_context* ctx, struct rtgl_buffer_storage* storage, rt_timepoint timepoint) {
+	if (!ctx || !storage) {
+		return;
+	}
+	rtgl_execution_lock(ctx);
+	storage->last_write = timepoint;
+	rtgl_execution_unlock(ctx);
 }

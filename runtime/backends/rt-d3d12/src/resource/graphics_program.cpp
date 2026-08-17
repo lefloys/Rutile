@@ -64,7 +64,6 @@ rt_location rtGraphicsProgramOutputLocation(rt_graphics_program program, const c
 RTDX_DEFINE_RESOURCE_PRIVATE(graphics_program)
 
 void rtdx_graphics_program_init(rtdx_context* ctx, rtdx_graphics_program* program) {
-	rtdx_init_resource_base(ctx, RTDX_RESOURCE_BASE(program), rtdx_resource_type::graphics_program);
 	program->cull_mode = RT_CULL_NONE;
 	program->front_face = RT_FRONT_FACE_CCW;
 	program->fill_mode = RT_FILL_SOLID;
@@ -78,14 +77,14 @@ void rtdx_graphics_program_init(rtdx_context* ctx, rtdx_graphics_program* progra
 }
 
 static void rtdx_graphics_program_destroy_pipeline(rtdx_graphics_program* program) {
-	rtdx_release(&program->d3d_pipeline);
+	rtdx_release(program->d3d_pipeline);
 	program->d3d_pipeline_format = DXGI_FORMAT_UNKNOWN;
 	program->d3d_pipeline_depth_format = DXGI_FORMAT_UNKNOWN;
 }
 
 static void rtdx_graphics_program_destroy_root_signature(rtdx_graphics_program* program) {
 	rtdx_graphics_program_destroy_pipeline(program);
-	rtdx_release(&program->d3d_root_signature);
+	rtdx_release(program->d3d_root_signature);
 }
 
 void rtdx_graphics_program_finish(rtdx_context* ctx, rtdx_graphics_program* program) {
@@ -95,7 +94,6 @@ void rtdx_graphics_program_finish(rtdx_context* ctx, rtdx_graphics_program* prog
 	program->rtsl_program.reset();
 	program->vertex_dxil.clear();
 	program->fragment_dxil.clear();
-	rtdx_finish_resource_base(ctx, RTDX_RESOURCE_BASE(program));
 }
 
 static D3D12_SHADER_VISIBILITY rtdx_shader_visibility(rtsl::StageMask stages) {
@@ -257,13 +255,13 @@ static bool rtdx_graphics_program_create_root_signature(rtdx_context* ctx, rtdx_
 	if (FAILED(result)) {
 		const char* message = errors ? static_cast<const char*>(errors->GetBufferPointer()) : "root signature serialization failed";
 		rtdx_throwf(RT_INITIALIZATION_FAILED, "%s", message);
-		rtdx_release(&errors);
+		rtdx_release(errors);
 		return false;
 	}
 
 	result = ctx->d3d_device->CreateRootSignature(0, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&program->d3d_root_signature));
-	rtdx_release(&signature);
-	rtdx_release(&errors);
+	rtdx_release(signature);
+	rtdx_release(errors);
 	if (FAILED(result)) {
 		rtdx_throwf(rtdx_error_from_hresult(result), "CreateRootSignature failed: 0x%08x", static_cast<u32>(result));
 		return false;
@@ -563,26 +561,26 @@ static bool rtdx_compile_hlsl(std::string_view source, const wchar_t* profile, s
 	if (FAILED(status) || FAILED(compile_status)) {
 		const char* message = errors && errors->GetStringLength() ? errors->GetStringPointer() : "DXC failed without diagnostics";
 		rtdx_throwf(RT_SHADER_LINK_FAILED, "%s", message);
-		rtdx_release(&object);
-		rtdx_release(&errors);
-		rtdx_release(&result);
-		rtdx_release(&compiler);
+		rtdx_release(object);
+		rtdx_release(errors);
+		rtdx_release(result);
+		rtdx_release(compiler);
 		return false;
 	}
 	status = result->GetOutput(DXC_OUT_OBJECT, IID_PPV_ARGS(&object), nullptr);
 	if (FAILED(status) || !object) {
 		rtdx_throwf(RT_SHADER_LINK_FAILED, "DXC did not produce shader bytecode");
-		rtdx_release(&errors);
-		rtdx_release(&result);
-		rtdx_release(&compiler);
+		rtdx_release(errors);
+		rtdx_release(result);
+		rtdx_release(compiler);
 		return false;
 	}
 	const auto* begin = static_cast<const unsigned char*>(object->GetBufferPointer());
 	bytecode.assign(begin, begin + object->GetBufferSize());
-	rtdx_release(&object);
-	rtdx_release(&errors);
-	rtdx_release(&result);
-	rtdx_release(&compiler);
+	rtdx_release(object);
+	rtdx_release(errors);
+	rtdx_release(result);
+	rtdx_release(compiler);
 	return true;
 }
 
@@ -684,3 +682,5 @@ rt_location rtdx_graphics_program_output_location(rtdx_context* /*ctx*/, rtdx_gr
 	}
 	return RT_NULL_HANDLE;
 }
+
+void rtdx_graphics_program::finish() { rtdx_graphics_program_finish(ctx, this); }

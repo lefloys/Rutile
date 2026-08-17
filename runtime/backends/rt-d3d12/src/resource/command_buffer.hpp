@@ -6,16 +6,12 @@
 #include <d3d12.h>
 
 struct rtdx_buffer;
-struct rtdx_buffer_storage;
 struct rtdx_framebuffer;
 struct rtdx_graphics_program;
 struct rtdx_image_base;
 struct rtdx_texture;
 struct rtdx_texture_view;
 
-void rtdx_command_transition_buffer(ID3D12GraphicsCommandList* command_list, rtdx_buffer_storage* storage, D3D12_RESOURCE_STATES state);
-void rtdx_command_transition_image(ID3D12GraphicsCommandList* command_list, rtdx_image_base* image, D3D12_RESOURCE_STATES state);
-void rtdx_command_transition_image_range(ID3D12GraphicsCommandList* command_list, rtdx_image_base* image, rt_texture_range range, D3D12_RESOURCE_STATES state);
 
 RTDX_API rt_command_buffer rtCommandBufferCreate(void);
 RTDX_API void rtCommandBufferDestroy(rt_command_buffer command_buffer);
@@ -24,6 +20,7 @@ RTDX_API void rtCommandBufferBegin(rt_command_buffer command_buffer);
 RTDX_API void rtCommandBufferContinue(rt_command_buffer command_buffer);
 RTDX_API void rtCommandBufferContinueRendering(rt_command_buffer command_buffer);
 RTDX_API void rtCommandBufferEnd(rt_command_buffer command_buffer);
+
 RTDX_API void rtCmdExecute(rt_command_buffer command_buffer, rt_command_buffer secondary);
 RTDX_API void rtCmdBeginRendering(rt_command_buffer command_buffer, rt_framebuffer framebuffer);
 RTDX_API void rtCmdClearColor(rt_command_buffer command_buffer, rt_location location, f32 r, f32 g, f32 b, f32 a);
@@ -46,6 +43,12 @@ RTDX_API void rtCmdBufferData(rt_command_buffer command_buffer, rt_buffer buffer
 RTDX_API void rtCmdBufferCopy(rt_command_buffer command_buffer, rt_buffer src, rt_buffer_range src_range, rt_buffer dst, rt_buffer_range dst_range);
 RTDX_API void rtCmdBufferCopyToTexture(rt_command_buffer command_buffer, rt_buffer src, rt_buffer_range src_range, rt_texture dst, rt_texture_range dst_range);
 RTDX_API void rtCmdBufferBarrier(rt_command_buffer command_buffer, rt_buffer buffer, rt_buffer_range range, rt_access src, rt_access dst);
+
+
+void rtdx_command_transition_buffer(ID3D12GraphicsCommandList* command_list, rtdx_buffer* buffer, D3D12_RESOURCE_STATES state);
+void rtdx_command_transition_image(ID3D12GraphicsCommandList* command_list, rtdx_image_base* image, D3D12_RESOURCE_STATES state);
+void rtdx_command_transition_image_range(ID3D12GraphicsCommandList* command_list, rtdx_image_base* image, rt_texture_range range, D3D12_RESOURCE_STATES state);
+
 
 enum class rtdx_command_opcode : u08 {
 	begin_rendering,
@@ -97,25 +100,26 @@ struct rtdx_ir_clear_stencil { u32 stencil; };
 struct rtdx_ir_viewport { usize x; usize y; usize width; usize height; f32 min_depth; f32 max_depth; };
 struct rtdx_ir_scissor { usize x; usize y; usize width; usize height; };
 struct rtdx_ir_program { rtdx_graphics_program* program; };
-struct rtdx_ir_buffer { rt_location location; rtdx_buffer_storage* storage; usize offset; usize size; };
+struct rtdx_ir_buffer { rt_location location; rtdx_buffer* buffer; usize offset; usize size; };
 struct rtdx_ir_texture { rt_location location; rtdx_texture_view* texture_view; rtdx_image_base* image; ID3D12DescriptorHeap* sampler_heap; D3D12_CPU_DESCRIPTOR_HANDLE sampler_cpu; };
-struct rtdx_ir_vertex_buffer { rt_location location; rtdx_buffer_storage* storage; usize offset; };
-struct rtdx_ir_index_buffer { rtdx_buffer_storage* storage; usize offset; rt_index_format format; };
+struct rtdx_ir_vertex_buffer { rt_location location; rtdx_buffer* buffer; usize offset; };
+struct rtdx_ir_index_buffer { rtdx_buffer* buffer; usize offset; rt_index_format format; };
 struct rtdx_ir_draw { usize count; usize first; };
 struct rtdx_ir_draw_instanced { usize count; usize instances; usize first; usize first_instance; };
 struct rtdx_ir_draw_indexed { usize count; usize first; usize vertex_offset; };
 struct rtdx_ir_draw_indexed_instanced { usize count; usize instances; usize first; usize vertex_offset; usize first_instance; };
-struct rtdx_ir_buffer_data { rtdx_buffer_storage* copy_source; rtdx_buffer_storage* target; rt_buffer_range range; ID3D12Resource* upload; };
-struct rtdx_ir_buffer_copy { rtdx_buffer_storage* source; rt_buffer_range src_range; rtdx_buffer_storage* target_copy_source; rtdx_buffer_storage* target; rt_buffer_range dst_range; };
-struct rtdx_ir_buffer_barrier { rtdx_buffer_storage* storage; rt_access src; rt_access dst; };
-struct rtdx_ir_buffer_copy_to_texture { rtdx_buffer_storage* source; rt_buffer_range src_range; rtdx_image_base* source_texture; rt_texture_range source_texture_range; rtdx_image_base* target_copy_source; rtdx_image_base* target; rt_texture_range dst_range; ID3D12Resource* upload; };
+struct rtdx_ir_buffer_data { rtdx_buffer* copy_source; rtdx_buffer* target; rt_buffer_range range; ID3D12Resource* upload; };
+struct rtdx_ir_buffer_copy { rtdx_buffer* source; rt_buffer_range src_range; rtdx_buffer* target_copy_source; rtdx_buffer* target; rt_buffer_range dst_range; };
+struct rtdx_ir_buffer_barrier { rtdx_buffer* buffer; rt_access src; rt_access dst; };
+struct rtdx_ir_buffer_copy_to_texture { rtdx_buffer* source; rt_buffer_range src_range; rtdx_image_base* target_copy_source; rtdx_image_base* target; rt_texture_range dst_range; ID3D12Resource* staging; };
 struct rtdx_ir_texture_copy { rtdx_image_base* source; rt_texture_range src_range; rtdx_image_base* target_copy_source; rtdx_image_base* target; rt_texture_range dst_range; };
 struct rtdx_ir_texture_data { rtdx_image_base* copy_source; rtdx_image_base* target; rt_texture_range range; u08* data; usize data_size; ID3D12Resource* upload; };
-struct rtdx_ir_texture_copy_to_buffer { rtdx_image_base* source; rt_texture_range src_range; rtdx_buffer_storage* target_copy_source; rtdx_buffer_storage* target; rt_buffer_range dst_range; ID3D12Resource* staging; };
+struct rtdx_ir_texture_copy_to_buffer { rtdx_image_base* source; rt_texture_range src_range; rtdx_buffer* target_copy_source; rtdx_buffer* target; rt_buffer_range dst_range; ID3D12Resource* staging; };
 struct rtdx_ir_texture_barrier { rtdx_image_base* image; rt_texture_range range; rt_access src; rt_access dst; };
 
-struct rtdx_command_buffer {
-	rtdx_resource_base base;
+struct rtdx_command_buffer : rtdx_resource_base {
+	explicit rtdx_command_buffer(rtdx_context* ctx) : rtdx_resource_base(ctx, rtdx_resource_type::command_buffer) {}
+	void finish() override;
 	u08* ir_data;
 	usize ir_size;
 	usize ir_capacity;

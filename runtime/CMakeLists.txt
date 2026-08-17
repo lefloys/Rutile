@@ -3,13 +3,17 @@ add_library("rt-backend-common" STATIC)
 target_compile_features("rt-backend-common" PRIVATE c_std_11)
 if(WIN32)
 	target_sources("rt-backend-common" PRIVATE
-		"common/win32/sync.c"
+	"common/win32/sync.c"
 		"common/sync.h"
+		"common/atomic.c"
+		"common/atomic.h"
 	)
 else()
 	target_sources("rt-backend-common" PRIVATE
 		"common/posix/sync.c"
 		"common/sync.h"
+		"common/atomic.c"
+		"common/atomic.h"
 	)
 endif()
 

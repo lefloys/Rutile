@@ -4,8 +4,9 @@
 
 inline constexpr u32 RTDX_MAX_FRAMEBUFFER_COLOR_ATTACHMENTS = 8;
 
-struct rtdx_framebuffer {
-	rtdx_resource_base base;
+struct rtdx_framebuffer : rtdx_resource_base {
+	explicit rtdx_framebuffer(rtdx_context* ctx) : rtdx_resource_base(ctx, rtdx_resource_type::framebuffer) {}
+	void finish() override;
 	rtdx_texture_view* color_views[RTDX_MAX_FRAMEBUFFER_COLOR_ATTACHMENTS];
 	rtdx_texture_view* depth_view;
 	rtdx_texture_view* stencil_view;

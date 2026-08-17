@@ -56,8 +56,9 @@ struct rtdx_location {
 inline rtdx_location* rtdx_location_from_handle(rt_location location) { return reinterpret_cast<rtdx_location*>(location); }
 inline rt_location rtdx_location_to_handle(rtdx_location* location) { return reinterpret_cast<rt_location>(location); }
 
-struct rtdx_graphics_program {
-	rtdx_resource_base base;
+struct rtdx_graphics_program : rtdx_resource_base {
+	explicit rtdx_graphics_program(rtdx_context* ctx) : rtdx_resource_base(ctx, rtdx_resource_type::graphics_program) {}
+	void finish() override;
 	ID3D12RootSignature* d3d_root_signature;
 	ID3D12PipelineState* d3d_pipeline;
 

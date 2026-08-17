@@ -54,7 +54,6 @@ void rtFramebufferSetStencilView(rt_framebuffer framebuffer, rt_texture_view vie
 /*===============================================================================================*/
 
 void rtdx_framebuffer_init(struct rtdx_context* ctx, struct rtdx_framebuffer* framebuffer) {
-	rtdx_init_resource_base(ctx, RTDX_RESOURCE_BASE(framebuffer), rtdx_resource_type::framebuffer);
 }
 
 void rtdx_framebuffer_finish(struct rtdx_context* ctx, struct rtdx_framebuffer* framebuffer) {
@@ -73,11 +72,10 @@ void rtdx_framebuffer_finish(struct rtdx_context* ctx, struct rtdx_framebuffer* 
 	}
 	framebuffer->depth_view = NULL;
 	framebuffer->stencil_view = NULL;
-	rtdx_finish_resource_base(ctx, RTDX_RESOURCE_BASE(framebuffer));
 }
 
 bool rtdx_texture_view_valid(struct rtdx_texture_view* view) {
-	return view && view->base.type == rtdx_resource_type::texture_view && rtdx_texture_view_refresh(view->base.ctx, view) && view->image && view->image->d3d_resource;
+	return view && view->type == rtdx_resource_type::texture_view && rtdx_texture_view_refresh(view->ctx, view) && view->image && view->image->d3d_resource;
 }
 
 void rtdx_framebuffer_set_color_view(struct rtdx_context* ctx, struct rtdx_framebuffer* framebuffer, u32 slot, struct rtdx_texture_view* view) {
@@ -194,3 +192,6 @@ bool rtdx_framebuffer_valid(struct rtdx_framebuffer* framebuffer) {
 	}
 	return true;
 }
+
+void rtdx_framebuffer::finish() { rtdx_framebuffer_finish(ctx, this); }
+

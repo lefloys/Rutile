@@ -18,6 +18,8 @@ struct rtgl_execution_context {
 	struct rt_mutex* work_lock;
 	struct rtgl_execution_command* work_first;
 	struct rtgl_execution_command* work_last;
+	struct rtgl_execution_command* deferred_first;
+	struct rtgl_execution_command* deferred_last;
 	unsigned thread_id;
 	bool stopping;
 };

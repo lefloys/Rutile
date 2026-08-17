@@ -4,7 +4,6 @@
 #include "resource.hpp"
 
 #include <d3d12.h>
-#include <vector>
 
 /*===============================================================================================*/
 /*                                                                                               */
@@ -21,44 +20,26 @@ RTDX_API void rtBufferUnmap(rt_buffer buffer);
 /*                                                                                               */
 /*===============================================================================================*/
 
-struct rtdx_buffer_storage;
-struct rtdx_image_base;
-struct rtdx_buffer_texture_source {
-	rtdx_image_base* image;
-	rt_texture_range source_range;
-	rt_buffer_range destination_range;
-};
+struct rtdx_buffer : rtdx_resource_base {
+	explicit rtdx_buffer(rtdx_context* ctx) : rtdx_resource_base(ctx, rtdx_resource_type::buffer) {}
+	void finish() override;
 
-struct rtdx_buffer {
-	rtdx_resource_base base;
-	rtdx_buffer_storage* storage;
-	rtdx_buffer_storage* reusable_storage;
+	/* The public buffer owns an active physical node and recyclable revisions.
+	 * Physical nodes are ordinary rtdx_buffer resources kept alive by command
+	 * references and submitted jobs, just like the Vulkan backend. */
+	rtdx_buffer* active;
+	rtdx_buffer* next;
+	ID3D12Resource* d3d_resource;
+	D3D12_VERTEX_BUFFER_VIEW vertex_view;
+	usize size;
+	D3D12_RESOURCE_STATES state;
 	rt_memory_type memory_type;
 };
 RTDX_DECLARE_NEW_RESOURCE(buffer)
 
-struct rtdx_buffer_storage {
-	rtdx_context* ctx;
-	rtdx_buffer_storage* next;
-
-	ID3D12Resource* d3d_resource;
-	D3D12_VERTEX_BUFFER_VIEW vertex_view;
-	D3D12_RESOURCE_STATES state;
-
-	void* shadow_data;
-	bool shadow_valid;
-	std::vector<rt_buffer_range> shadow_invalid_ranges;
-	/* Exact physical provenance for disjoint texture-to-buffer writes. */
-	std::vector<rtdx_buffer_texture_source> texture_sources;
-
-	u64 size;
-	rt_memory_type memory_type;
-	u32 ref_count;
-};
-
 struct rtdx_buffer_write {
-	rtdx_buffer_storage* source;
-	rtdx_buffer_storage* target;
+	rtdx_buffer* source;
+	rtdx_buffer* target;
 };
 
 void rtdx_buffer_resize(rtdx_context* ctx, rtdx_buffer* buffer, rt_memory_type memory_type, usize size);
@@ -66,12 +47,9 @@ rt_timepoint rtdx_buffer_subdata(rtdx_context* ctx, rtdx_buffer* buffer, u64 off
 void rtdx_buffer_read(rtdx_context* ctx, rtdx_buffer* buffer, rt_buffer_range range, u08* data, usize data_size);
 u08* rtdx_buffer_map(rtdx_context* ctx, rtdx_buffer* buffer, rt_buffer_range range);
 void rtdx_buffer_unmap(rtdx_context* ctx, rtdx_buffer* buffer);
-void rtdx_buffer_storage_retain(rtdx_buffer_storage* storage);
-void rtdx_buffer_storage_release(rtdx_buffer_storage* storage);
 rtdx_buffer_write rtdx_buffer_write_begin(rtdx_context* ctx, rtdx_buffer* buffer);
-void rtdx_buffer_storage_clear_texture_source(rtdx_buffer_storage* storage);
-void rtdx_buffer_storage_set_texture_source(rtdx_buffer_storage* storage, rtdx_image_base* image, rt_texture_range range, rt_buffer_range destination_range);
-void rtdx_buffer_storage_invalidate_texture_source(rtdx_buffer_storage* storage, rt_buffer_range range);
-void rtdx_buffer_storage_mark_shadow_invalid(rtdx_buffer_storage* storage, rt_buffer_range range);
-void rtdx_buffer_storage_mark_shadow_valid(rtdx_buffer_storage* storage, rt_buffer_range range);
-bool rtdx_buffer_storage_shadow_range_valid(const rtdx_buffer_storage* storage, rt_buffer_range range);
+rtdx_buffer* rtdx_buffer_active_node(rtdx_buffer* buffer);
+void rtdx_buffer_recycle_node(rtdx_buffer* buffer, rtdx_buffer* node);
+rtdx_buffer* rtdx_buffer_take_reusable_node(rtdx_buffer* buffer, rt_memory_type memory_type, usize size);
+void rtdx_buffer_write_commit(rtdx_buffer* buffer, rtdx_buffer_write* write);
+void rtdx_buffer_write_cancel(rtdx_buffer* buffer, rtdx_buffer_write* write);

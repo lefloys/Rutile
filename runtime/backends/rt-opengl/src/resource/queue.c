@@ -55,7 +55,18 @@ void rtQueueWait(rt_queue queue, rt_timepoint timepoint) {
 		return;
 	}
 	rt_mutex_lock(internal->submit_lock);
-	internal->pending_wait = timepoint;
+	if (internal->wait_count == internal->wait_capacity) {
+		usize capacity = internal->wait_capacity ? internal->wait_capacity * 2 : 8;
+		rt_timepoint* wait_timepoints = (rt_timepoint*)realloc(internal->wait_timepoints, capacity * sizeof(*wait_timepoints));
+		if (!wait_timepoints) {
+			rt_mutex_unlock(internal->submit_lock);
+			rtgl_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate OpenGL queue wait timepoints");
+			return;
+		}
+		internal->wait_timepoints = wait_timepoints;
+		internal->wait_capacity = capacity;
+	}
+	internal->wait_timepoints[internal->wait_count++] = timepoint;
 	rt_mutex_unlock(internal->submit_lock);
 }
 
@@ -107,6 +118,10 @@ void rtgl_queue_finish(struct rtgl_queue* queue) {
 	if (queue->submit_lock) {
 		rt_mutex_destroy(queue->submit_lock);
 	}
+	free(queue->wait_timepoints);
+	queue->wait_timepoints = NULL;
+	queue->wait_count = 0;
+	queue->wait_capacity = 0;
 	queue->completion_condition = NULL;
 	queue->submit_lock = NULL;
 	rtgl_finish_resource_base(RTGL_RESOURCE_BASE(queue));
@@ -170,6 +185,7 @@ void rtgl_queue_complete(struct rtgl_queue* queue, u64 value) {
 	if (queue->completed_value < value) {
 		queue->completed_value = value;
 		rt_condition_broadcast(queue->completion_condition);
+		rt_event_signal(ctx->execution.work_event);
 	}
 	rtgl_execution_unlock(ctx);
 }
