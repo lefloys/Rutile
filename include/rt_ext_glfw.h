@@ -3,16 +3,17 @@
 
 /*!
 ** @file rt_ext_glfw.h
-** @brief GLFW window binding for Rutile presentation swapchains.
+** @brief GLFW binding for Rutile presentation swapchains.
 **
-** This extension binds an @ref rt_swapchain to an existing GLFW window.
-** Resolve it after loading a Rutile backend. Before creating or binding
-** presentation resources, initialize Rutile with @ref RT_FEATURE_PRESENTATION
-** and resolve the companion swapchain extension.
+** Load this extension and the swapchain extension before binding a GLFW window
+** to a swapchain.
 */
 
 #include "rt_ext_swapchain.h"
 #include "rutile.h"
+
+/*! @brief Version of the extension contract declared by this header. */
+#define RT_EXT_GLFW_VERSION RT_HEADER_VERSION
 
 #ifdef __cplusplus
 extern "C" {
@@ -21,33 +22,24 @@ extern "C" {
 #if !defined(RT_TYPES_ONLY)
 
 /*!
-** @brief Resolve GLFW presentation procedures through the loaded dispatch chain.
+** @brief Make the GLFW binding procedure callable.
 **
-** Call after @ref rtLoad has established the backend dispatch chain. This
-** loader neither requires @ref rtInit nor a prior
-** @ref rtLoad_RT_EXT_SWAPCHAIN call. A failed load clears the GLFW extension
-** dispatch pointer; do not call @ref rtSwapchainBindWindowGLFW until a later
-** successful load.
-**
-** Failure is reported through Rutile's thread-local error state. A failed
-** load clears the GLFW extension dispatch pointer.
+** Call after @ref rtLoad and before @ref rtSwapchainBindGLFW. Failure is
+** reported through @ref rtError; the binding procedure remains unavailable.
 */
 void rtLoad_RT_EXT_GLFW(void);
 
 /*!
 ** @brief Bind an unbound swapchain to an existing GLFW window.
 **
-** Call after @ref rtInit has enabled @ref RT_FEATURE_PRESENTATION and both
-** presentation extension loaders have succeeded, and before
-** @ref rtSwapchainAcquire. Resize the swapchain when the GLFW framebuffer
-** extent changes.
+** @ref RT_FEATURE_PRESENTATION must be enabled and both presentation
+** extensions must be loaded. The swapchain must be unbound and have no
+** acquired frame. Resize it whenever the window framebuffer extent changes.
 **
-** @param swapchain Unbound presentation swapchain to associate with @p window.
-** @param window    Existing non-NULL GLFW window.
-** @note Failures are reported through Rutile's thread-local error state; a
-**       validation layer may also record RT_IMPROPER_USAGE.
+** @param swapchain  Unbound swapchain.
+** @param window     Non-NULL GLFW window.
 */
-RT_API void rtSwapchainBindWindowGLFW(rt_swapchain swapchain, struct GLFWwindow* window);
+RT_API void rtSwapchainBindGLFW(rt_swapchain swapchain, struct GLFWwindow* window);
 
 /*===============================================================================================*/
 /*                                                                                               */
@@ -56,14 +48,14 @@ RT_API void rtSwapchainBindWindowGLFW(rt_swapchain swapchain, struct GLFWwindow*
 #endif /* !RT_TYPES_ONLY */
 
 #define RT_EXT_GLFW_PROCEDURES(X) \
-	X( void                        , rtSwapchainBindWindowGLFW , ( rt_swapchain swapchain, struct GLFWwindow* window ) , ( swapchain, window                          ) )
+	X(void, rtSwapchainBindGLFW, (rt_swapchain swapchain, struct GLFWwindow * window), (swapchain, window))
 /* RT_EXT_GLFW_PROCEDURES */
 
 #if !defined(RT_TYPES_ONLY)
 
 #if defined(_MSC_VER)
 #pragma warning(push)
-#pragma warning(disable: 4098)
+#pragma warning(disable : 4098)
 #endif
 RT_EXT_GLFW_PROCEDURES(RT_DECLARE_EXTENSION_PROCEDURE)
 #if defined(_MSC_VER)

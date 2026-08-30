@@ -1,5 +1,6 @@
 #define RUTILE_IMPL
 #include "cli.hpp"
+#include "embedded_program.hpp"
 #include "rt_ext_glfw.h"
 #include "rt_ext_swapchain.h"
 #include "rutile.h"
@@ -9,17 +10,16 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdio>
-#include <iostream>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
-#include <rtsl/program.hpp>
+#include <iostream>
 #include <vector>
 
 constexpr const char* Layers[] = { "rt-validation-layer" };
 constexpr const char* Features[] = { RT_FEATURE_PRESENTATION };
 
-extern "C" const rtsl::ProgramBytes terrain_rtslp;
-extern "C" const rtsl::ProgramBytes water_rtslp;
+extern "C" const rt_example_program terrain_rtslp;
+extern "C" const rt_example_program water_rtslp;
 
 constexpr rt_vertex_attribute VertexAttributes[] = {
 	{ "position", offsetof(Vertex, position), RT_RGB32_SFLOAT },
@@ -180,22 +180,22 @@ int main(int argc, char** argv) {
 	rt_buffer water_transform_buffer = rtBufferCreate();
 	rtBufferResize(water_transform_buffer, RT_DEVICE_MEMORY, sizeof(water_transform));
 
-	rt_graphics_program graphics_program = rtGraphicsProgramCreate();
-	rtGraphicsProgramSetLayout(graphics_program, &VertexLayout);
-	rtGraphicsProgramSetSource(graphics_program, terrain_rtslp.data, terrain_rtslp.size);
-	rtGraphicsProgramSetRasterState(graphics_program, RT_CULL_BACK, RT_FRONT_FACE_CCW, RT_FILL_SOLID);
-	rtGraphicsProgramFinalize(graphics_program);
-	rt_location transform_location = rtGraphicsProgramUniformLocation(graphics_program, "scene");
-	rt_location vertex_location = rtGraphicsProgramInputLocation(graphics_program, VertexAttributes, 7);
+	rt_program program = rtProgramCreate();
+	rtProgramSetLayout(program, &VertexLayout);
+	rtProgramSource(program, "main", terrain_rtslp.data, terrain_rtslp.size);
+	rtProgramSetRasterState(program, RT_CULL_BACK, RT_FRONT_FACE_CCW, RT_FILL_SOLID);
+	rtProgramFinalize(program);
+	rt_location transform_location = rtProgramUniformLocation(program, "scene");
+	rt_location vertex_location = rtProgramInputLocation(program, VertexAttributes, 7);
 
-	rt_graphics_program water_program = rtGraphicsProgramCreate();
-	rtGraphicsProgramSetLayout(water_program, &VertexLayout);
-	rtGraphicsProgramSetSource(water_program, water_rtslp.data, water_rtslp.size);
-	rtGraphicsProgramSetRasterState(water_program, RT_CULL_BACK, RT_FRONT_FACE_CCW, RT_FILL_SOLID);
-	rtGraphicsProgramSetBlendState(water_program, true, RT_BLEND_SRC_ALPHA, RT_BLEND_ONE_MINUS_SRC_ALPHA, RT_BLEND_OP_ADD, RT_BLEND_ONE, RT_BLEND_ONE_MINUS_SRC_ALPHA, RT_BLEND_OP_ADD);
-	rtGraphicsProgramFinalize(water_program);
-	rt_location water_transform_location = rtGraphicsProgramUniformLocation(water_program, "scene");
-	rt_location water_vertex_location = rtGraphicsProgramInputLocation(water_program, VertexAttributes, 7);
+	rt_program water_program = rtProgramCreate();
+	rtProgramSetLayout(water_program, &VertexLayout);
+	rtProgramSource(water_program, "main", water_rtslp.data, water_rtslp.size);
+	rtProgramSetRasterState(water_program, RT_CULL_BACK, RT_FRONT_FACE_CCW, RT_FILL_SOLID);
+	rtProgramSetBlendState(water_program, true, RT_BLEND_SRC_ALPHA, RT_BLEND_ONE_MINUS_SRC_ALPHA, RT_BLEND_OP_ADD, RT_BLEND_ONE, RT_BLEND_ONE_MINUS_SRC_ALPHA, RT_BLEND_OP_ADD);
+	rtProgramFinalize(water_program);
+	rt_location water_transform_location = rtProgramUniformLocation(water_program, "scene");
+	rt_location water_vertex_location = rtProgramInputLocation(water_program, VertexAttributes, 7);
 
 	rt_command_buffer cmd = rtCommandBufferCreate();
 	DepthTexture = rtTextureCreate();
@@ -209,10 +209,10 @@ int main(int argc, char** argv) {
 	rtTimepointWait(rtQueueSubmit(queue, cmd));
 	rtCommandBufferReset(cmd);
 	rtCommandBufferContinueRendering(cmd);
-	rtCmdUseGraphicsProgram(cmd, graphics_program);
+	rtCmdUseProgram(cmd, program);
 	rtCmdVertexBuffer(cmd, vertex_location, vertex_buffer, { vertex_size, 0 });
 	rtCmdDraw(cmd, vertices.size(), 0);
-	rtCmdUseGraphicsProgram(cmd, water_program);
+	rtCmdUseProgram(cmd, water_program);
 	rtCmdVertexBuffer(cmd, water_vertex_location, water_vertex_buffer, { water_vertex_size, 0 });
 	rtCmdDraw(cmd, water_vertices.size(), 0);
 	rtCommandBufferEnd(cmd);
@@ -287,8 +287,8 @@ int main(int argc, char** argv) {
 	rtCommandBufferDestroy(primary);
 	rtCommandBufferDestroy(cmd);
 	rtQueueDestroy(queue);
-	rtGraphicsProgramDestroy(water_program);
-	rtGraphicsProgramDestroy(graphics_program);
+	rtProgramDestroy(water_program);
+	rtProgramDestroy(program);
 	rtBufferDestroy(water_transform_buffer);
 	rtBufferDestroy(transform_buffer);
 	rtBufferDestroy(water_vertex_buffer);

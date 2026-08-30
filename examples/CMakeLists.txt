@@ -2,7 +2,19 @@ find_package(glfw3 CONFIG REQUIRED)
 find_package(glm CONFIG REQUIRED)
 find_package(CLI11 CONFIG REQUIRED)
 find_package(Stb REQUIRED)
-include("${RUTILE_SOURCE_DIR}/cmake/RutileTarget.cmake")
+
+function(rutile_embed_program target symbol source)
+    file(READ "${source}" _program_hex HEX)
+    string(REGEX REPLACE "([0-9a-fA-F][0-9a-fA-F])" "0x\\1, " _program_bytes "${_program_hex}")
+
+    set(_program_source "${CMAKE_CURRENT_BINARY_DIR}/${symbol}.cpp")
+    file(WRITE "${_program_source}"
+        "#include \"embedded_program.hpp\"\n\n"
+        "static const u08 ${symbol}_data[] = { ${_program_bytes} };\n"
+        "extern \"C\" const rt_example_program ${symbol} = { ${symbol}_data, sizeof(${symbol}_data) };\n"
+    )
+    target_sources("${target}" PRIVATE "${_program_source}")
+endfunction()
 
 function(rutile_configure_example target)
     target_compile_features("${target}" PRIVATE cxx_std_23)
@@ -23,7 +35,6 @@ function(rutile_configure_example target)
     )
 
     target_link_libraries("${target}" PRIVATE rutile)
-    set(_example_runtimes)
     foreach(_runtime IN ITEMS
         rt-vulkan
         rt-d3d12
@@ -32,12 +43,25 @@ function(rutile_configure_example target)
         rt-logging-layer
     )
         if(TARGET "${_runtime}")
-            list(APPEND _example_runtimes "${_runtime}")
+            add_dependencies("${target}" "${_runtime}")
+            add_custom_command(TARGET "${target}" POST_BUILD
+                COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                    "$<TARGET_FILE:${_runtime}>"
+                    "$<TARGET_FILE_DIR:${target}>"
+                VERBATIM
+            )
+
+            get_target_property(_runtime_files "${_runtime}" RUTILE_RUNTIME_DEPLOY_FILES)
+            if(_runtime_files)
+                add_custom_command(TARGET "${target}" POST_BUILD
+                    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                        ${_runtime_files}
+                        "$<TARGET_FILE_DIR:${target}>"
+                    VERBATIM
+                )
+            endif()
         endif()
     endforeach()
-    if(_example_runtimes)
-        rutile_use_runtime("${target}" ${_example_runtimes})
-    endif()
 endfunction()
 
 add_subdirectory("01-triangle")

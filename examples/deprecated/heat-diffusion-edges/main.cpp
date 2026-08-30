@@ -556,14 +556,14 @@ int main(int argc, char* argv[]) {
 	rt_compute_program apply_program = create_compute_program(kApplyShader);
 	rt_compute_program color_program = create_compute_program(kColorShader);
 
-	rt_graphics_program graphics_program = rtGraphicsProgramCreate();
-	rtGraphicsProgramLayout(graphics_program, nullptr);
-	rtGraphicsProgramVertexShader(graphics_program, std::strlen(kVertexShader), kVertexShader);
-	rtGraphicsProgramFragmentShader(graphics_program, std::strlen(kFragmentShader), kFragmentShader);
-	rtGraphicsProgramFinalize(graphics_program);
+	rt_program program = rtProgramCreate();
+	rtProgramLayout(program, nullptr);
+	rtProgramVertexShader(program, std::strlen(kVertexShader), kVertexShader);
+	rtProgramFragmentShader(program, std::strlen(kFragmentShader), kFragmentShader);
+	rtProgramFinalize(program);
 
-	rt_uniform_location color_location = rtGraphicsProgramUniformLocation(graphics_program, "ColorTexture");
-	rt_uniform_location render_params_location = rtGraphicsProgramUniformLocation(graphics_program, "RenderParams");
+	rt_uniform_location color_location = rtProgramUniformLocation(program, "ColorTexture");
+	rt_uniform_location render_params_location = rtProgramUniformLocation(program, "RenderParams");
 
 	rt_command_buffer cmd = rtCommandBufferCreate();
 	Camera camera;
@@ -629,7 +629,7 @@ int main(int argc, char* argv[]) {
 		rtCmdComputeBarrier(cmd);
 		rtCmdBeginRendering(cmd, acquired.framebuffer);
 		rtCmdClearColor(cmd, 0, 0.0f, 0.0f, 0.0f, 1.0f);
-		rtCmdUseGraphicsProgram(cmd, graphics_program);
+		rtCmdUseProgram(cmd, program);
 		rtCmdUniformTexture(cmd, color_location, color_view);
 		rtCmdUniformBuffer(cmd, render_params_location, params_buffer, 0, sizeof(params));
 		rtCmdDraw(cmd, 3, 0);
@@ -654,7 +654,7 @@ int main(int argc, char* argv[]) {
 
 	rtTimepointWait(last_rendered);
 	rtCommandBufferDestroy(cmd);
-	rtGraphicsProgramDestroy(graphics_program);
+	rtProgramDestroy(program);
 	rtComputeProgramDestroy(color_program);
 	rtComputeProgramDestroy(apply_program);
 	rtComputeProgramDestroy(edge_program);

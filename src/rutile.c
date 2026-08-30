@@ -488,9 +488,9 @@ static void rtl_layer_set_next(usize index, rt_proc_chain next) {
 	link->chain.get_proc = rtl_layer_procs[index];
 }
 
-#define RT_DEFINE_CORE_PROCEDURE(return_type, name, parameters, arguments) PFN_##name rt_##name = NULL;
-RT_CORE_PROCEDURES(RT_DEFINE_CORE_PROCEDURE)
-#undef RT_DEFINE_CORE_PROCEDURE
+#define RT_DEFINE_PROCEDURE(return_type, name, parameters, arguments) PFN_##name rt_##name = NULL;
+RT_PROCEDURES(RT_DEFINE_PROCEDURE)
+#undef RT_DEFINE_PROCEDURE
 
 static void rtl_print_load_error(const char* message) {
 	if (message && message[0]) {
@@ -529,11 +529,11 @@ static enum rt_error rtl_resolve_required_proc(const char* name, rt_proc_t* out_
 	return RT_SUCCESS;
 }
 
-static enum rt_error rtl_load_core(char* message, usize message_size) {
+static enum rt_error rtl_load_procedures(char* message, usize message_size) {
 	if (message && message_size) {
 		message[0] = '\0';
 	}
-	#define RT_RESOLVE_CORE_PROCEDURE(return_type, name, parameters, arguments)            \
+	#define RT_RESOLVE_PROCEDURE(return_type, name, parameters, arguments)                 \
 		do {                                                                                \
 			rt_proc_t _p = NULL;                                                            \
 			enum rt_error _err = rtl_resolve_required_proc(#name, &_p, message, message_size); \
@@ -542,22 +542,22 @@ static enum rt_error rtl_load_core(char* message, usize message_size) {
 			}                                                                               \
 			rt_##name = (PFN_##name)_p;                                                     \
 		} while (0);
-	RT_CORE_PROCEDURES(RT_RESOLVE_CORE_PROCEDURE)
-#undef RT_RESOLVE_CORE_PROCEDURE
+	RT_PROCEDURES(RT_RESOLVE_PROCEDURE)
+#undef RT_RESOLVE_PROCEDURE
 
 	return RT_SUCCESS;
 }
 
-static void rtl_load_core_development(void) {
-	#define RT_TRY_RESOLVE_CORE_PROCEDURE(return_type, name, parameters, arguments) \
+static void rtl_load_procedures_development(void) {
+	#define RT_TRY_RESOLVE_PROCEDURE(return_type, name, parameters, arguments)      \
 		do {                                                             \
 			rt_proc_t _p = rtGetProc(#name);                              \
 			if (_p) {                                                     \
-				rt_##name = (PFN_##name)_p;                               \
+			rt_##name = (PFN_##name)_p;                               \
 			}                                                             \
 		} while (0);
-	RT_CORE_PROCEDURES(RT_TRY_RESOLVE_CORE_PROCEDURE)
-#undef RT_TRY_RESOLVE_CORE_PROCEDURE
+	RT_PROCEDURES(RT_TRY_RESOLVE_PROCEDURE)
+#undef RT_TRY_RESOLVE_PROCEDURE
 }
 
 enum rt_error rtLoad(const char* backend_name, const char* const* layer_names, usize layer_count) {
@@ -614,7 +614,7 @@ enum rt_error rtLoad(const char* backend_name, const char* const* layer_names, u
 	}
 	rtl_chain = chain;
 
-	err = rtl_load_core(message, sizeof(message));
+	err = rtl_load_procedures(message, sizeof(message));
 	if (err != RT_SUCCESS) {
 		rtl_print_load_error(message[0] ? message : "failed to resolve required core procedures");
 		rtUnload();
@@ -682,7 +682,7 @@ enum rt_error rtLoadDevelopment(const char* backend_name, const char* const* lay
 	}
 	rtl_chain = chain;
 
-	rtl_load_core_development();
+	rtl_load_procedures_development();
 	rtl_loaded = true;
 	return RT_SUCCESS;
 }
@@ -691,9 +691,9 @@ void rtUnload(void) {
 	rtl_loaded = false;
 	rtl_chain.get_proc = NULL;
 	rtl_backend_dll = (rtl_dll_handle)0;
-	#define RT_CLEAR_CORE_PROCEDURE(return_type, name, parameters, arguments) rt_##name = NULL;
-	RT_CORE_PROCEDURES(RT_CLEAR_CORE_PROCEDURE)
-#undef RT_CLEAR_CORE_PROCEDURE
+	#define RT_CLEAR_PROCEDURE(return_type, name, parameters, arguments) rt_##name = NULL;
+	RT_PROCEDURES(RT_CLEAR_PROCEDURE)
+#undef RT_CLEAR_PROCEDURE
 	rtl_close_dlls();
 }
 

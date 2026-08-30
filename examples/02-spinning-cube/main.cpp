@@ -1,5 +1,6 @@
 #define RUTILE_IMPL
 #include "cli.hpp"
+#include "embedded_program.hpp"
 #include "rt_ext_glfw.h"
 #include "rt_ext_swapchain.h"
 #include "rutile.h"
@@ -8,8 +9,6 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
-#include <rtsl/program.hpp>
-
 #include <array>
 #include <chrono>
 #include <cstddef>
@@ -18,7 +17,7 @@
 #include <iostream>
 #include <vector>
 
-extern "C" const rtsl::ProgramBytes cube_rtslp;
+extern "C" const rt_example_program cube_rtslp;
 
 struct Vertex {
 	f32 position[3];
@@ -174,15 +173,15 @@ int main(int argc, char** argv) {
 	rt_buffer scene_buffer = rtBufferCreate();
 	rtBufferResize(scene_buffer, RT_DEVICE_MEMORY, sizeof(scene));
 
-	rt_graphics_program program = rtGraphicsProgramCreate();
-	rtGraphicsProgramSetSource(program, cube_rtslp.data, cube_rtslp.size);
-	rtGraphicsProgramSetLayout(program, &Layout);
-	rtGraphicsProgramSetRasterState(program, RT_CULL_NONE, RT_FRONT_FACE_CCW, RT_FILL_SOLID);
-	rtGraphicsProgramFinalize(program);
+	rt_program program = rtProgramCreate();
+	rtProgramSource(program, "main", cube_rtslp.data, cube_rtslp.size);
+	rtProgramSetLayout(program, &Layout);
+	rtProgramSetRasterState(program, RT_CULL_NONE, RT_FRONT_FACE_CCW, RT_FILL_SOLID);
+	rtProgramFinalize(program);
 
 
-	rt_location scene_location = rtGraphicsProgramUniformLocation(program, "scene");
-	rt_location vertex_location = rtGraphicsProgramInputLocation(program, Attributes, 3);
+	rt_location scene_location = rtProgramUniformLocation(program, "scene");
+	rt_location vertex_location = rtProgramInputLocation(program, Attributes, 3);
 
 	Depth = rtTextureCreate();
 	rtTextureResize(Depth, RT_TEXTURE_2D, RT_D32_SFLOAT, { 1280, 720, 1 }, 1);
@@ -197,7 +196,7 @@ int main(int argc, char** argv) {
 	rtCommandBufferReset(secondary);
 
 	rtCommandBufferContinueRendering(secondary);
-	rtCmdUseGraphicsProgram(secondary, program);
+	rtCmdUseProgram(secondary, program);
 	rtCmdVertexBuffer(secondary, vertex_location, vertex_buffer, { vertices.size() * sizeof(Vertex), 0 });
 	rtCmdDraw(secondary, vertices.size(), 0);
 	rtCommandBufferEnd(secondary);
@@ -254,7 +253,7 @@ int main(int argc, char** argv) {
 	rtQueueDestroy(queue);
 	rtTextureViewDestroy(DepthView);
 	rtTextureDestroy(Depth);
-	rtGraphicsProgramDestroy(program);
+	rtProgramDestroy(program);
 	rtBufferDestroy(scene_buffer);
 	rtBufferDestroy(vertex_buffer);
 	rtSwapchainDestroy(Swapchain);

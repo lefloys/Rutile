@@ -1,5 +1,6 @@
 #define RUTILE_IMPL
 #include "cli.hpp"
+#include "embedded_program.hpp"
 #include "rt_ext_glfw.h"
 #include "rt_ext_swapchain.h"
 #include "rutile.h"
@@ -15,10 +16,9 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <random>
-#include <rtsl/program.hpp>
 #include <vector>
 
-extern "C" const rtsl::ProgramBytes galaxy_rtslp;
+extern "C" const rt_example_program galaxy_rtslp;
 
 constexpr const char* Features[] = { RT_FEATURE_PRESENTATION };
 constexpr u32 StarCount = 26000;
@@ -323,13 +323,13 @@ int main(int argc, char** argv) {
 	rt_buffer scene_buffer = rtBufferCreate();
 	rtBufferResize(scene_buffer, RT_DEVICE_MEMORY, sizeof(scene));
 
-	rt_graphics_program graphics_program = rtGraphicsProgramCreate();
-	rtGraphicsProgramSetLayout(graphics_program, &VertexLayout);
-	rtGraphicsProgramSetSource(graphics_program, galaxy_rtslp.data, galaxy_rtslp.size);
-	rtGraphicsProgramSetRasterState(graphics_program, RT_CULL_NONE, RT_FRONT_FACE_CCW, RT_FILL_SOLID);
-	rtGraphicsProgramFinalize(graphics_program);
-	rt_location scene_location = rtGraphicsProgramUniformLocation(graphics_program, "scene");
-	rt_location vertex_location = rtGraphicsProgramInputLocation(graphics_program, VertexAttributes, 5);
+	rt_program program = rtProgramCreate();
+	rtProgramSetLayout(program, &VertexLayout);
+	rtProgramSource(program, "main", galaxy_rtslp.data, galaxy_rtslp.size);
+	rtProgramSetRasterState(program, RT_CULL_NONE, RT_FRONT_FACE_CCW, RT_FILL_SOLID);
+	rtProgramFinalize(program);
+	rt_location scene_location = rtProgramUniformLocation(program, "scene");
+	rt_location vertex_location = rtProgramInputLocation(program, VertexAttributes, 5);
 
 	rt_command_buffer cmd = rtCommandBufferCreate();
 	DepthTexture = rtTextureCreate();
@@ -342,7 +342,7 @@ int main(int argc, char** argv) {
 	rtTimepointWait(rtQueueSubmit(queue, cmd));
 	rtCommandBufferReset(cmd);
 	rtCommandBufferContinueRendering(cmd);
-	rtCmdUseGraphicsProgram(cmd, graphics_program);
+	rtCmdUseProgram(cmd, program);
 	rtCmdVertexBuffer(cmd, vertex_location, vertex_buffer, { vertices.size() * sizeof(vertices[0]), 0 });
 	rtCmdDraw(cmd, vertices.size(), 0);
 	rtCommandBufferEnd(cmd);
@@ -421,7 +421,7 @@ int main(int argc, char** argv) {
 	rtCommandBufferDestroy(primary);
 	rtCommandBufferDestroy(cmd);
 	rtQueueDestroy(queue);
-	rtGraphicsProgramDestroy(graphics_program);
+	rtProgramDestroy(program);
 	rtTextureViewDestroy(DepthView);
 	rtTextureDestroy(DepthTexture);
 	rtBufferDestroy(scene_buffer);

@@ -1,12 +1,11 @@
 #define RUTILE_IMPL
 #include "cli.hpp"
+#include "embedded_program.hpp"
 #include "rt_ext_glfw.h"
 #include "rt_ext_swapchain.h"
 #include "rutile.h"
 
 #include <GLFW/glfw3.h>
-#include <rtsl/program.hpp>
-
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -17,7 +16,7 @@
 #include <iostream>
 #include <vector>
 
-extern "C" const rtsl::ProgramBytes plasma_rtslp;
+extern "C" const rt_example_program plasma_rtslp;
 
 constexpr u32 PlasmaWidth = 480;
 constexpr u32 PlasmaHeight = 270;
@@ -149,12 +148,12 @@ int main(int argc, char** argv) {
 	rt_texture texture = rtTextureCreate();
 	rtTextureResize(texture, RT_TEXTURE_2D, RT_RGBA8_UNORM, { PlasmaWidth, PlasmaHeight, 1 }, 1);
 
-	rt_graphics_program program = rtGraphicsProgramCreate();
-	rtGraphicsProgramSetSource(program, plasma_rtslp.data, plasma_rtslp.size);
-	rtGraphicsProgramSetLayout(program, &Layout);
-	rtGraphicsProgramFinalize(program);
-	rt_location plasma_location = rtGraphicsProgramUniformLocation(program, "plasma");
-	rt_location vertex_location = rtGraphicsProgramInputLocation(program, Attributes, 2);
+	rt_program program = rtProgramCreate();
+	rtProgramSource(program, "main", plasma_rtslp.data, plasma_rtslp.size);
+	rtProgramSetLayout(program, &Layout);
+	rtProgramFinalize(program);
+	rt_location plasma_location = rtProgramUniformLocation(program, "plasma");
+	rt_location vertex_location = rtProgramInputLocation(program, Attributes, 2);
 	rt_command_buffer command_buffer = rtCommandBufferCreate();
 	rtCommandBufferBegin(command_buffer);
 	rtCmdBufferData(command_buffer, vertex_buffer, { sizeof(Vertices), 0 }, reinterpret_cast<const u08*>(Vertices));
@@ -163,7 +162,7 @@ int main(int argc, char** argv) {
 	rtTimepointWait(rtQueueSubmit(queue, command_buffer));
 	rtCommandBufferReset(command_buffer);
 	rtCommandBufferContinueRendering(command_buffer);
-	rtCmdUseGraphicsProgram(command_buffer, program);
+	rtCmdUseProgram(command_buffer, program);
 	rtCmdVertexBuffer(command_buffer, vertex_location, vertex_buffer, { sizeof(Vertices), 0 });
 	rtCmdDraw(command_buffer, 6, 0);
 	rtCommandBufferEnd(command_buffer);
@@ -206,7 +205,7 @@ int main(int argc, char** argv) {
 	rtCommandBufferDestroy(primary);
 	rtCommandBufferDestroy(command_buffer);
 	rtQueueDestroy(queue);
-	rtGraphicsProgramDestroy(program);
+	rtProgramDestroy(program);
 	rtTextureDestroy(texture);
 	rtBufferDestroy(vertex_buffer);
 	rtSwapchainDestroy(swapchain);

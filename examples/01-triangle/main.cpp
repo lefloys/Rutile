@@ -1,16 +1,15 @@
 #define RUTILE_IMPL
 #include "cli.hpp"
+#include "embedded_program.hpp"
 #include "rt_ext_glfw.h"
 #include "rt_ext_swapchain.h"
 #include "rutile.h"
 
 #include <GLFW/glfw3.h>
-#include <rtsl/program.hpp>
-
 #include <cstddef>
 #include <iostream>
 
-extern "C" const rtsl::ProgramBytes triangle_rtslp;
+extern "C" const rt_example_program triangle_rtslp;
 
 struct Vertex {
 	f32 position[2];
@@ -43,10 +42,10 @@ int main(int argc, char* argv[]) {
 	rtLoad_RT_EXT_SWAPCHAIN();
 	rtLoad_RT_EXT_GLFW();
 
-	rt_graphics_program program = rtGraphicsProgramCreate();
-	rtGraphicsProgramSetSource(program, triangle_rtslp.data, triangle_rtslp.size);
-	rtGraphicsProgramSetLayout(program, &Layout);
-	rtGraphicsProgramFinalize(program);
+	rt_program program = rtProgramCreate();
+	rtProgramSource(program, "main", triangle_rtslp.data, triangle_rtslp.size);
+	rtProgramSetLayout(program, &Layout);
+	rtProgramFinalize(program);
 
 	glfwInit();
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
@@ -59,7 +58,7 @@ int main(int argc, char* argv[]) {
 	rt_buffer vbo = rtBufferCreate();
 	rtBufferResize(vbo, RT_DEVICE_MEMORY, sizeof(Vertices));
 
-	rt_location vertex_location = rtGraphicsProgramInputLocation(program, Attributes, 2);
+	rt_location vertex_location = rtProgramInputLocation(program, Attributes, 2);
 	rt_command_buffer cmd = rtCommandBufferCreate();
 	rtCommandBufferBegin(cmd);
 	rtCmdBufferData(cmd, vbo, { sizeof(Vertices), 0 }, reinterpret_cast<const u08*>(Vertices));
@@ -67,7 +66,7 @@ int main(int argc, char* argv[]) {
 	rtTimepointWait(rtQueueSubmit(queue, cmd));
 	rtCommandBufferReset(cmd);
 	rtCommandBufferContinueRendering(cmd);
-	rtCmdUseGraphicsProgram(cmd, program);
+	rtCmdUseProgram(cmd, program);
 	rtCmdVertexBuffer(cmd, vertex_location, vbo, { sizeof(Vertices), 0 });
 	rtCmdDraw(cmd, 3, 0);
 	rtCommandBufferEnd(cmd);
@@ -105,7 +104,7 @@ int main(int argc, char* argv[]) {
 	rtCommandBufferDestroy(primary);
 	rtCommandBufferDestroy(cmd);
 	rtQueueDestroy(queue);
-	rtGraphicsProgramDestroy(program);
+	rtProgramDestroy(program);
 	rtBufferDestroy(vbo);
 	rtSwapchainDestroy(swapchain);
 	rtExit();
