@@ -524,9 +524,13 @@ static struct rtvk_swapchain_generation* rtvk_swapchain_generation_build(
 		image_count = capabilities.maxImageCount;
 	}
 
-	VkImageUsageFlags image_usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+	/* Presentation itself only needs color-attachment usage. Transfer-source is
+	 * optional for a Vulkan surface and no current Rutile presentation operation
+	 * reads a swapchain image back, so requiring it rejects otherwise valid
+	 * windows before their first acquire. */
+	VkImageUsageFlags image_usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
 	if ((capabilities.supportedUsageFlags & image_usage) != image_usage) {
-		rtvk_throwf(RT_UNSUPPORTED_FEATURE, "swapchain images do not support transfer source usage");
+		rtvk_throwf(RT_UNSUPPORTED_FEATURE, "swapchain images do not support color attachment usage");
 		goto cleanup;
 	}
 

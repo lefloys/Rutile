@@ -1,8 +1,8 @@
 #define RUTILE_IMPL
 #include "cli.hpp"
 #include "embedded_program.hpp"
-#include "rt_ext_glfw.h"
-#include "rt_ext_swapchain.h"
+#include "rt_glfw_swapchain.h"
+#include "rt_swapchain.h"
 #include "rutile.h"
 
 #include <GLFW/glfw3.h>
@@ -39,8 +39,8 @@ int main(int argc, char* argv[]) {
 	}
 	const char* features[] = { RT_FEATURE_PRESENTATION };
 	rtInit(features, 1);
-	rtLoad_RT_EXT_SWAPCHAIN();
-	rtLoad_RT_EXT_GLFW();
+	rtLoadSwapchain();
+	rtLoadGlfwSwapchain();
 
 	rt_program program = rtProgramCreate();
 	rtProgramSource(program, "main", triangle_rtslp.data, triangle_rtslp.size);

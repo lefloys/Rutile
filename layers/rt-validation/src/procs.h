@@ -4,12 +4,12 @@
 #include "rutile.h"
 
 #define RTVAL_DECLARE_NEXT(return_type, name, parameters, arguments) extern return_type (*rtval_next_##name) parameters;
-RT_PROCEDURES(RTVAL_DECLARE_NEXT)
+RT_CORE_PROCEDURES(RTVAL_DECLARE_NEXT)
 #undef RTVAL_DECLARE_NEXT
 
 #define RTVAL_DECLARE_EXTENSION_NEXT(return_type, name, parameters, arguments) extern return_type (*rtval_next_##name) parameters;
-RT_EXT_SWAPCHAIN_PROCEDURES(RTVAL_DECLARE_EXTENSION_NEXT)
-RT_EXT_GLFW_PROCEDURES(RTVAL_DECLARE_EXTENSION_NEXT)
+RT_SWAPCHAIN_PROCEDURES(RTVAL_DECLARE_EXTENSION_NEXT)
+RT_GLFW_SWAPCHAIN_PROCEDURES(RTVAL_DECLARE_EXTENSION_NEXT)
 #undef RTVAL_DECLARE_EXTENSION_NEXT
 
 void rtval_rtInit(const char* const* features, usize feature_count);

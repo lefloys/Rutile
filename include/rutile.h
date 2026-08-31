@@ -7,8 +7,9 @@
 **
 ** Applications load Rutile, initialize the features they will use, create
 ** resources, record commands, and submit completed command buffers. @ref
-** rtLoad resolves the minimal core and every built-in extension together.
-** This header defines the behavior visible to the application.
+** rtLoad resolves the required core procedures. Presentation extensions are
+** loaded explicitly after Rutile itself. This header defines the behavior
+** visible to the application.
 **
 */
 
@@ -424,9 +425,10 @@ extern "C" {
 /*!
 ** @brief Load Rutile and an optional ordered layer list.
 **
-** Success makes the core and every built-in extension callable and makes
-** @ref rtLoaded return true. The first layer name is applied closest to the
-** application. Only one load may be active at a time.
+** Success makes the required core procedures callable and makes @ref rtLoaded
+** return true. Load presentation extensions separately when needed. The first
+** layer name is applied closest to the application. Only one load may be
+** active at a time.
 **
 ** @param backend_name  Backend name (e.g. `"rt-vulkan"`).
 ** @param layer_names   Optional array of layer names. The first entry receives
@@ -577,7 +579,7 @@ RT_API rt_command_buffer rtCommandBufferCreate(void);
 /*!
 ** @brief Destroy a command buffer.
 **
-** The handle is invalid after this call.
+** Destroys the command buffer and all commands recorded in it.
 **
 ** @param command_buffer  Command buffer to destroy.
 */
@@ -898,8 +900,8 @@ RT_API rt_queue rtQueueCreate(enum rt_queue_capability capability);
 /*!
 ** @brief Destroy a queue.
 **
-** The queue handle is invalid after this call. Timepoints returned before the
-** call remain usable until @ref rtUnload.
+** Destroys the queue. Timepoints returned before this call remain usable until
+** @ref rtUnload.
 **
 ** @param queue  Queue to destroy.
 */
@@ -975,8 +977,8 @@ RT_API rt_framebuffer rtFramebufferCreate(void);
 /*!
 ** @brief Destroy a framebuffer.
 **
-** The framebuffer handle is invalid after this call. Attached texture views
-** are not destroyed.
+** Destroys the framebuffer. Attached texture views remain owned by the
+** application and are not destroyed.
 **
 ** @param framebuffer  Framebuffer to destroy.
 */
@@ -1022,7 +1024,7 @@ RT_API void rtFramebufferSetDepthView(rt_framebuffer framebuffer, rt_texture_vie
 RT_API void rtFramebufferSetStencilView(rt_framebuffer framebuffer, rt_texture_view view);
 
 /*===============================================================================================*/
-/* Program                                                                              */
+/* Program																						 */
 /*===============================================================================================*/
 
 /*!
@@ -1037,7 +1039,7 @@ RT_API rt_program rtProgramCreate(void);
 /*!
 ** @brief Destroy a program.
 **
-** The program and locations queried from it are invalid after this call.
+** Destroys the program. Locations queried from it are destroyed with it.
 **
 ** @param program  Program to destroy.
 */
@@ -1175,7 +1177,7 @@ RT_API rt_buffer rtBufferCreate(void);
 /*!
 ** @brief Destroy a buffer.
 **
-** The buffer handle is invalid after this call.
+** Destroys the buffer.
 **
 ** @param buffer Buffer to destroy.
 */
@@ -1294,7 +1296,7 @@ RT_API rt_texture rtTextureCreate(void);
 /*!
 ** @brief Destroy a texture.
 **
-** The texture handle is invalid after this call.
+** Destroys the texture.
 **
 ** @param texture  Texture to destroy.
 */
@@ -1383,7 +1385,8 @@ RT_API rt_texture_view rtTextureViewCreate(void);
 /*!
 ** @brief Destroy a texture view.
 **
-** The view handle is invalid after this call. Its texture is not destroyed.
+** Destroys the texture view. Its texture remains owned by the application and
+** is not destroyed.
 **
 ** @param texture_view  Texture view to destroy.
 */
@@ -1434,7 +1437,7 @@ RT_API rt_sampler rtSamplerCreate(void);
 /*!
 ** @brief Destroy a sampler.
 **
-** The sampler handle is invalid after this call.
+** Destroys the sampler.
 **
 ** @param sampler  Sampler to destroy.
 */
@@ -1493,126 +1496,94 @@ RT_API void rtSamplerSetLod(rt_sampler sampler, f32 min_lod, f32 max_lod, f32 lo
 #endif /* !RT_TYPES_ONLY */
 
 #define RT_CORE_PROCEDURES(X)                                                                      \
-	X(void, rtInit, (const char* const* features, usize feature_count), (features, feature_count)) \
-	X(void, rtExit, (void), ())                                                                    \
-	X(u64, rtVersion, (void), ())                                                                  \
-	X(void, rtSetOutput, (rt_output output, void* user_data), (output, user_data))                 \
-	X(enum rt_error, rtError, (void), ())                                                          \
-	X(const char*, rtErrorMessage, (void), ())                                                     \
-	X(void, rtClearError, (void), ())                                                              \
-	X(const char*, rtGetName, (void), ())
+	X( void              , rtInit                           , (const char* const* features, usize feature_count)                                                                                                                                                                       , (features, feature_count)                                                                 ) \
+	X( void              , rtExit                           , (void)                                                                                                                                                                                                                   , ()                                                                                        ) \
+	X( u64               , rtVersion                        , (void)                                                                                                                                                                                                                   , ()                                                                                        ) \
+	X( void              , rtSetOutput                      , (rt_output output, void* user_data)                                                                                                                                                                                      , (output, user_data)                                                                       ) \
+	X( enum rt_error     , rtError                          , (void)                                                                                                                                                                                                                   , ()                                                                                        ) \
+	X( const char*       , rtErrorMessage                   , (void)                                                                                                                                                                                                                   , ()                                                                                        ) \
+	X( void              , rtClearError                     , (void)                                                                                                                                                                                                                   , ()                                                                                        ) \
+	X( const char*       , rtGetName                        , (void)                                                                                                                                                                                                                   , ()                                                                                        ) \
+	X( rt_command_buffer , rtCommandBufferCreate            , (void)                                                                                                                                                                                                                   , ()                                                                                        ) \
+	X( void              , rtCommandBufferDestroy           , (rt_command_buffer command_buffer)                                                                                                                                                                                       , (command_buffer)                                                                          ) \
+	X( void              , rtCommandBufferReset             , (rt_command_buffer command_buffer)                                                                                                                                                                                       , (command_buffer)                                                                          ) \
+	X( void              , rtCommandBufferBegin             , (rt_command_buffer command_buffer)                                                                                                                                                                                       , (command_buffer)                                                                          ) \
+	X( void              , rtCommandBufferContinue          , (rt_command_buffer command_buffer)                                                                                                                                                                                       , (command_buffer)                                                                          ) \
+	X( void              , rtCommandBufferContinueRendering , (rt_command_buffer command_buffer)                                                                                                                                                                                       , (command_buffer)                                                                          ) \
+	X( void              , rtCommandBufferEnd               , (rt_command_buffer command_buffer)                                                                                                                                                                                       , (command_buffer)                                                                          ) \
+	X( void              , rtCmdExecute                     , (rt_command_buffer command_buffer, rt_command_buffer secondary)                                                                                                                                                          , (command_buffer, secondary)                                                               ) \
+	X( void              , rtCmdBeginRendering              , (rt_command_buffer command_buffer, rt_framebuffer framebuffer)                                                                                                                                                           , (command_buffer, framebuffer)                                                             ) \
+	X( void              , rtCmdClearColor                  , (rt_command_buffer command_buffer, rt_location location, f32 r, f32 g, f32 b, f32 a)                                                                                                                                     , (command_buffer, location, r, g, b, a)                                                    ) \
+	X( void              , rtCmdClearDepth                  , (rt_command_buffer command_buffer, f32 depth)                                                                                                                                                                            , (command_buffer, depth)                                                                   ) \
+	X( void              , rtCmdClearStencil                , (rt_command_buffer command_buffer, usize stencil)                                                                                                                                                                        , (command_buffer, stencil)                                                                 ) \
+	X( void              , rtCmdClear                       , (rt_command_buffer command_buffer, enum rt_clear_flag attachments)                                                                                                                                                       , (command_buffer, attachments)                                                             ) \
+	X( void              , rtCmdSetViewport                 , (rt_command_buffer command_buffer, usize x, usize y, usize width, usize height, f32 min_depth, f32 max_depth)                                                                                                            , (command_buffer, x, y, width, height, min_depth, max_depth)                               ) \
+	X( void              , rtCmdSetScissor                  , (rt_command_buffer command_buffer, usize x, usize y, usize width, usize height)                                                                                                                                          , (command_buffer, x, y, width, height)                                                     ) \
+	X( void              , rtCmdEndRendering                , (rt_command_buffer command_buffer)                                                                                                                                                                                       , (command_buffer)                                                                          ) \
+	X( void              , rtCmdDraw                        , (rt_command_buffer command_buffer, usize vertex_count, usize first_vertex)                                                                                                                                               , (command_buffer, vertex_count, first_vertex)                                              ) \
+	X( void              , rtCmdDrawInstanced               , (rt_command_buffer command_buffer, usize vertex_count, usize instance_count, usize first_vertex, usize first_instance)                                                                                                   , (command_buffer, vertex_count, instance_count, first_vertex, first_instance)              ) \
+	X( void              , rtCmdDrawIndexed                 , (rt_command_buffer command_buffer, usize index_count, usize first_index, usize vertex_offset)                                                                                                                            , (command_buffer, index_count, first_index, vertex_offset)                                 ) \
+	X( void              , rtCmdDrawIndexedInstanced        , (rt_command_buffer command_buffer, usize index_count, usize instance_count, usize first_index, usize vertex_offset, usize first_instance)                                                                                , (command_buffer, index_count, instance_count, first_index, vertex_offset, first_instance) ) \
+	X( rt_queue          , rtQueueCreate                    , (enum rt_queue_capability capability)                                                                                                                                                                                    , (capability)                                                                              ) \
+	X( void              , rtQueueDestroy                   , (rt_queue queue)                                                                                                                                                                                                         , (queue)                                                                                   ) \
+	X( void              , rtQueueWait                      , (rt_queue queue, rt_timepoint timepoint)                                                                                                                                                                                 , (queue, timepoint)                                                                        ) \
+	X( rt_timepoint      , rtQueueSubmit                    , (rt_queue queue, rt_command_buffer command_buffer)                                                                                                                                                                       , (queue, command_buffer)                                                                   ) \
+	X( rt_timepoint      , rtQueueFlush                     , (rt_queue queue)                                                                                                                                                                                                         , (queue)                                                                                   ) \
+	X( void              , rtTimepointWait                  , (rt_timepoint timepoint)                                                                                                                                                                                                 , (timepoint)                                                                               ) \
+	X( bool              , rtTimepointReached               , (rt_timepoint timepoint)                                                                                                                                                                                                 , (timepoint)                                                                               ) \
+	X( rt_framebuffer    , rtFramebufferCreate              , (void)                                                                                                                                                                                                                   , ()                                                                                        ) \
+	X( void              , rtFramebufferDestroy             , (rt_framebuffer framebuffer)                                                                                                                                                                                             , (framebuffer)                                                                             ) \
+	X( rt_texture_view   , rtFramebufferColorView           , (rt_framebuffer framebuffer, rt_location location)                                                                                                                                                                       , (framebuffer, location)                                                                   ) \
+	X( void              , rtFramebufferSetColorView        , (rt_framebuffer framebuffer, rt_texture_view view, rt_location location)                                                                                                                                                 , (framebuffer, view, location)                                                             ) \
+	X( void              , rtFramebufferSetDepthView        , (rt_framebuffer framebuffer, rt_texture_view view)                                                                                                                                                                       , (framebuffer, view)                                                                       ) \
+	X( void              , rtFramebufferSetStencilView      , (rt_framebuffer framebuffer, rt_texture_view view)                                                                                                                                                                       , (framebuffer, view)                                                                       ) \
+	X( void              , rtCmdUseProgram                  , (rt_command_buffer command_buffer, rt_program program)                                                                                                                                                                   , (command_buffer, program)                                                                 ) \
+	X( rt_program        , rtProgramCreate                  , (void)                                                                                                                                                                                                                   , ()                                                                                        ) \
+	X( void              , rtProgramDestroy                 , (rt_program program)                                                                                                                                                                                                     , (program)                                                                                 ) \
+	X( void              , rtProgramSetLayout               , (rt_program program, const rt_vertex_layout* layout)                                                                                                                                                                     , (program, layout)                                                                         ) \
+	X( void              , rtProgramSource                  , (rt_program program, const char* entry_point, const u08* bytes, usize byte_size)                                                                                                                                         , (program, entry_point, bytes, byte_size)                                                  ) \
+	X( void              , rtProgramSetRasterState          , (rt_program program, enum rt_cull_mode cull_mode, enum rt_front_face front_face, enum rt_fill_mode fill_mode)                                                                                                            , (program, cull_mode, front_face, fill_mode)                                               ) \
+	X( void              , rtProgramSetBlendState           , (rt_program program, bool enabled, enum rt_blend_factor src_color, enum rt_blend_factor dst_color, enum rt_blend_op color_op, enum rt_blend_factor src_alpha, enum rt_blend_factor dst_alpha, enum rt_blend_op alpha_op) , (program, enabled, src_color, dst_color, color_op, src_alpha, dst_alpha, alpha_op)        ) \
+	X( void              , rtProgramFinalize                , (rt_program program)                                                                                                                                                                                                     , (program)                                                                                 ) \
+	X( rt_location       , rtProgramUniformLocation         , (rt_program program, const char* name)                                                                                                                                                                                   , (program, name)                                                                           ) \
+	X( rt_location       , rtProgramInputLocation           , (rt_program program, const rt_vertex_attribute* attributes, usize attribute_count)                                                                                                                                       , (program, attributes, attribute_count)                                                    ) \
+	X( rt_location       , rtProgramOutputLocation          , (rt_program program, const char* name)                                                                                                                                                                                   , (program, name)                                                                           ) \
+	X( void              , rtCmdUniformData                 , (rt_command_buffer command_buffer, rt_location location, const u08* data, usize size)                                                                                                                                    , (command_buffer, location, data, size)                                                    ) \
+	X( void              , rtCmdStorageData                 , (rt_command_buffer command_buffer, rt_location location, const u08* data, usize size)                                                                                                                                    , (command_buffer, location, data, size)                                                    ) \
+	X( void              , rtCmdBindBuffer                  , (rt_command_buffer command_buffer, rt_location location, rt_buffer buffer, rt_buffer_range range)                                                                                                                        , (command_buffer, location, buffer, range)                                                 ) \
+	X( void              , rtCmdVertexBuffer                , (rt_command_buffer command_buffer, rt_location location, rt_buffer buffer, rt_buffer_range range)                                                                                                                        , (command_buffer, location, buffer, range)                                                 ) \
+	X( void              , rtCmdIndexBuffer                 , (rt_command_buffer command_buffer, rt_buffer buffer, rt_buffer_range range, enum rt_index_format format)                                                                                                                 , (command_buffer, buffer, range, format)                                                   ) \
+	X( rt_buffer         , rtBufferCreate                   , (void)                                                                                                                                                                                                                   , ()                                                                                        ) \
+	X( void              , rtBufferDestroy                  , (rt_buffer buffer)                                                                                                                                                                                                       , (buffer)                                                                                  ) \
+	X( void              , rtBufferResize                   , (rt_buffer buffer, enum rt_memory_type memory_type, usize size)                                                                                                                                                          , (buffer, memory_type, size)                                                               ) \
+	X( void              , rtBufferRead                     , (rt_buffer buffer, rt_buffer_range range, u08 * data, usize data_size)                                                                                                                                                   , (buffer, range, data, data_size)                                                          ) \
+	X( u08*              , rtBufferMap                      , (rt_buffer buffer, rt_buffer_range range)                                                                                                                                                                                , (buffer, range)                                                                           ) \
+	X( void              , rtBufferUnmap                    , (rt_buffer buffer)                                                                                                                                                                                                       , (buffer)                                                                                  ) \
+	X( void              , rtCmdBufferData                  , (rt_command_buffer command_buffer, rt_buffer buffer, rt_buffer_range range, const u08* data)                                                                                                                             , (command_buffer, buffer, range, data)                                                     ) \
+	X( void              , rtCmdBufferCopy                  , (rt_command_buffer command_buffer, rt_buffer src, rt_buffer_range src_range, rt_buffer dst, rt_buffer_range dst_range)                                                                                                   , (command_buffer, src, src_range, dst, dst_range)                                          ) \
+	X( void              , rtCmdBufferCopyToTexture         , (rt_command_buffer command_buffer, rt_buffer src, rt_buffer_range src_range, rt_texture dst, rt_texture_range dst_range)                                                                                                 , (command_buffer, src, src_range, dst, dst_range)                                          ) \
+	X( void              , rtCmdBufferBarrier               , (rt_command_buffer command_buffer, rt_buffer buffer, rt_buffer_range range, rt_access src, rt_access dst)                                                                                                                , (command_buffer, buffer, range, src, dst)                                                 ) \
+	X( void              , rtCmdBindTexture                 , (rt_command_buffer command_buffer, rt_location location, rt_texture_view texture_view)                                                                                                                                   , (command_buffer, location, texture_view)                                                  ) \
+	X( void              , rtCmdBindSampler                 , (rt_command_buffer command_buffer, rt_location location, rt_sampler sampler)                                                                                                                                             , (command_buffer, location, sampler)                                                       ) \
+	X( rt_texture        , rtTextureCreate                  , (void)                                                                                                                                                                                                                   , ()                                                                                        ) \
+	X( void              , rtTextureDestroy                 , (rt_texture texture)                                                                                                                                                                                                     , (texture)                                                                                 ) \
+	X( void              , rtTextureResize                  , (rt_texture texture, enum rt_texture_type type, enum rt_format format, rt_extent_3d extent, usize mip_count)                                                                                                             , (texture, type, format, extent, mip_count)                                                ) \
+	X( void              , rtCmdTextureCopy                 , (rt_command_buffer command_buffer, rt_texture src, rt_texture_range src_range, rt_texture dst, rt_texture_range dst_range)                                                                                               , (command_buffer, src, src_range, dst, dst_range)                                          ) \
+	X( void              , rtCmdTextureData                 , (rt_command_buffer command_buffer, rt_texture texture, rt_texture_range range, const u08* data)                                                                                                                          , (command_buffer, texture, range, data)                                                    ) \
+	X( void              , rtCmdTextureCopyToBuffer         , (rt_command_buffer command_buffer, rt_texture src, rt_texture_range src_range, rt_buffer dst, rt_buffer_range dst_range)                                                                                                 , (command_buffer, src, src_range, dst, dst_range)                                          ) \
+	X( void              , rtCmdTextureBarrier              , (rt_command_buffer command_buffer, rt_texture texture, rt_texture_range range, rt_access src, rt_access dst)                                                                                                             , (command_buffer, texture, range, src, dst)                                                ) \
+	X( rt_texture_view   , rtTextureViewCreate              , (void)                                                                                                                                                                                                                   , ()                                                                                        ) \
+	X( void              , rtTextureViewDestroy             , (rt_texture_view texture_view)                                                                                                                                                                                           , (texture_view)                                                                            ) \
+	X( rt_extent_3d      , rtTextureViewExtent              , (rt_texture_view texture_view)                                                                                                                                                                                           , (texture_view)                                                                            ) \
+	X( void              , rtTextureViewSetTexture          , (rt_texture_view texture_view, rt_texture texture)                                                                                                                                                                       , (texture_view, texture)                                                                   ) \
+	X( void              , rtTextureViewRead                , (rt_texture_view texture_view, rt_texture_range range, u08 * data, usize data_size)                                                                                                                                      , (texture_view, range, data, data_size)                                                    ) \
+	X( rt_sampler        , rtSamplerCreate                  , (void)                                                                                                                                                                                                                   , ()                                                                                        ) \
+	X( void              , rtSamplerDestroy                 , (rt_sampler sampler)                                                                                                                                                                                                     , (sampler)                                                                                 ) \
+	X( void              , rtSamplerSetFilter               , (rt_sampler sampler, enum rt_filter mag_filter, enum rt_filter min_filter, enum rt_mip_filter mip_filter)                                                                                                                , (sampler, mag_filter, min_filter, mip_filter)                                             ) \
+	X( void              , rtSamplerSetAddress              , (rt_sampler sampler, enum rt_address_mode address_u, enum rt_address_mode address_v, enum rt_address_mode address_w)                                                                                                     , (sampler, address_u, address_v, address_w)                                                ) \
+	X( void              , rtSamplerSetAnisotropy           , (rt_sampler sampler, usize max_anisotropy)                                                                                                                                                                               , (sampler, max_anisotropy)                                                                 ) \
+	X( void              , rtSamplerSetLod                  , (rt_sampler sampler, f32 min_lod, f32 max_lod, f32 lod_bias)                                                                                                                                                             , (sampler, min_lod, max_lod, lod_bias)                                                     )
 /* RT_CORE_PROCEDURES */
-
-#define RT_COMMAND_BUFFER_EXTENSION_PROCEDURES(X)                                                                                                                                                                                     \
-	X(rt_command_buffer, rtCommandBufferCreate, (void), ())                                                                                                                                                                           \
-	X(void, rtCommandBufferDestroy, (rt_command_buffer command_buffer), (command_buffer))                                                                                                                                             \
-	X(void, rtCommandBufferReset, (rt_command_buffer command_buffer), (command_buffer))                                                                                                                                               \
-	X(void, rtCommandBufferBegin, (rt_command_buffer command_buffer), (command_buffer))                                                                                                                                               \
-	X(void, rtCommandBufferContinue, (rt_command_buffer command_buffer), (command_buffer))                                                                                                                                            \
-	X(void, rtCommandBufferContinueRendering, (rt_command_buffer command_buffer), (command_buffer))                                                                                                                                   \
-	X(void, rtCommandBufferEnd, (rt_command_buffer command_buffer), (command_buffer))                                                                                                                                                 \
-	X(void, rtCmdExecute, (rt_command_buffer command_buffer, rt_command_buffer secondary), (command_buffer, secondary))                                                                                                               \
-	X(void, rtCmdBeginRendering, (rt_command_buffer command_buffer, rt_framebuffer framebuffer), (command_buffer, framebuffer))                                                                                                       \
-	X(void, rtCmdClearColor, (rt_command_buffer command_buffer, rt_location location, f32 r, f32 g, f32 b, f32 a), (command_buffer, location, r, g, b, a))                                                                            \
-	X(void, rtCmdClearDepth, (rt_command_buffer command_buffer, f32 depth), (command_buffer, depth))                                                                                                                                  \
-	X(void, rtCmdClearStencil, (rt_command_buffer command_buffer, usize stencil), (command_buffer, stencil))                                                                                                                          \
-	X(void, rtCmdClear, (rt_command_buffer command_buffer, enum rt_clear_flag attachments), (command_buffer, attachments))                                                                                                            \
-	X(void, rtCmdSetViewport, (rt_command_buffer command_buffer, usize x, usize y, usize width, usize height, f32 min_depth, f32 max_depth), (command_buffer, x, y, width, height, min_depth, max_depth))                             \
-	X(void, rtCmdSetScissor, (rt_command_buffer command_buffer, usize x, usize y, usize width, usize height), (command_buffer, x, y, width, height))                                                                                  \
-	X(void, rtCmdEndRendering, (rt_command_buffer command_buffer), (command_buffer))                                                                                                                                                  \
-	X(void, rtCmdDraw, (rt_command_buffer command_buffer, usize vertex_count, usize first_vertex), (command_buffer, vertex_count, first_vertex))                                                                                      \
-	X(void, rtCmdDrawInstanced, (rt_command_buffer command_buffer, usize vertex_count, usize instance_count, usize first_vertex, usize first_instance), (command_buffer, vertex_count, instance_count, first_vertex, first_instance)) \
-	X(void, rtCmdDrawIndexed, (rt_command_buffer command_buffer, usize index_count, usize first_index, usize vertex_offset), (command_buffer, index_count, first_index, vertex_offset))                                               \
-	X(void, rtCmdDrawIndexedInstanced, (rt_command_buffer command_buffer, usize index_count, usize instance_count, usize first_index, usize vertex_offset, usize first_instance), (command_buffer, index_count, instance_count, first_index, vertex_offset, first_instance))
-/* RT_COMMAND_BUFFER_EXTENSION_PROCEDURES */
-
-#define RT_QUEUE_EXTENSION_PROCEDURES(X)                                                                        \
-	X(rt_queue, rtQueueCreate, (enum rt_queue_capability capability), (capability))                             \
-	X(void, rtQueueDestroy, (rt_queue queue), (queue))                                                          \
-	X(void, rtQueueWait, (rt_queue queue, rt_timepoint timepoint), (queue, timepoint))                          \
-	X(rt_timepoint, rtQueueSubmit, (rt_queue queue, rt_command_buffer command_buffer), (queue, command_buffer)) \
-	X(rt_timepoint, rtQueueFlush, (rt_queue queue), (queue))                                                    \
-	X(void, rtTimepointWait, (rt_timepoint timepoint), (timepoint))                                             \
-	X(bool, rtTimepointReached, (rt_timepoint timepoint), (timepoint))
-/* RT_QUEUE_EXTENSION_PROCEDURES */
-
-#define RT_FRAMEBUFFER_EXTENSION_PROCEDURES(X)                                                                                                  \
-	X(rt_framebuffer, rtFramebufferCreate, (void), ())                                                                                          \
-	X(void, rtFramebufferDestroy, (rt_framebuffer framebuffer), (framebuffer))                                                                  \
-	X(rt_texture_view, rtFramebufferColorView, (rt_framebuffer framebuffer, rt_location location), (framebuffer, location))                     \
-	X(void, rtFramebufferSetColorView, (rt_framebuffer framebuffer, rt_texture_view view, rt_location location), (framebuffer, view, location)) \
-	X(void, rtFramebufferSetDepthView, (rt_framebuffer framebuffer, rt_texture_view view), (framebuffer, view))                                 \
-	X(void, rtFramebufferSetStencilView, (rt_framebuffer framebuffer, rt_texture_view view), (framebuffer, view))
-/* RT_FRAMEBUFFER_EXTENSION_PROCEDURES */
-
-#define RT_PROGRAM_EXTENSION_PROCEDURES(X)                                                                                                                                                                                                                                                                                                        \
-	X(void, rtCmdUseProgram, (rt_command_buffer command_buffer, rt_program program), (command_buffer, program))                                                                                                                                                                                                                                   \
-	X(rt_program, rtProgramCreate, (void), ())                                                                                                                                                                                                                                                                                                    \
-	X(void, rtProgramDestroy, (rt_program program), (program))                                                                                                                                                                                                                                                                                    \
-	X(void, rtProgramSetLayout, (rt_program program, const rt_vertex_layout* layout), (program, layout))                                                                                                                                                                                                                                          \
-	X(void, rtProgramSource, (rt_program program, const char* entry_point, const u08* bytes, usize byte_size), (program, entry_point, bytes, byte_size))                                                                                                                                                                                          \
-	X(void, rtProgramSetRasterState, (rt_program program, enum rt_cull_mode cull_mode, enum rt_front_face front_face, enum rt_fill_mode fill_mode), (program, cull_mode, front_face, fill_mode))                                                                                                                                                  \
-	X(void, rtProgramSetBlendState, (rt_program program, bool enabled, enum rt_blend_factor src_color, enum rt_blend_factor dst_color, enum rt_blend_op color_op, enum rt_blend_factor src_alpha, enum rt_blend_factor dst_alpha, enum rt_blend_op alpha_op), (program, enabled, src_color, dst_color, color_op, src_alpha, dst_alpha, alpha_op)) \
-	X(void, rtProgramFinalize, (rt_program program), (program))                                                                                                                                                                                                                                                                                   \
-	X(rt_location, rtProgramUniformLocation, (rt_program program, const char* name), (program, name))                                                                                                                                                                                                                                             \
-	X(rt_location, rtProgramInputLocation, (rt_program program, const rt_vertex_attribute* attributes, usize attribute_count), (program, attributes, attribute_count))                                                                                                                                                                            \
-	X(rt_location, rtProgramOutputLocation, (rt_program program, const char* name), (program, name))
-/* RT_PROGRAM_EXTENSION_PROCEDURES */
-
-#define RT_BUFFER_EXTENSION_PROCEDURES(X)                                                                                                                                                                         \
-	X(void, rtCmdUniformData, (rt_command_buffer command_buffer, rt_location location, const u08* data, usize size), (command_buffer, location, data, size))                                                       \
-	X(void, rtCmdStorageData, (rt_command_buffer command_buffer, rt_location location, const u08* data, usize size), (command_buffer, location, data, size))                                                       \
-	X(void, rtCmdBindBuffer, (rt_command_buffer command_buffer, rt_location location, rt_buffer buffer, rt_buffer_range range), (command_buffer, location, buffer, range))                                        \
-	X(void, rtCmdVertexBuffer, (rt_command_buffer command_buffer, rt_location location, rt_buffer buffer, rt_buffer_range range), (command_buffer, location, buffer, range))                                      \
-	X(void, rtCmdIndexBuffer, (rt_command_buffer command_buffer, rt_buffer buffer, rt_buffer_range range, enum rt_index_format format), (command_buffer, buffer, range, format))                                  \
-	X(rt_buffer, rtBufferCreate, (void), ())                                                                                                                                                                      \
-	X(void, rtBufferDestroy, (rt_buffer buffer), (buffer))                                                                                                                                                        \
-	X(void, rtBufferResize, (rt_buffer buffer, enum rt_memory_type memory_type, usize size), (buffer, memory_type, size))                                                                                         \
-	X(void, rtBufferRead, (rt_buffer buffer, rt_buffer_range range, u08 * data, usize data_size), (buffer, range, data, data_size))                                                                               \
-	X(u08*, rtBufferMap, (rt_buffer buffer, rt_buffer_range range), (buffer, range))                                                                                                                              \
-	X(void, rtBufferUnmap, (rt_buffer buffer), (buffer))                                                                                                                                                          \
-	X(void, rtCmdBufferData, (rt_command_buffer command_buffer, rt_buffer buffer, rt_buffer_range range, const u08* data), (command_buffer, buffer, range, data))                                                 \
-	X(void, rtCmdBufferCopy, (rt_command_buffer command_buffer, rt_buffer src, rt_buffer_range src_range, rt_buffer dst, rt_buffer_range dst_range), (command_buffer, src, src_range, dst, dst_range))            \
-	X(void, rtCmdBufferCopyToTexture, (rt_command_buffer command_buffer, rt_buffer src, rt_buffer_range src_range, rt_texture dst, rt_texture_range dst_range), (command_buffer, src, src_range, dst, dst_range)) \
-	X(void, rtCmdBufferBarrier, (rt_command_buffer command_buffer, rt_buffer buffer, rt_buffer_range range, rt_access src, rt_access dst), (command_buffer, buffer, range, src, dst))
-/* RT_BUFFER_EXTENSION_PROCEDURES */
-
-#define RT_EXT_TEXTURE_PROCEDURES(X)                                                                                                                                                                              \
-	X(void, rtCmdBindTexture, (rt_command_buffer command_buffer, rt_location location, rt_texture_view texture_view), (command_buffer, location, texture_view))                                                   \
-	X(void, rtCmdBindSampler, (rt_command_buffer command_buffer, rt_location location, rt_sampler sampler), (command_buffer, location, sampler))                                                                  \
-	X(rt_texture, rtTextureCreate, (void), ())                                                                                                                                                                    \
-	X(void, rtTextureDestroy, (rt_texture texture), (texture))                                                                                                                                                    \
-	X(void, rtTextureResize, (rt_texture texture, enum rt_texture_type type, enum rt_format format, rt_extent_3d extent, usize mip_count), (texture, type, format, extent, mip_count))                            \
-	X(void, rtCmdTextureCopy, (rt_command_buffer command_buffer, rt_texture src, rt_texture_range src_range, rt_texture dst, rt_texture_range dst_range), (command_buffer, src, src_range, dst, dst_range))       \
-	X(void, rtCmdTextureData, (rt_command_buffer command_buffer, rt_texture texture, rt_texture_range range, const u08* data), (command_buffer, texture, range, data))                                            \
-	X(void, rtCmdTextureCopyToBuffer, (rt_command_buffer command_buffer, rt_texture src, rt_texture_range src_range, rt_buffer dst, rt_buffer_range dst_range), (command_buffer, src, src_range, dst, dst_range)) \
-	X(void, rtCmdTextureBarrier, (rt_command_buffer command_buffer, rt_texture texture, rt_texture_range range, rt_access src, rt_access dst), (command_buffer, texture, range, src, dst))                        \
-	X(rt_texture_view, rtTextureViewCreate, (void), ())                                                                                                                                                           \
-	X(void, rtTextureViewDestroy, (rt_texture_view texture_view), (texture_view))                                                                                                                                 \
-	X(rt_extent_3d, rtTextureViewExtent, (rt_texture_view texture_view), (texture_view))                                                                                                                          \
-	X(void, rtTextureViewSetTexture, (rt_texture_view texture_view, rt_texture texture), (texture_view, texture))                                                                                                 \
-	X(void, rtTextureViewRead, (rt_texture_view texture_view, rt_texture_range range, u08 * data, usize data_size), (texture_view, range, data, data_size))                                                       \
-	X(rt_sampler, rtSamplerCreate, (void), ())                                                                                                                                                                    \
-	X(void, rtSamplerDestroy, (rt_sampler sampler), (sampler))                                                                                                                                                    \
-	X(void, rtSamplerSetFilter, (rt_sampler sampler, enum rt_filter mag_filter, enum rt_filter min_filter, enum rt_mip_filter mip_filter), (sampler, mag_filter, min_filter, mip_filter))                         \
-	X(void, rtSamplerSetAddress, (rt_sampler sampler, enum rt_address_mode address_u, enum rt_address_mode address_v, enum rt_address_mode address_w), (sampler, address_u, address_v, address_w))                \
-	X(void, rtSamplerSetAnisotropy, (rt_sampler sampler, usize max_anisotropy), (sampler, max_anisotropy))                                                                                                        \
-	X(void, rtSamplerSetLod, (rt_sampler sampler, f32 min_lod, f32 max_lod, f32 lod_bias), (sampler, min_lod, max_lod, lod_bias))
-/* RT_EXT_TEXTURE_PROCEDURES */
-
-#define RT_CORE_EXTENSION_PROCEDURES(X)       \
-	RT_COMMAND_BUFFER_EXTENSION_PROCEDURES(X) \
-	RT_QUEUE_EXTENSION_PROCEDURES(X)          \
-	RT_FRAMEBUFFER_EXTENSION_PROCEDURES(X)    \
-	RT_PROGRAM_EXTENSION_PROCEDURES(X)        \
-	RT_BUFFER_EXTENSION_PROCEDURES(X)         \
-	RT_EXT_TEXTURE_PROCEDURES(X)
-/* RT_CORE_EXTENSION_PROCEDURES */
-
-#define RT_PROCEDURES(X)  \
-	RT_CORE_PROCEDURES(X) \
-	RT_CORE_EXTENSION_PROCEDURES(X)
-/* RT_PROCEDURES */
 
 #if !defined(RT_TYPES_ONLY)
 
@@ -1624,7 +1595,7 @@ RT_API void rtSamplerSetLod(rt_sampler sampler, f32 min_lod, f32 max_lod, f32 lo
 #pragma warning(push)
 #pragma warning(disable : 4098) // warning C4098: 'function': 'void' function returning a value
 #endif
-RT_PROCEDURES(RT_DECLARE_PROCEDURE)
+RT_CORE_PROCEDURES(RT_DECLARE_PROCEDURE)
 #if defined(_MSC_VER)
 #pragma warning(pop) // warning C4098: 'function': 'void' function returning a value
 #endif
@@ -1641,7 +1612,7 @@ RT_PROCEDURES(RT_DECLARE_PROCEDURE)
 
 #endif /* !RT_TYPES_ONLY */
 
-#include "rt_ext_glfw.h"
-#include "rt_ext_swapchain.h"
+#include "rt_glfw_swapchain.h"
+#include "rt_swapchain.h"
 
 #endif /* RUTILE_H */

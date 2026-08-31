@@ -1,7 +1,7 @@
 #define RUTILE_IMPL
 #include "rt_ext_compute.h"
-#include "rt_ext_glfw.h"
-#include "rt_ext_swapchain.h"
+#include "rt_glfw_swapchain.h"
+#include "rt_swapchain.h"
 #include "rutile.h"
 
 #include <GLFW/glfw3.h>
@@ -438,8 +438,8 @@ int main(int argc, char* argv[]) {
 		rtUnload();
 		return 1;
 	}
-	rtLoad_RT_EXT_SWAPCHAIN();
-	rtLoad_RT_EXT_GLFW();
+	rtLoadSwapchain();
+	rtLoadGlfwSwapchain();
 	if (!glfwInit()) {
 		std::cerr << "glfwInit failed\n";
 		rtExit();

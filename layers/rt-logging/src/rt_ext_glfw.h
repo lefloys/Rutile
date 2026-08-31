@@ -1,3 +1,3 @@
 #define RT_TYPES_ONLY
-#include "../../../include/rt_ext_glfw.h"
+#include "../../../include/rt_glfw_swapchain.h"
 #undef RT_TYPES_ONLY

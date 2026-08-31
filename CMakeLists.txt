@@ -20,7 +20,6 @@ add_library(rutile STATIC
     "src/rt_ext_glfw.c"
 )
 add_library(Rutile::rutile ALIAS rutile)
-
 target_include_directories(rutile PUBLIC "include")
 
 add_library(rutile-cpp INTERFACE)

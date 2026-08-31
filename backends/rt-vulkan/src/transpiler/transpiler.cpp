@@ -957,7 +957,34 @@ private:
 		if (entry.stage == rtsl::ir::Stage::stage_fragment) instruction(16, {function, 7});
 		if (const auto* compute = std::get_if<rtsl::ir::ComputeConfiguration>(&entry.configuration)) instruction(16, {function, 17, compute->workgroup_size[0], compute->workgroup_size[1], compute->workgroup_size[2]});
 		if (const auto* control = std::get_if<rtsl::ir::TessellationControlConfiguration>(&entry.configuration)) instruction(16, {function, 26, control->output_control_points});
+		if (const auto* evaluation = std::get_if<rtsl::ir::TessellationEvaluationConfiguration>(&entry.configuration)) {
+			switch (evaluation->domain) {
+			case rtsl::ir::TessellationDomain::tessellation_domain_triangles: instruction(16, {function, 22}); break;
+			case rtsl::ir::TessellationDomain::tessellation_domain_quads: instruction(16, {function, 24}); break;
+			case rtsl::ir::TessellationDomain::tessellation_domain_isolines: instruction(16, {function, 25}); break;
+			}
+			switch (evaluation->spacing) {
+			case rtsl::ir::TessellationSpacing::tessellation_spacing_equal: instruction(16, {function, 1}); break;
+			case rtsl::ir::TessellationSpacing::tessellation_spacing_fractional_even: instruction(16, {function, 2}); break;
+			case rtsl::ir::TessellationSpacing::tessellation_spacing_fractional_odd: instruction(16, {function, 3}); break;
+			}
+			instruction(16, {function, evaluation->winding == rtsl::ir::Winding::winding_clockwise ? 4u : 5u});
+		}
 		if (const auto* geometry = std::get_if<rtsl::ir::GeometryConfiguration>(&entry.configuration)) {
+			switch (geometry->input) {
+			case rtsl::ir::PrimitiveTopology::primitive_points: instruction(16, {function, 19}); break;
+			case rtsl::ir::PrimitiveTopology::primitive_lines: instruction(16, {function, 20}); break;
+			case rtsl::ir::PrimitiveTopology::primitive_lines_adjacency: instruction(16, {function, 21}); break;
+			case rtsl::ir::PrimitiveTopology::primitive_triangles: instruction(16, {function, 22}); break;
+			case rtsl::ir::PrimitiveTopology::primitive_triangles_adjacency: instruction(16, {function, 23}); break;
+			default: throw std::runtime_error("RTIR geometry input topology is invalid");
+			}
+			switch (geometry->output) {
+			case rtsl::ir::PrimitiveTopology::primitive_points: instruction(16, {function, 27}); break;
+			case rtsl::ir::PrimitiveTopology::primitive_line_strip: instruction(16, {function, 28}); break;
+			case rtsl::ir::PrimitiveTopology::primitive_triangle_strip: instruction(16, {function, 29}); break;
+			default: throw std::runtime_error("RTIR geometry output topology is invalid");
+			}
 			instruction(16, {function, 26, geometry->maximum_vertices});
 			instruction(16, {function, 0, geometry->invocations});
 		}

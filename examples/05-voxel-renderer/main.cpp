@@ -1,8 +1,8 @@
 #define RUTILE_IMPL
 #include "cli.hpp"
 #include "embedded_program.hpp"
-#include "rt_ext_glfw.h"
-#include "rt_ext_swapchain.h"
+#include "rt_glfw_swapchain.h"
+#include "rt_swapchain.h"
 #include "rutile.h"
 #include "world.h"
 
@@ -134,8 +134,8 @@ int main(int argc, char** argv) {
 	}
 
 	rtInit(Features, 1);
-	rtLoad_RT_EXT_SWAPCHAIN();
-	rtLoad_RT_EXT_GLFW();
+	rtLoadSwapchain();
+	rtLoadGlfwSwapchain();
 
 	glfwInit();
 

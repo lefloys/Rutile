@@ -1,8 +1,8 @@
-#ifndef RT_EXT_SWAPCHAIN_H
-#define RT_EXT_SWAPCHAIN_H
+#ifndef RT_SWAPCHAIN_H
+#define RT_SWAPCHAIN_H
 
 /*!
-** @file rt_ext_swapchain.h
+** @file rt_swapchain.h
 ** @brief Rutile presentation extension.
 **
 ** Load Rutile, enable @ref RT_FEATURE_PRESENTATION with @ref rtInit, load this
@@ -16,7 +16,7 @@ typedef rt_swapchain_t* rt_swapchain;
 #include "rutile.h"
 
 /*! @brief Version of the extension contract declared by this header. */
-#define RT_EXT_SWAPCHAIN_VERSION RT_HEADER_VERSION
+#define RT_SWAPCHAIN_VERSION RT_HEADER_VERSION
 
 #ifdef __cplusplus
 extern "C" {
@@ -42,7 +42,7 @@ typedef struct rt_swapchain_acquire_result {
 ** Call after @ref rtLoad and before any swapchain procedure. Failure is
 ** reported through @ref rtError; swapchain procedures remain unavailable.
 */
-void rtLoad_RT_EXT_SWAPCHAIN(void);
+void rtLoadSwapchain(void);
 
 /*!
 ** @brief Create an unbound presentation swapchain.
@@ -57,8 +57,8 @@ RT_API rt_swapchain rtSwapchainCreate(void);
 /*!
 ** @brief Destroy a presentation swapchain.
 **
-** No frame may be acquired. The swapchain and every framebuffer returned by
-** it are invalid after this call.
+** No frame may be acquired. Destroys the swapchain; framebuffers returned by
+** it must not be used again.
 **
 ** @param swapchain Swapchain to destroy.
 */
@@ -108,13 +108,13 @@ RT_API void rtSwapchainPresent(rt_swapchain swapchain, rt_timepoint rendered);
 
 #endif /* !RT_TYPES_ONLY */
 
-#define RT_EXT_SWAPCHAIN_PROCEDURES(X)                                                                      \
+#define RT_SWAPCHAIN_PROCEDURES(X)                                                                          \
 	X(rt_swapchain, rtSwapchainCreate, (void), ())                                                          \
 	X(void, rtSwapchainDestroy, (rt_swapchain swapchain), (swapchain))                                      \
 	X(void, rtSwapchainResize, (rt_swapchain swapchain, u32 width, u32 height), (swapchain, width, height)) \
 	X(rt_swapchain_acquire_result, rtSwapchainAcquire, (rt_swapchain swapchain), (swapchain))               \
 	X(void, rtSwapchainPresent, (rt_swapchain swapchain, rt_timepoint rendered), (swapchain, rendered))
-/* RT_EXT_SWAPCHAIN_PROCEDURES */
+/* RT_SWAPCHAIN_PROCEDURES */
 
 #if !defined(RT_TYPES_ONLY)
 
@@ -122,7 +122,7 @@ RT_API void rtSwapchainPresent(rt_swapchain swapchain, rt_timepoint rendered);
 #pragma warning(push)
 #pragma warning(disable : 4098)
 #endif
-RT_EXT_SWAPCHAIN_PROCEDURES(RT_DECLARE_EXTENSION_PROCEDURE)
+RT_SWAPCHAIN_PROCEDURES(RT_DECLARE_EXTENSION_PROCEDURE)
 #if defined(_MSC_VER)
 #pragma warning(pop)
 #endif
@@ -133,4 +133,4 @@ RT_EXT_SWAPCHAIN_PROCEDURES(RT_DECLARE_EXTENSION_PROCEDURE)
 }
 #endif /* __cplusplus */
 
-#endif /* RT_EXT_SWAPCHAIN_H */
+#endif /* RT_SWAPCHAIN_H */
