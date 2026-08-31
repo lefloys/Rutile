@@ -18,18 +18,22 @@ void rtFramebufferDestroy(rt_framebuffer framebuffer) {
 }
 
 rt_texture_view rtFramebufferColorView(rt_framebuffer framebuffer, rt_location location) {
-	if (!location || location->kind != RTGL_LOCATION_MAPPING_OUTPUT) {
+	struct rtgl_program* program = rtgl_location_program(location);
+	struct rtgl_program_mapping* mapping = rtgl_program_mapping(program, location);
+	if (!mapping || mapping->kind != RTGL_LOCATION_MAPPING_OUTPUT) {
 		return NULL;
 	}
-	u32 slot = location->binding;
+	u32 slot = mapping->binding;
 	return rtgl_texture_view_to_handle(rtgl_framebuffer_color_view(rtgl_framebuffer_from_handle(framebuffer), slot));
 }
 
 void rtFramebufferSetColorView(rt_framebuffer framebuffer, rt_texture_view view, rt_location location) {
-	if (!location || location->kind != RTGL_LOCATION_MAPPING_OUTPUT) {
+	struct rtgl_program* program = rtgl_location_program(location);
+	struct rtgl_program_mapping* mapping = rtgl_program_mapping(program, location);
+	if (!mapping || mapping->kind != RTGL_LOCATION_MAPPING_OUTPUT) {
 		return;
 	}
-	u32 slot = location->binding;
+	u32 slot = mapping->binding;
 	rtgl_framebuffer_set_color_view(rtgl_get_current_context(), rtgl_framebuffer_from_handle(framebuffer), slot, rtgl_texture_view_from_handle(view));
 }
 

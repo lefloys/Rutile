@@ -137,7 +137,7 @@ int main(int argc, char** argv) {
 	glfwSetMouseButtonCallback(window, mouse_button);
 
 	rt_swapchain swapchain = rtSwapchainCreate();
-	rtSwapchainBindWindowGLFW(swapchain, window);
+	rtSwapchainBindGLFW(swapchain, window);
 	Swapchain = swapchain;
 	rt_queue queue = rtQueueCreate(RT_QUEUE_GRAPHICS);
 
@@ -147,6 +147,11 @@ int main(int argc, char** argv) {
 	update_plasma(pixels, 0.0f);
 	rt_texture texture = rtTextureCreate();
 	rtTextureResize(texture, RT_TEXTURE_2D, RT_RGBA8_UNORM, { PlasmaWidth, PlasmaHeight, 1 }, 1);
+	rt_texture_view texture_view = rtTextureViewCreate();
+	rtTextureViewSetTexture(texture_view, texture);
+	rt_sampler sampler = rtSamplerCreate();
+	rtSamplerSetFilter(sampler, RT_FILTER_LINEAR, RT_FILTER_LINEAR, RT_MIP_FILTER_NONE);
+	rtSamplerSetAddress(sampler, RT_ADDRESS_CLAMP, RT_ADDRESS_CLAMP, RT_ADDRESS_CLAMP);
 
 	rt_program program = rtProgramCreate();
 	rtProgramSource(program, "main", plasma_rtslp.data, plasma_rtslp.size);
@@ -183,21 +188,17 @@ int main(int argc, char** argv) {
 		rtCommandBufferBegin(primary);
 		rtCmdTextureData(primary, texture, PlasmaRange, reinterpret_cast<const u08*>(pixels.data()));
 		rtCmdTextureBarrier(primary, texture, PlasmaRange, { RT_STAGE_TRANSFER, RT_ACCESS_WRITE }, { RT_STAGE_FRAGMENT, RT_ACCESS_READ });
-		rt_texture_view texture_view = rtTextureViewCreate();
-		rtTextureViewSetTexture(texture_view, texture);
-		rtTextureViewSetFilter(texture_view, RT_FILTER_LINEAR, RT_FILTER_LINEAR, RT_MIP_FILTER_NONE);
-		rtTextureViewSetAddress(texture_view, RT_ADDRESS_CLAMP, RT_ADDRESS_CLAMP, RT_ADDRESS_CLAMP);
 		rtCmdBeginRendering(primary, acquired.framebuffer);
-		rtCmdClearColor(primary, RT_LOCATION_ZERO, 0.0f, 0.0f, 0.0f, 1.0f);
+		rtCmdClearColor(primary, nullptr, 0.0f, 0.0f, 0.0f, 1.0f);
 		rtCmdClear(primary, RT_CLEAR_COLOR);
 		rtCmdSetViewport(primary, 0, 0, FramebufferWidth, FramebufferHeight, 0.0f, 1.0f);
 		rtCmdSetScissor(primary, 0, 0, FramebufferWidth, FramebufferHeight);
 		rtCmdBindTexture(primary, plasma_location, texture_view);
+		rtCmdBindSampler(primary, plasma_location, sampler);
 		rtCmdExecute(primary, command_buffer);
 		rtCmdEndRendering(primary);
 		rtCommandBufferEnd(primary);
 		rtSwapchainPresent(swapchain, rtQueueSubmit(queue, primary));
-		rtTextureViewDestroy(texture_view);
 		rendered_frames++;
 	}
 
@@ -206,6 +207,8 @@ int main(int argc, char** argv) {
 	rtCommandBufferDestroy(command_buffer);
 	rtQueueDestroy(queue);
 	rtProgramDestroy(program);
+	rtSamplerDestroy(sampler);
+	rtTextureViewDestroy(texture_view);
 	rtTextureDestroy(texture);
 	rtBufferDestroy(vertex_buffer);
 	rtSwapchainDestroy(swapchain);

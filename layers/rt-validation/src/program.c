@@ -18,8 +18,8 @@ RT_API_PUBLIC void rtProgramDestroy(rt_program program) {
 RT_API_PUBLIC void rtProgramSetLayout(rt_program program, const rt_vertex_layout* layout) {
 	rtval_program_layout(rtval_program_from_handle(program), layout);
 }
-RT_API_PUBLIC void rtProgramSource(rt_program program, const char* entry_point, const u08* data, usize size) {
-	rtval_program_source(rtval_program_from_handle(program), entry_point, data, size);
+RT_API_PUBLIC void rtProgramSource(rt_program program, const char* entry_point, const u08* program_bytes, usize program_byte_size) {
+	rtval_program_source(rtval_program_from_handle(program), entry_point, program_bytes, program_byte_size);
 }
 
 RT_API_PUBLIC void rtProgramSetRasterState(rt_program program, enum rt_cull_mode cull_mode, enum rt_front_face front_face, enum rt_fill_mode fill_mode) {
@@ -95,21 +95,21 @@ void rtval_program_layout(struct rtval_program* program, const rt_vertex_layout*
 	rtval_report_error("rtProgramSetLayout");
 }
 
-void rtval_program_source(struct rtval_program* program, const char* entry_point, const u08* data, usize size) {
+void rtval_program_source(struct rtval_program* program, const char* entry_point, const u08* program_bytes, usize program_byte_size) {
 	struct rtval_program* state = RTVAL_PAYLOAD(program, struct rtval_program);
 	if (!state) {
 		RTVAL_DROP("rtProgramSource: null handle");
 		return;
 	}
-	if (!data || size == 0) {
-		RTVAL_DROP("rtProgramSource: empty source data");
+	if (!program_bytes || program_byte_size == 0) {
+		RTVAL_DROP("rtProgramSource: empty linked RTSLP program bytes");
 		return;
 	}
 	if (!entry_point || !entry_point[0]) {
 		RTVAL_DROP("rtProgramSource: empty entry point");
 		return;
 	}
-	rtval_next_rtProgramSource(state->backend, entry_point, data, size);
+	rtval_next_rtProgramSource(state->backend, entry_point, program_bytes, program_byte_size);
 	rtval_report_error("rtProgramSource");
 }
 

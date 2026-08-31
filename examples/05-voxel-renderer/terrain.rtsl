@@ -1,8 +1,4 @@
-uniform {
-	UniformBuffer scene;
-}
-
-layout scene : struct {
+struct Scene {
 	mat4 transform;
 };
 
@@ -16,8 +12,9 @@ struct Point {
 	f32 corner_mask;
 };
 
-struct Vertex {
-	vec4 position;
+uniform Scene scene;
+
+struct Vertex : Position {
 	vec3 color;
 	vec3 normal;
 	f32 ao;
@@ -25,8 +22,7 @@ struct Vertex {
 	f32 edge_mask;
 	f32 corner_mask;
 
-	fn Vertex(Point point) {
-		position = scene.transform * vec4(point.position, 1.0);
+	fn Vertex(Point point) : Position(scene.transform * vec4(point.position, 1.0)) {
 		color = point.color;
 		normal = point.normal;
 		ao = point.ao;
@@ -57,16 +53,16 @@ fn masked_corner_pixel(vec2 uv, f32 mask) -> bool {
 }
 
 @stage : vertex
-fn main(Point point) -> Vertex : position(clip), color(flat), normal(flat), ao(smooth), pixel_uv(smooth), edge_mask(flat), corner_mask(flat) {
+fn main(Point point) -> Vertex {
 	return Vertex(point);
 }
 
 @stage : fragment
-fn main(Vertex vertex) -> vec4 {
-	f32 sky_light = 0.82 + vertex.normal.y * 0.16;
-	f32 side_light = vertex.normal.x * -0.05 + vertex.normal.z * -0.03;
-	vec3 color = vertex.color * (sky_light + side_light) * vertex.ao;
-	f32 shade = 1.0;
+fn main(Vertex vertex{.color : flat, .normal : flat, .ao : smooth, .pixel_uv : smooth, .edge_mask : flat, .corner_mask : flat}) -> vec4 {
+	var f32 sky_light = 0.82 + vertex.normal.y * 0.16;
+	var f32 side_light = vertex.normal.x * -0.05 + vertex.normal.z * -0.03;
+	var vec3 color = vertex.color * (sky_light + side_light) * vertex.ao;
+	var f32 shade = 1.0;
 	if (masked_edge_pixel(vertex.pixel_uv, vertex.edge_mask) || masked_corner_pixel(vertex.pixel_uv, vertex.corner_mask)) {
 		shade = 0.82;
 	}

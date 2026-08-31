@@ -5,6 +5,7 @@
 #include "execution/execution.h"
 
 #include <stdlib.h>
+#include <stddef.h>
 #include <string.h>
 
 /*===============================================================================================*/
@@ -99,7 +100,8 @@ rt_location rtProgramInputLocation(rt_program program, const rt_vertex_attribute
 		}
 		for (u32 address = 1; address < RTGL_LOCATION_ADDRESS_COUNT; address++) {
 			struct rt_location_t* location = &internal->locations[address];
-			if (internal->location_occupied[address] && location->kind == RTGL_LOCATION_MAPPING_VERTEX_STREAM && location->binding == input_index) {
+			struct rtgl_program_mapping* mapping = &internal->mappings[address];
+			if (internal->location_occupied[address] && mapping->kind == RTGL_LOCATION_MAPPING_VERTEX_STREAM && mapping->binding == input_index) {
 				return location;
 			}
 		}
@@ -107,10 +109,10 @@ rt_location rtProgramInputLocation(rt_program program, const rt_vertex_attribute
 		if (!location) {
 			continue;
 		}
-		location->program = internal;
-		location->binding = (u32)input_index;
-		location->gl_location = -1;
-		location->kind = RTGL_LOCATION_MAPPING_VERTEX_STREAM;
+		struct rtgl_program_mapping* mapping = rtgl_program_mapping(internal, location);
+		mapping->binding = (u32)input_index;
+		mapping->gl_location = -1;
+		mapping->kind = RTGL_LOCATION_MAPPING_VERTEX_STREAM;
 		return location;
 	}
 	return NULL;
@@ -123,11 +125,24 @@ rt_location rtProgramOutputLocation(rt_program program, const char* name) {
 	}
 	for (u32 address = 0; address < RTGL_LOCATION_ADDRESS_COUNT; address++) {
 		struct rt_location_t* location = &internal->locations[address];
-		if (internal->location_occupied[address] && location->kind == RTGL_LOCATION_MAPPING_OUTPUT && ((name && strcmp(location->name, name) == 0) || (!name && !location->name[0]))) {
+		struct rtgl_program_mapping* mapping = &internal->mappings[address];
+		if (internal->location_occupied[address] && mapping->kind == RTGL_LOCATION_MAPPING_OUTPUT && ((name && strcmp(mapping->name, name) == 0) || (!name && !mapping->name[0]))) {
 			return location;
 		}
 	}
 	return NULL;
+}
+
+struct rtgl_program_mapping* rtgl_program_mapping(struct rtgl_program* program, const struct rt_location_t* location) {
+	return program && location && program->location_occupied[location->address] ? &program->mappings[location->address] : NULL;
+}
+
+struct rtgl_program* rtgl_location_program(const struct rt_location_t* location) {
+	if (!location) {
+		return NULL;
+	}
+	const struct rt_location_t* locations = location - location->address;
+	return (struct rtgl_program*)((u08*)locations - offsetof(struct rtgl_program, locations));
 }
 
 struct rt_location_t* rtgl_program_allocate_location(struct rtgl_program* program, bool zero_address) {
@@ -147,6 +162,7 @@ struct rt_location_t* rtgl_program_allocate_location(struct rtgl_program* progra
 
 void rtgl_program_clear_locations(struct rtgl_program* program) {
 	memset(program->locations, 0, sizeof(program->locations));
+	memset(program->mappings, 0, sizeof(program->mappings));
 	memset(program->location_occupied, 0, sizeof(program->location_occupied));
 }
 
@@ -251,7 +267,7 @@ struct rt_location_t* rtgl_program_uniform_location(struct rtgl_context* ctx, st
 		return NULL;
 	}
 	for (u32 address = 1; address < RTGL_LOCATION_ADDRESS_COUNT; address++) {
-		if (internal->location_occupied[address] && strcmp(internal->locations[address].name, name) == 0) {
+		if (internal->location_occupied[address] && strcmp(internal->mappings[address].name, name) == 0) {
 			return &internal->locations[address];
 		}
 	}

@@ -5,6 +5,7 @@ set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 
 if(MSVC)
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    add_link_options("$<$<CONFIG:Debug>:/DEBUG:FULL>")
 endif()
 
 enable_testing()

@@ -70,7 +70,7 @@ rt_timepoint rtvk_virtual_queue_flush(struct rtvk_context* ctx, struct rtvk_virt
 	}
 	rtvk_mutex_lock(&virtual_queue->lock);
 	rtvk_mutex_lock(&virtual_queue->native_queue->lock);
-	rt_timepoint result = rtvk_queue_flush(ctx, virtual_queue->native_queue);
+	rt_timepoint result = rtvk_queue_flush_locked(ctx, virtual_queue->native_queue);
 	rtvk_mutex_unlock(&virtual_queue->native_queue->lock);
 	rtvk_mutex_unlock(&virtual_queue->lock);
 	return result;
@@ -313,7 +313,8 @@ struct rtvk_lowered_command_buffer* rtvk_queue_create_lowered_command_buffer(str
 	VkDescriptorPoolSize descriptor_sizes[] = {
 		{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 128 },
 		{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 128 },
-		{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 128 },
+		{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 128 },
+		{ VK_DESCRIPTOR_TYPE_SAMPLER, 128 },
 	};
 	VkDescriptorPoolCreateInfo descriptor_pool_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
 	descriptor_pool_info.maxSets = 128;
@@ -502,7 +503,7 @@ rt_timepoint rtvk_queue_submit(struct rtvk_context* ctx, struct rtvk_queue* queu
 		}
 		rtvk_queue_lock_pair(queue, source_queue);
 		if (source_value > source_queue->submitted_value) {
-			rtvk_queue_flush(ctx, source_queue);
+			rtvk_queue_flush_locked(ctx, source_queue);
 		}
 		rtvk_queue_unlock_pair(queue, source_queue);
 		if (rtvk_error() != RT_SUCCESS) {
@@ -680,7 +681,7 @@ void rtvk_queue_submit_command_buffer(struct rtvk_context* ctx, struct rtvk_queu
 	}
 }
 
-rt_timepoint rtvk_queue_flush(struct rtvk_context* ctx, struct rtvk_queue* queue) {
+rt_timepoint rtvk_queue_flush_locked(struct rtvk_context* ctx, struct rtvk_queue* queue) {
 	assert(queue);
 	if (!queue->pending_head) {
 		return rtvk_timepoint_make(queue, queue->submitted_value);
@@ -710,6 +711,60 @@ rt_timepoint rtvk_queue_flush(struct rtvk_context* ctx, struct rtvk_queue* queue
 	queue->submitted_value = tail->value;
 	return rtvk_timepoint_make(queue, tail->value);
 }
+
+rt_timepoint rtvk_queue_flush(struct rtvk_context* ctx, struct rtvk_queue* queue) {
+	if (!queue) {
+		return (rt_timepoint){ 0 };
+	}
+	rtvk_mutex_lock(&queue->lock);
+	rt_timepoint result = rtvk_queue_flush_locked(ctx, queue);
+	rtvk_mutex_unlock(&queue->lock);
+	return result;
+}
+
+rt_timepoint rtvk_queue_submit_immediate(struct rtvk_context* ctx, struct rtvk_queue* queue, VkCommandBuffer command_buffer) {
+	if (!queue || !command_buffer) {
+		rtvk_throwf(RT_IMPROPER_USAGE, "immediate queue submission requires a queue and command buffer");
+		return (rt_timepoint){ 0 };
+	}
+
+	rtvk_mutex_lock(&queue->lock);
+	rt_timepoint timepoint = rtvk_queue_submit_immediate_locked(ctx, queue, command_buffer);
+	rtvk_mutex_unlock(&queue->lock);
+	return timepoint;
+}
+
+rt_timepoint rtvk_queue_submit_immediate_locked(struct rtvk_context* ctx, struct rtvk_queue* queue, VkCommandBuffer command_buffer) {
+	assert(queue);
+	assert(command_buffer);
+	if (queue->pending_head) {
+		rtvk_queue_flush_locked(ctx, queue);
+		if (rtvk_error() != RT_SUCCESS) {
+			return (rt_timepoint){ 0 };
+		}
+	}
+
+	u64 value = queue->timeline_value + 1;
+	VkTimelineSemaphoreSubmitInfo timeline_info = { VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO };
+	timeline_info.signalSemaphoreValueCount = 1;
+	timeline_info.pSignalSemaphoreValues = &value;
+	VkSubmitInfo submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
+	submit_info.pNext = &timeline_info;
+	submit_info.commandBufferCount = 1;
+	submit_info.pCommandBuffers = &command_buffer;
+	submit_info.signalSemaphoreCount = 1;
+	submit_info.pSignalSemaphores = &queue->vk_timeline;
+	VkResult result = vkQueueSubmit(queue->vk_queue, 1, &submit_info, VK_NULL_HANDLE);
+	if (result != VK_SUCCESS) {
+		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
+		return (rt_timepoint){ 0 };
+	}
+
+	queue->timeline_value = value;
+	queue->submitted_value = value;
+	return rtvk_timepoint_make(queue, value);
+}
+
 rt_timepoint rtvk_queue_signal(struct rtvk_context* ctx, struct rtvk_queue* queue) {
 	return rtvk_queue_submit(ctx, queue, NULL, NULL, NULL, NULL);
 }
@@ -850,7 +905,7 @@ void rtvk_timepoint_wait(struct rtvk_context* ctx, rt_timepoint timepoint) {
 		return;
 	}
 	if (value > queue->submitted_value) {
-		rtvk_queue_flush(ctx, queue);
+		rtvk_queue_flush_locked(ctx, queue);
 	}
 
 	VkSemaphoreWaitInfo wait_info = { VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO };

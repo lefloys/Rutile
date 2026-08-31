@@ -311,7 +311,7 @@ int main(int argc, char** argv) {
 	}
 
 	rt_swapchain swapchain = rtSwapchainCreate();
-	rtSwapchainBindWindowGLFW(swapchain, window);
+	rtSwapchainBindGLFW(swapchain, window);
 	Swapchain = swapchain;
 	rt_queue queue = rtQueueCreate(RT_QUEUE_GRAPHICS);
 
@@ -386,7 +386,7 @@ int main(int argc, char** argv) {
 		rtCmdBufferData(primary, scene_buffer, { sizeof(scene), 0 }, reinterpret_cast<const u08*>(&scene));
 		rtCmdBufferBarrier(primary, scene_buffer, { sizeof(scene), 0 }, { RT_STAGE_TRANSFER, RT_ACCESS_WRITE }, { RT_STAGE_VERTEX, RT_ACCESS_READ });
 		rtCmdBeginRendering(primary, acquired.framebuffer);
-		rtCmdClearColor(primary, RT_LOCATION_ZERO, 0.004f, 0.006f, 0.014f, 1.0f);
+		rtCmdClearColor(primary, nullptr, 0.004f, 0.006f, 0.014f, 1.0f);
 		if (DepthView) {
 			rtCmdClearDepth(primary, 1.0f);
 		}

@@ -12,6 +12,14 @@
 #include <string.h>
 #include <vector>
 
+struct rtgl_program_data_block {
+	struct rtgl_program* program;
+	rtgl_location_kind kind;
+	u32 binding;
+	GLuint buffer;
+	std::vector<u08> bytes;
+};
+
 /*===============================================================================================*/
 /*                                                                                               */
 /*===============================================================================================*/
@@ -47,17 +55,18 @@ void rtgl_command_buffer_release_command(struct rtgl_command_buffer* command_buf
 	case RTGL_RECORDED_COMMAND_USE_PROGRAM:
 		rtgl_release_resource(command->data.use_program.program);
 		break;
+	case RTGL_RECORDED_COMMAND_UNIFORM_DATA:
+	case RTGL_RECORDED_COMMAND_STORAGE_DATA:
+		free(command->data.program_data.bytes);
+		break;
 	case RTGL_RECORDED_COMMAND_BIND_BUFFER:
-		rtgl_release_resource(command->data.bind_buffer.location_program);
 		rtgl_buffer_storage_release(command->data.bind_buffer.storage);
 		break;
 	case RTGL_RECORDED_COMMAND_BIND_TEXTURE:
-		rtgl_release_resource(command->data.bind_texture.location_program);
 		rtgl_release_resource(command->data.bind_texture.texture_view);
 		rtgl_texture_image_release(command_buffer->base.ctx, command->data.bind_texture.image);
 		break;
 	case RTGL_RECORDED_COMMAND_VERTEX_BUFFER:
-		rtgl_release_resource(command->data.vertex_buffer.location_program);
 		rtgl_buffer_storage_release(command->data.vertex_buffer.storage);
 		break;
 	case RTGL_RECORDED_COMMAND_INDEX_BUFFER:
@@ -103,13 +112,6 @@ void rtgl_command_buffer_clear_commands(struct rtgl_command_buffer* command_buff
 		rtgl_command_buffer_release_command(command_buffer, &command_buffer->commands[i]);
 	}
 	command_buffer->command_count = 0;
-}
-
-void rtgl_record_location_program(struct rt_location_t* location, struct rtgl_program** program) {
-	*program = location ? location->program : NULL;
-	if (*program) {
-		rtgl_retain_resource(*program);
-	}
 }
 
 /*===============================================================================================*/
@@ -171,10 +173,12 @@ void rtgl_command_buffer_begin_rendering(struct rtgl_command_buffer* command_buf
 }
 
 void rtgl_command_buffer_clear_color(struct rtgl_command_buffer* command_buffer, struct rt_location_t* location, f32 r, f32 g, f32 b, f32 a) {
-	if (!command_buffer || !location || location->kind != RTGL_LOCATION_MAPPING_OUTPUT || location->binding >= RTGL_MAX_FRAMEBUFFER_COLOR_ATTACHMENTS) {
+	struct rtgl_program* program = rtgl_location_program(location);
+	struct rtgl_program_mapping* mapping = rtgl_program_mapping(program, location);
+	if (!command_buffer || !mapping || mapping->kind != RTGL_LOCATION_MAPPING_OUTPUT || mapping->binding >= RTGL_MAX_FRAMEBUFFER_COLOR_ATTACHMENTS) {
 		return;
 	}
-	const usize color_index = location->binding;
+	const usize color_index = mapping->binding;
 	command_buffer->clear_colors[color_index][0] = r;
 	command_buffer->clear_colors[color_index][1] = g;
 	command_buffer->clear_colors[color_index][2] = b;
@@ -239,11 +243,10 @@ void rtgl_command_buffer_bind_buffer(struct rtgl_command_buffer* command_buffer,
 		return;
 	}
 	command->kind = RTGL_RECORDED_COMMAND_BIND_BUFFER;
-	command->data.bind_buffer.location = location;
+	command->data.bind_buffer.address = location ? location->address : 0;
 	command->data.bind_buffer.storage = buffer ? buffer->storage : NULL;
 	command->data.bind_buffer.offset = range.offset;
 	command->data.bind_buffer.size = range.size;
-	rtgl_record_location_program(command->data.bind_buffer.location, &command->data.bind_buffer.location_program);
 	rtgl_buffer_storage_retain(command->data.bind_buffer.storage);
 }
 
@@ -253,7 +256,7 @@ void rtgl_command_buffer_bind_texture(struct rtgl_command_buffer* command_buffer
 		return;
 	}
 	command->kind = RTGL_RECORDED_COMMAND_BIND_TEXTURE;
-	command->data.bind_texture.location = location;
+	command->data.bind_texture.address = location ? location->address : 0;
 	command->data.bind_texture.texture_view = texture_view;
 	command->data.bind_texture.image = texture_view ? texture_view->image : NULL;
 	command->data.bind_texture.mag_filter = texture_view ? texture_view->mag_filter : RT_FILTER_LINEAR;
@@ -266,7 +269,6 @@ void rtgl_command_buffer_bind_texture(struct rtgl_command_buffer* command_buffer
 	command->data.bind_texture.min_lod = texture_view ? texture_view->min_lod : 0.0f;
 	command->data.bind_texture.max_lod = texture_view ? texture_view->max_lod : 1000.0f;
 	command->data.bind_texture.lod_bias = texture_view ? texture_view->lod_bias : 0.0f;
-	rtgl_record_location_program(command->data.bind_texture.location, &command->data.bind_texture.location_program);
 	rtgl_retain_resource(command->data.bind_texture.texture_view);
 	rtgl_texture_image_retain(command->data.bind_texture.image);
 }
@@ -277,8 +279,7 @@ void rtgl_command_buffer_vertex_buffer(struct rtgl_command_buffer* command_buffe
 		return;
 	}
 	command->kind = RTGL_RECORDED_COMMAND_VERTEX_BUFFER;
-	command->data.vertex_buffer.location = location;
-	rtgl_record_location_program(command->data.vertex_buffer.location, &command->data.vertex_buffer.location_program);
+	command->data.vertex_buffer.address = location ? location->address : 0;
 	command->data.vertex_buffer.storage = buffer ? buffer->storage : NULL;
 	command->data.vertex_buffer.offset = range.offset;
 	command->data.vertex_buffer.size = range.size;
@@ -606,17 +607,17 @@ void rtgl_command_buffer_retain_command(rtgl_recorded_command* command) {
 	case RTGL_RECORDED_COMMAND_USE_PROGRAM:
 		rtgl_retain_resource(command->data.use_program.program);
 		break;
+	case RTGL_RECORDED_COMMAND_UNIFORM_DATA:
+	case RTGL_RECORDED_COMMAND_STORAGE_DATA:
+		break;
 	case RTGL_RECORDED_COMMAND_BIND_BUFFER:
-		rtgl_retain_resource(command->data.bind_buffer.location_program);
 		rtgl_buffer_storage_retain(command->data.bind_buffer.storage);
 		break;
 	case RTGL_RECORDED_COMMAND_BIND_TEXTURE:
-		rtgl_retain_resource(command->data.bind_texture.location_program);
 		rtgl_retain_resource(command->data.bind_texture.texture_view);
 		rtgl_texture_image_retain(command->data.bind_texture.image);
 		break;
 	case RTGL_RECORDED_COMMAND_VERTEX_BUFFER:
-		rtgl_retain_resource(command->data.vertex_buffer.location_program);
 		rtgl_buffer_storage_retain(command->data.vertex_buffer.storage);
 		break;
 	case RTGL_RECORDED_COMMAND_INDEX_BUFFER:
@@ -665,6 +666,13 @@ bool rtgl_command_buffer_clone_command(rtgl_recorded_command* destination, const
 			return false;
 		}
 		memcpy(destination->data.buffer_data.data, source->data.buffer_data.data, size);
+	} else if (source->kind == RTGL_RECORDED_COMMAND_UNIFORM_DATA || source->kind == RTGL_RECORDED_COMMAND_STORAGE_DATA) {
+		destination->data.program_data.bytes = (u08*)malloc(source->data.program_data.size);
+		if (!destination->data.program_data.bytes) {
+			memset(destination, 0, sizeof(*destination));
+			return false;
+		}
+		memcpy(destination->data.program_data.bytes, source->data.program_data.bytes, source->data.program_data.size);
 	} else if (source->kind == RTGL_RECORDED_COMMAND_TEXTURE_DATA) {
 		const usize data_size = rtgl_texture_range_byte_count_image(source->data.texture_data.image, source->data.texture_data.range);
 		if (!data_size) {
@@ -737,6 +745,37 @@ void rtCmdSetViewport(rt_command_buffer command_buffer, usize x, usize y, usize 
 
 void rtCmdUseProgram(rt_command_buffer command_buffer, rt_program program) {
 	rtgl_command_buffer_use_program(rtgl_command_buffer_from_handle(command_buffer), rtgl_program_from_handle(program));
+}
+
+void rtgl_command_buffer_program_data(struct rtgl_command_buffer* command_buffer, struct rt_location_t* location, const u08* data, usize size, rtgl_location_kind expected_kind, rtgl_recorded_command_kind command_kind) {
+	struct rtgl_program* location_program = rtgl_location_program(location);
+	const struct rtgl_program_mapping* mapping = rtgl_program_mapping(location_program, location);
+	if (!command_buffer || !command_buffer->recording || !mapping || mapping->kind != expected_kind || !data || size != mapping->byte_size) {
+		rtgl_throwf(RT_IMPROPER_USAGE, "program data write does not match its reflected location");
+		return;
+	}
+	rtgl_recorded_command* command = rtgl_command_buffer_append(command_buffer);
+	if (!command) {
+		return;
+	}
+	command->kind = command_kind;
+	command->data.program_data.address = location->address;
+	command->data.program_data.bytes = (u08*)malloc(size);
+	command->data.program_data.size = size;
+	if (!command->data.program_data.bytes) {
+		command_buffer->command_count--;
+		rtgl_throwf(RT_OUT_OF_HOST_MEMORY, "failed to copy program data into the command buffer");
+		return;
+	}
+	memcpy(command->data.program_data.bytes, data, size);
+}
+
+void rtCmdUniformData(rt_command_buffer command_buffer, rt_location location, const u08* data, usize size) {
+	rtgl_command_buffer_program_data(rtgl_command_buffer_from_handle(command_buffer), location, data, size, RTGL_LOCATION_MAPPING_UNIFORM_DATA, RTGL_RECORDED_COMMAND_UNIFORM_DATA);
+}
+
+void rtCmdStorageData(rt_command_buffer command_buffer, rt_location location, const u08* data, usize size) {
+	rtgl_command_buffer_program_data(rtgl_command_buffer_from_handle(command_buffer), location, data, size, RTGL_LOCATION_MAPPING_STORAGE_DATA, RTGL_RECORDED_COMMAND_STORAGE_DATA);
 }
 
 void rtCmdSetScissor(rt_command_buffer command_buffer, usize x, usize y, usize width, usize height) {
@@ -1024,25 +1063,25 @@ static GLenum rtgl_blend_op(enum rt_blend_op op) {
 	}
 }
 
-static void rtgl_bind_uniform_block(struct rt_location_t* location) {
-	if (!location || !location->program || !location->program->gl_program || location->kind != RTGL_LOCATION_MAPPING_UNIFORM_BUFFER) {
+void rtgl_bind_uniform_block(struct rtgl_program* program, const struct rtgl_program_mapping* mapping) {
+	if (!program || !program->gl_program || !mapping || mapping->kind != RTGL_LOCATION_MAPPING_UNIFORM_BUFFER) {
 		return;
 	}
-	GLuint block = glGetUniformBlockIndex(location->program->gl_program, location->name);
+	GLuint block = glGetUniformBlockIndex(program->gl_program, mapping->name);
 	if (block != GL_INVALID_INDEX) {
-		glUniformBlockBinding(location->program->gl_program, block, location->binding);
+		glUniformBlockBinding(program->gl_program, block, mapping->binding);
 	}
 }
 
-static void rtgl_bind_uniform_texture(struct rtgl_context* ctx, struct rt_location_t* location) {
-	if (!location || !location->program || !location->program->gl_program) {
+void rtgl_bind_uniform_texture(struct rtgl_context* ctx, struct rtgl_program* program, struct rtgl_program_mapping* mapping) {
+	if (!program || !program->gl_program || !mapping) {
 		return;
 	}
-	location->gl_location = glGetUniformLocation(location->program->gl_program, location->name);
-	if (location->gl_location < 0) {
+	mapping->gl_location = glGetUniformLocation(program->gl_program, mapping->name);
+	if (mapping->gl_location < 0) {
 		return;
 	}
-	glProgramUniform1i(location->program->gl_program, location->gl_location, (GLint)location->binding);
+	glProgramUniform1i(program->gl_program, mapping->gl_location, (GLint)mapping->binding);
 }
 
 static void rtgl_bind_vertex_layout(struct rtgl_context* ctx, struct rtgl_program* program, struct rtgl_buffer_storage* const* storages, const u64* offsets, GLuint vao) {
@@ -1162,6 +1201,7 @@ void rtgl_command_buffer_execute(struct rtgl_context* ctx, struct rtgl_command_b
 	u64 index_offset = 0;
 	enum rt_index_format index_format = RT_INDEX_U16;
 	std::vector<GLuint> sampler_snapshots;
+	std::vector<rtgl_program_data_block> program_data_blocks;
 
 	u32 command_offset = 0;
 	while (command_offset < command_buffer->command_count) {
@@ -1281,6 +1321,34 @@ void rtgl_command_buffer_execute(struct rtgl_context* ctx, struct rtgl_command_b
 			} else
 				glDisable(GL_BLEND);
 			break;
+		case RTGL_RECORDED_COMMAND_UNIFORM_DATA:
+		case RTGL_RECORDED_COMMAND_STORAGE_DATA: {
+			if (!program || !program->location_occupied[command->data.program_data.address]) {
+				break;
+			}
+			struct rtgl_program_mapping* mapping = &program->mappings[command->data.program_data.address];
+			const rtgl_location_kind expected = command->kind == RTGL_RECORDED_COMMAND_UNIFORM_DATA ? RTGL_LOCATION_MAPPING_UNIFORM_DATA : RTGL_LOCATION_MAPPING_STORAGE_DATA;
+			if (mapping->kind != expected || command->data.program_data.size != mapping->byte_size || mapping->byte_offset > mapping->block_size || command->data.program_data.size > mapping->block_size - mapping->byte_offset) {
+				break;
+			}
+			rtgl_program_data_block* block = nullptr;
+			for (rtgl_program_data_block& candidate : program_data_blocks) {
+				if (candidate.program == program && candidate.kind == mapping->kind && candidate.binding == mapping->binding) {
+					block = &candidate;
+					break;
+				}
+			}
+			if (!block) {
+				program_data_blocks.push_back({ program, mapping->kind, mapping->binding, 0, std::vector<u08>(mapping->block_size) });
+				block = &program_data_blocks.back();
+				glCreateBuffers(1, &block->buffer);
+				glNamedBufferStorage(block->buffer, (GLsizeiptr)mapping->block_size, nullptr, GL_DYNAMIC_STORAGE_BIT);
+			}
+			memcpy(block->bytes.data() + mapping->byte_offset, command->data.program_data.bytes, command->data.program_data.size);
+			glNamedBufferSubData(block->buffer, (GLintptr)mapping->byte_offset, (GLsizeiptr)command->data.program_data.size, command->data.program_data.bytes);
+			glBindBufferBase(mapping->kind == RTGL_LOCATION_MAPPING_UNIFORM_DATA ? GL_UNIFORM_BUFFER : GL_SHADER_STORAGE_BUFFER, mapping->binding, block->buffer);
+			break;
+		}
 		case RTGL_RECORDED_COMMAND_SET_SCISSOR:
 			glEnable(GL_SCISSOR_TEST);
 			if (color_image) {
@@ -1291,18 +1359,20 @@ void rtgl_command_buffer_execute(struct rtgl_context* ctx, struct rtgl_command_b
 				glScissor((GLint)command->data.set_scissor.x, (GLint)command->data.set_scissor.y, (GLsizei)command->data.set_scissor.width, (GLsizei)command->data.set_scissor.height);
 			break;
 		case RTGL_RECORDED_COMMAND_BIND_BUFFER:
-			if (command->data.bind_buffer.location && command->data.bind_buffer.storage) {
-				if (command->data.bind_buffer.location->kind == RTGL_LOCATION_MAPPING_UNIFORM_BUFFER) {
-					rtgl_bind_uniform_block(command->data.bind_buffer.location);
-					glBindBufferRange(GL_UNIFORM_BUFFER, command->data.bind_buffer.location->binding, command->data.bind_buffer.storage->gl_buffer, (GLintptr)command->data.bind_buffer.offset, (GLsizeiptr)command->data.bind_buffer.size);
-				} else if (command->data.bind_buffer.location->kind == RTGL_LOCATION_MAPPING_STORAGE_BUFFER) {
-					glBindBufferRange(GL_SHADER_STORAGE_BUFFER, command->data.bind_buffer.location->binding, command->data.bind_buffer.storage->gl_buffer, (GLintptr)command->data.bind_buffer.offset, (GLsizeiptr)command->data.bind_buffer.size);
+			if (program && program->location_occupied[command->data.bind_buffer.address] && command->data.bind_buffer.storage) {
+				struct rtgl_program_mapping* mapping = &program->mappings[command->data.bind_buffer.address];
+				if (mapping->kind == RTGL_LOCATION_MAPPING_UNIFORM_BUFFER) {
+					rtgl_bind_uniform_block(program, mapping);
+					glBindBufferRange(GL_UNIFORM_BUFFER, mapping->binding, command->data.bind_buffer.storage->gl_buffer, (GLintptr)command->data.bind_buffer.offset, (GLsizeiptr)command->data.bind_buffer.size);
+				} else if (mapping->kind == RTGL_LOCATION_MAPPING_STORAGE_BUFFER) {
+					glBindBufferRange(GL_SHADER_STORAGE_BUFFER, mapping->binding, command->data.bind_buffer.storage->gl_buffer, (GLintptr)command->data.bind_buffer.offset, (GLsizeiptr)command->data.bind_buffer.size);
 				}
 			}
 			break;
 		case RTGL_RECORDED_COMMAND_BIND_TEXTURE:
-			if (command->data.bind_texture.location && command->data.bind_texture.image && command->data.bind_texture.image->gl_texture) {
-				rtgl_bind_uniform_texture(ctx, command->data.bind_texture.location);
+			if (program && program->location_occupied[command->data.bind_texture.address] && command->data.bind_texture.image && command->data.bind_texture.image->gl_texture) {
+				struct rtgl_program_mapping* mapping = &program->mappings[command->data.bind_texture.address];
+				rtgl_bind_uniform_texture(ctx, program, mapping);
 				GLuint sampler = 0;
 				glCreateSamplers(1, &sampler);
 				glSamplerParameteri(sampler, GL_TEXTURE_MAG_FILTER, command->data.bind_texture.mag_filter == RT_FILTER_NEAREST ? GL_NEAREST : GL_LINEAR);
@@ -1317,13 +1387,13 @@ void rtgl_command_buffer_execute(struct rtgl_context* ctx, struct rtgl_command_b
 				glSamplerParameterf(sampler, GL_TEXTURE_MAX_ANISOTROPY, (GLfloat)command->data.bind_texture.max_anisotropy);
 #endif
 				sampler_snapshots.push_back(sampler);
-				glBindTextureUnit(command->data.bind_texture.location->binding, command->data.bind_texture.image->gl_texture);
-				glBindSampler(command->data.bind_texture.location->binding, sampler);
+				glBindTextureUnit(mapping->binding, command->data.bind_texture.image->gl_texture);
+				glBindSampler(mapping->binding, sampler);
 			}
 			break;
 		case RTGL_RECORDED_COMMAND_VERTEX_BUFFER:
-			if (command->data.vertex_buffer.location && command->data.vertex_buffer.location->kind == RTGL_LOCATION_MAPPING_VERTEX_STREAM) {
-				const u32 stream = command->data.vertex_buffer.location->binding;
+			if (program && program->location_occupied[command->data.vertex_buffer.address] && program->mappings[command->data.vertex_buffer.address].kind == RTGL_LOCATION_MAPPING_VERTEX_STREAM) {
+				const u32 stream = program->mappings[command->data.vertex_buffer.address].binding;
 				if (stream < RTGL_MAX_VERTEX_ATTRIBUTES) {
 					vertex_storages[stream] = command->data.vertex_buffer.storage;
 					vertex_offsets[stream] = command->data.vertex_buffer.offset;
@@ -1468,6 +1538,9 @@ void rtgl_command_buffer_execute(struct rtgl_context* ctx, struct rtgl_command_b
 	}
 	if (!sampler_snapshots.empty()) {
 		glDeleteSamplers((GLsizei)sampler_snapshots.size(), sampler_snapshots.data());
+	}
+	for (rtgl_program_data_block& block : program_data_blocks) {
+		glDeleteBuffers(1, &block.buffer);
 	}
 	rtgl_execution_lock(ctx);
 	rtgl_execution_queue_complete_locked(queue, complete_value);

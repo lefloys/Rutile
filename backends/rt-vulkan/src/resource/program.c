@@ -1,9 +1,10 @@
 #include "program.h"
 #include "context.h"
 #include "error.h"
-#include "rtsl_spirv.h"
+#include "transpiler/transpiler.h"
 
 #include <assert.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -32,13 +33,13 @@ void rtProgramSetLayout(rt_program program, const rt_vertex_layout* layout) {
 	);
 }
 
-void rtProgramSource(rt_program program, const char* entry_point, const u08* data, usize size) {
+void rtProgramSource(rt_program program, const char* entry_point, const u08* program_bytes, usize program_byte_size) {
 	rtvk_program_source(
 		rtvk_get_current_context(),
 		rtvk_program_from_handle(program),
 		entry_point,
-		data,
-		size
+		program_bytes,
+		program_byte_size
 	);
 }
 
@@ -101,8 +102,64 @@ void rtvk_program_init(struct rtvk_context* ctx, struct rtvk_program* program) {
 
 void rtvk_program_clear_locations(struct rtvk_program* program) {
 	memset(program->locations, 0, sizeof(program->locations));
+	memset(program->location_names, 0, sizeof(program->location_names));
+	memset(program->input_mappings, 0, sizeof(program->input_mappings));
+	memset(program->output_mappings, 0, sizeof(program->output_mappings));
+	memset(program->descriptor_mappings, 0, sizeof(program->descriptor_mappings));
+	memset(program->data_mappings, 0, sizeof(program->data_mappings));
 	memset(program->location_occupied, 0, sizeof(program->location_occupied));
+	memset(program->input_mapping_occupied, 0, sizeof(program->input_mapping_occupied));
+	memset(program->output_mapping_occupied, 0, sizeof(program->output_mapping_occupied));
+	memset(program->descriptor_mapping_occupied, 0, sizeof(program->descriptor_mapping_occupied));
+	memset(program->data_mapping_occupied, 0, sizeof(program->data_mapping_occupied));
 	program->location_count = 0;
+}
+
+struct rtvk_program_input_mapping* rtvk_program_input_mapping(struct rtvk_program* program, const struct rt_location_t* location) {
+	return program && location && program->input_mapping_occupied[location->address] ? &program->input_mappings[location->address] : NULL;
+}
+
+struct rtvk_program_output_mapping* rtvk_program_output_mapping(struct rtvk_program* program, const struct rt_location_t* location) {
+	return program && location && program->output_mapping_occupied[location->address] ? &program->output_mappings[location->address] : NULL;
+}
+
+struct rtvk_program_descriptor_mapping* rtvk_program_descriptor_mapping(struct rtvk_program* program, const struct rt_location_t* location) {
+	return program && location && program->descriptor_mapping_occupied[location->address] ? &program->descriptor_mappings[location->address] : NULL;
+}
+
+struct rtvk_program_data_mapping* rtvk_program_data_mapping(struct rtvk_program* program, const struct rt_location_t* location) {
+	return program && location && program->data_mapping_occupied[location->address] ? &program->data_mappings[location->address] : NULL;
+}
+
+struct rtvk_program* rtvk_location_program(const struct rt_location_t* location) {
+	if (!location) {
+		return NULL;
+	}
+	const struct rt_location_t* locations = location - location->address;
+	return (struct rtvk_program*)((u08*)locations - offsetof(struct rtvk_program, locations));
+}
+
+struct rt_location_t* rtvk_program_add_location(struct rtvk_program* program, const char* name) {
+	if (name && name[0]) {
+		struct rt_location_t* existing = rtvk_program_find_location(program, name);
+		if (existing) {
+			return existing;
+		}
+	}
+	for (u32 address = 1; address < 256; address++) {
+		if (program->location_occupied[address]) {
+			continue;
+		}
+		program->locations[address].address = (u08)address;
+		if (name) {
+			memcpy(program->location_names[address], name, strlen(name) + 1);
+		}
+		program->location_occupied[address] = true;
+		program->location_count++;
+		return &program->locations[address];
+	}
+	rtvk_throwf(RT_SHADER_LINK_FAILED, "program has no free public locations");
+	return NULL;
 }
 
 static void rtvk_program_clear_shaders(struct rtvk_context* ctx, struct rtvk_program* program) {
@@ -186,31 +243,47 @@ void rtvk_program_finish(struct rtvk_program* program) {
 	rtvk_program_clear_shaders(ctx, program);
 	free(program->entry_point);
 	program->entry_point = NULL;
-	free(program->program_source);
-	program->program_source = NULL;
-	program->program_source_size = 0;
+	free(program->program_bytes);
+	program->program_bytes = NULL;
+	program->program_byte_size = 0;
 	rtvk_program_clear_locations(program);
 }
 
-static VkDescriptorType rtvk_program_descriptor_type(rtvk_program_location_kind kind) {
+VkDescriptorType rtvk_program_descriptor_type(rtvk_program_descriptor_kind kind) {
 	switch (kind) {
-	case RTVK_LOCATION_BUFFER:
+	case RTVK_DESCRIPTOR_BUFFER:
 		return VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-	case RTVK_LOCATION_STORAGE_BUFFER:
+	case RTVK_DESCRIPTOR_STORAGE_BUFFER:
 		return VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-	case RTVK_LOCATION_TEXTURE:
+	case RTVK_DESCRIPTOR_TEXTURE:
 		return VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-	case RTVK_LOCATION_VERTEX:
-	case RTVK_LOCATION_OUTPUT:
-		break;
+	case RTVK_DESCRIPTOR_SAMPLER:
+		return VK_DESCRIPTOR_TYPE_SAMPLER;
 	}
 	return VK_DESCRIPTOR_TYPE_MAX_ENUM;
 }
 
+bool rtvk_program_descriptor_is_first(const struct rtvk_program* program, u32 address) {
+	if (!program->descriptor_mapping_occupied[address]) {
+		return false;
+	}
+	const struct rtvk_program_descriptor_mapping* mapping = &program->descriptor_mappings[address];
+	const VkDescriptorType type = rtvk_program_descriptor_type(mapping->kind);
+	if (type == VK_DESCRIPTOR_TYPE_MAX_ENUM) {
+		return false;
+	}
+	for (u32 prior = 0; prior < address; prior++) {
+		if (program->descriptor_mapping_occupied[prior] && program->descriptor_mappings[prior].binding == mapping->binding && rtvk_program_descriptor_type(program->descriptor_mappings[prior].kind) == type) {
+			return false;
+		}
+	}
+	return true;
+}
+
 static void rtvk_program_create_descriptor_set_layout(struct rtvk_context* ctx, struct rtvk_program* program) {
 	u32 descriptor_count = 0;
-	for (u32 index = 0; index < program->location_count; index++) {
-		if (program->locations[index].kind != RTVK_LOCATION_VERTEX && program->locations[index].kind != RTVK_LOCATION_OUTPUT) {
+	for (u32 index = 0; index < 256; index++) {
+		if (rtvk_program_descriptor_is_first(program, index)) {
 			descriptor_count++;
 		}
 	}
@@ -225,15 +298,18 @@ static void rtvk_program_create_descriptor_set_layout(struct rtvk_context* ctx, 
 	}
 
 	u32 binding_index = 0;
-	for (u32 index = 0; index < program->location_count; index++) {
-		struct rt_location_t* location = &program->locations[index];
-		if (location->kind == RTVK_LOCATION_VERTEX || location->kind == RTVK_LOCATION_OUTPUT) {
+	for (u32 index = 0; index < 256; index++) {
+		if (!program->location_occupied[index]) {
 			continue;
 		}
-		bindings[binding_index].binding = location->binding;
-		bindings[binding_index].descriptorType = rtvk_program_descriptor_type(location->kind);
+		struct rtvk_program_descriptor_mapping* mapping = &program->descriptor_mappings[index];
+		if (!rtvk_program_descriptor_is_first(program, index)) {
+			continue;
+		}
+		bindings[binding_index].binding = mapping->binding;
+		bindings[binding_index].descriptorType = rtvk_program_descriptor_type(mapping->kind);
 		bindings[binding_index].descriptorCount = 1;
-		bindings[binding_index].stageFlags = location->stages;
+		bindings[binding_index].stageFlags = mapping->stages;
 		bindings[binding_index].pImmutableSamplers = NULL;
 		binding_index++;
 	}
@@ -362,13 +438,14 @@ static VkPipeline rtvk_program_create_pipeline(struct rtvk_context* ctx, struct 
 		for (u32 i = 0; i < program->vertex_attribute_count; i++) {
 			const rt_vertex_attribute* attribute = &program->vertex_attributes[i];
 			struct rt_location_t* location = rtvk_program_find_location(program, attribute->name);
-			if (!location || location->kind != RTVK_LOCATION_VERTEX) {
+			struct rtvk_program_input_mapping* mapping = rtvk_program_input_mapping(program, location);
+			if (!mapping) {
 				free(stages);
 				rtvk_throwf(RT_SHADER_LINK_FAILED, "vertex attribute %s has no Vulkan location", attribute->name);
 				return VK_NULL_HANDLE;
 			}
-			attributes[i].location = location->shader_location;
-			attributes[i].binding = location->binding;
+			attributes[i].location = mapping->shader_location;
+			attributes[i].binding = mapping->binding;
 			attributes[i].format = rtvk_vertex_format(attribute->format);
 			attributes[i].offset = attribute->offset;
 			if (attributes[i].format == VK_FORMAT_UNDEFINED) {
@@ -570,14 +647,14 @@ void rtvk_program_layout(struct rtvk_context* ctx, struct rtvk_program* program,
 	rtvk_program_destroy_pipeline_layout(ctx, program);
 }
 
-void rtvk_program_source(struct rtvk_context* ctx, struct rtvk_program* program, const char* entry_point, const u08* data, usize size) {
+void rtvk_program_source(struct rtvk_context* ctx, struct rtvk_program* program, const char* entry_point, const u08* program_bytes, usize program_byte_size) {
 	assert(program);
 	if (!entry_point || !entry_point[0]) {
 		rtvk_throwf(RT_IMPROPER_USAGE, "program entry point is empty");
 		return;
 	}
-	if (!data || size == 0) {
-		rtvk_throwf(RT_IMPROPER_USAGE, "program source data is empty");
+	if (!program_bytes || program_byte_size == 0) {
+		rtvk_throwf(RT_IMPROPER_USAGE, "linked RTSLP program bytes are empty");
 		return;
 	}
 	const size_t entry_point_size = strlen(entry_point) + 1;
@@ -586,26 +663,26 @@ void rtvk_program_source(struct rtvk_context* ctx, struct rtvk_program* program,
 		rtvk_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate %zu bytes for program entry-point storage", entry_point_size);
 		return;
 	}
-	char* new_source = malloc((size_t)size);
-	if (!new_source) {
+	u08* copied_program_bytes = malloc((size_t)program_byte_size);
+	if (!copied_program_bytes) {
 		free(new_entry_point);
-		rtvk_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate %zu bytes for shader source storage", size);
+		rtvk_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate %zu bytes for linked RTSLP program storage", program_byte_size);
 		return;
 	}
 	memcpy(new_entry_point, entry_point, entry_point_size);
-	memcpy(new_source, data, (size_t)size);
+	memcpy(copied_program_bytes, program_bytes, (size_t)program_byte_size);
 
 	rtvk_program_destroy_pipeline_layout(ctx, program);
 	rtvk_program_clear_shaders(ctx, program);
 	free(program->entry_point);
-	free(program->program_source);
+	free(program->program_bytes);
 	program->entry_point = NULL;
-	program->program_source = NULL;
-	program->program_source_size = 0;
+	program->program_bytes = NULL;
+	program->program_byte_size = 0;
 	rtvk_program_clear_locations(program);
 	program->entry_point = new_entry_point;
-	program->program_source = new_source;
-	program->program_source_size = size;
+	program->program_bytes = copied_program_bytes;
+	program->program_byte_size = program_byte_size;
 }
 
 void rtvk_program_raster_state(struct rtvk_context* ctx, struct rtvk_program* program, enum rt_cull_mode cull_mode, enum rt_front_face front_face, enum rt_fill_mode fill_mode) {
@@ -635,8 +712,8 @@ void rtvk_program_blend_state(struct rtvk_context* ctx, struct rtvk_program* pro
 struct rt_location_t* rtvk_program_find_location(struct rtvk_program* program, const char* name) {
 	assert(program);
 	assert(name);
-	for (u32 i = 0; i < program->location_count; i++) {
-		if (program->location_occupied[i] && strcmp(program->locations[i].name, name) == 0) {
+	for (u32 i = 0; i < 256; i++) {
+		if (program->location_occupied[i] && strcmp(program->location_names[i], name) == 0) {
 			return &program->locations[i];
 		}
 	}
@@ -654,29 +731,25 @@ static bool rtvk_program_reserve_locations(struct rtvk_program* program, u32 cou
 
 static bool rtvk_program_build_locations(
 	struct rtvk_program* program,
-	const rtsl_spirv_translation* translation
+	const rt_spirv_program* translation
 ) {
 	assert(program);
 	assert(translation);
 
 	rtvk_program_clear_locations(program);
-	const u32 resource_count = rtsl_spirv_resource_count(translation);
+	const u32 resource_count = (u32)rt_spirv_location_count(translation);
 	const u32 vertex_attribute_count = (u32)program->vertex_attribute_count;
-	u64 vertex_word_count = 0;
-	const u32* vertex_words = rtsl_spirv_stage_words(translation, RTSL_SPIRV_VERTEX, &vertex_word_count);
-	if (!vertex_words || vertex_word_count < 5) {
+	usize vertex_word_count = 0;
+	const u32* vertex_words = rt_spirv_stage_words(translation, RT_SPIRV_VERTEX, &vertex_word_count);
+	if (vertex_attribute_count && (!vertex_words || vertex_word_count < 5)) {
 		rtvk_throwf(RT_SHADER_LINK_FAILED, "RTSL vertex shader is missing SPIR-V instructions");
 		return false;
 	}
-	u64 fragment_word_count = 0;
-	const u32* fragment_words = rtsl_spirv_stage_words(translation, RTSL_SPIRV_FRAGMENT, &fragment_word_count);
-	if (!fragment_words || fragment_word_count < 5) {
-		rtvk_throwf(RT_SHADER_LINK_FAILED, "RTSL fragment shader is missing SPIR-V instructions");
-		return false;
-	}
+	usize fragment_word_count = 0;
+	const u32* fragment_words = rt_spirv_stage_words(translation, RT_SPIRV_FRAGMENT, &fragment_word_count);
 
 	u32 fragment_output_count = 0;
-	for (u64 word_index = 5; word_index < fragment_word_count; (void)0) {
+	for (usize word_index = 5; word_index < fragment_word_count; (void)0) {
 		const u32 instruction = fragment_words[word_index];
 		const u32 instruction_word_count = instruction >> 16;
 		const u32 opcode = instruction & 0xffff;
@@ -686,7 +759,7 @@ static bool rtvk_program_build_locations(
 		}
 		if (opcode == RTVK_SPIRV_OPCODE_NAME && instruction_word_count >= 3) {
 			const char* name = (const char*)&fragment_words[word_index + 2];
-			if (strncmp(name, "out_", 4) == 0) {
+			if (strncmp(name, "out_", 4) == 0 && name[4]) {
 				fragment_output_count++;
 			}
 		}
@@ -708,15 +781,15 @@ static bool rtvk_program_build_locations(
 			rtvk_throwf(RT_SHADER_LINK_FAILED, "vertex attribute name is missing or exceeds the Vulkan backend limit");
 			return false;
 		}
-		for (u32 location_index = 0; location_index < program->location_count; location_index++) {
-			if (program->locations[location_index].kind == RTVK_LOCATION_VERTEX && strcmp(program->locations[location_index].name, attribute->name) == 0) {
+		for (u32 location_index = 0; location_index < 256; location_index++) {
+			if (program->input_mapping_occupied[location_index] && strcmp(program->location_names[location_index], attribute->name) == 0) {
 				rtvk_throwf(RT_SHADER_LINK_FAILED, "vertex attribute %s is declared more than once", attribute->name);
 				return false;
 			}
 		}
 
 		u32 shader_id = 0;
-		for (u64 word_index = 5; word_index < vertex_word_count; (void)0) {
+		for (usize word_index = 5; word_index < vertex_word_count; (void)0) {
 			const u32 instruction = vertex_words[word_index];
 			const u32 instruction_word_count = instruction >> 16;
 			const u32 opcode = instruction & 0xffff;
@@ -740,7 +813,7 @@ static bool rtvk_program_build_locations(
 
 		u32 shader_location = 0;
 		bool shader_location_found = false;
-		for (u64 word_index = 5; word_index < vertex_word_count; (void)0) {
+		for (usize word_index = 5; word_index < vertex_word_count; (void)0) {
 			const u32 instruction = vertex_words[word_index];
 			const u32 instruction_word_count = instruction >> 16;
 			const u32 opcode = instruction & 0xffff;
@@ -760,18 +833,15 @@ static bool rtvk_program_build_locations(
 			return false;
 		}
 
-		struct rt_location_t* location = &program->locations[program->location_count];
-		location->address = (u08)input_index;
-		location->program = program;
-		memcpy(location->name, attribute->name, strlen(attribute->name) + 1);
-		location->stages = VK_SHADER_STAGE_VERTEX_BIT;
-		location->kind = RTVK_LOCATION_VERTEX;
-		location->binding = (u32)input_index;
-		location->shader_location = shader_location;
-		program->location_occupied[program->location_count++] = true;
+		struct rt_location_t* location = rtvk_program_add_location(program, attribute->name);
+		if (!location) {
+			return false;
+		}
+		program->input_mappings[location->address] = (struct rtvk_program_input_mapping){ (u32)input_index, shader_location };
+		program->input_mapping_occupied[location->address] = true;
 	}
 
-	for (u64 word_index = 5; word_index < fragment_word_count; (void)0) {
+	for (usize word_index = 5; word_index < fragment_word_count; (void)0) {
 		const u32 instruction = fragment_words[word_index];
 		const u32 instruction_word_count = instruction >> 16;
 		const u32 opcode = instruction & 0xffff;
@@ -797,7 +867,7 @@ static bool rtvk_program_build_locations(
 
 		u32 shader_location = 0;
 		bool shader_location_found = false;
-		for (u64 decoration_index = 5; decoration_index < fragment_word_count; (void)0) {
+		for (usize decoration_index = 5; decoration_index < fragment_word_count; (void)0) {
 			const u32 decoration = fragment_words[decoration_index];
 			const u32 decoration_word_count = decoration >> 16;
 			const u32 decoration_opcode = decoration & 0xffff;
@@ -816,33 +886,31 @@ static bool rtvk_program_build_locations(
 			rtvk_throwf(RT_SHADER_LINK_FAILED, "fragment output %s has no RTSL fragment location", name);
 			return false;
 		}
-		for (u32 existing_index = 0; existing_index < program->location_count; existing_index++) {
-			struct rt_location_t* existing = &program->locations[existing_index];
-			if (existing->kind == RTVK_LOCATION_OUTPUT && ((name[0] && strcmp(existing->name, name) == 0) || existing->binding == shader_location)) {
+		for (u32 existing_index = 0; existing_index < 256; existing_index++) {
+			struct rtvk_program_output_mapping* existing = &program->output_mappings[existing_index];
+			if (program->output_mapping_occupied[existing_index] && ((name[0] && strcmp(program->location_names[existing_index], name) == 0) || existing->attachment == shader_location)) {
 				rtvk_throwf(RT_SHADER_LINK_FAILED, "fragment output %s is invalid or conflicts with another program location", name);
 				return false;
 			}
 		}
 
-		if (shader_location > UINT8_MAX) {
-			rtvk_throwf(RT_SHADER_LINK_FAILED, "fragment output %s location exceeds the rt_location address range", name);
-			return false;
+		/* A direct fragment return is the unnamed physical color attachment.  It
+		 * intentionally has no public rt_location: NULL selects attachment zero
+		 * for framebuffer and clear operations. */
+		if (name[0]) {
+			struct rt_location_t* location = rtvk_program_add_location(program, name);
+			if (!location) {
+				return false;
+			}
+			program->output_mappings[location->address] = (struct rtvk_program_output_mapping){ shader_location, shader_location };
+			program->output_mapping_occupied[location->address] = true;
 		}
-		struct rt_location_t* location = &program->locations[program->location_count];
-		location->address = (u08)shader_location;
-		location->program = program;
-		memcpy(location->name, name, strlen(name) + 1);
-		location->stages = VK_SHADER_STAGE_FRAGMENT_BIT;
-		location->kind = RTVK_LOCATION_OUTPUT;
-		location->binding = shader_location;
-		location->shader_location = shader_location;
-		program->location_occupied[program->location_count++] = true;
 		word_index += instruction_word_count;
 	}
 
 	for (u32 i = 0; i < resource_count; i++) {
-		rtsl_spirv_resource_info resource;
-		if (!rtsl_spirv_resource(translation, i, &resource)) {
+		rt_spirv_location_info resource;
+		if (!rt_spirv_location(translation, i, &resource)) {
 			rtvk_throwf(RT_SHADER_LINK_FAILED, "RTSL resource reflection failed at index %u", i);
 			return false;
 		}
@@ -856,72 +924,106 @@ static bool rtvk_program_build_locations(
 		}
 
 		VkShaderStageFlags stages = 0;
-		if (resource.stages & RTSL_SPIRV_STAGE_VERTEX) {
+		if (resource.stages & (1u << RT_SPIRV_VERTEX)) {
 			stages |= VK_SHADER_STAGE_VERTEX_BIT;
 		}
-		if (resource.stages & RTSL_SPIRV_STAGE_FRAGMENT) {
+		if (resource.stages & (1u << RT_SPIRV_TESSELLATION_CONTROL)) {
+			stages |= VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT;
+		}
+		if (resource.stages & (1u << RT_SPIRV_TESSELLATION_EVALUATION)) {
+			stages |= VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT;
+		}
+		if (resource.stages & (1u << RT_SPIRV_GEOMETRY)) {
+			stages |= VK_SHADER_STAGE_GEOMETRY_BIT;
+		}
+		if (resource.stages & (1u << RT_SPIRV_FRAGMENT)) {
 			stages |= VK_SHADER_STAGE_FRAGMENT_BIT;
+		}
+		if (resource.stages & (1u << RT_SPIRV_COMPUTE)) {
+			stages |= VK_SHADER_STAGE_COMPUTE_BIT;
 		}
 		if (!stages) {
 			continue;
 		}
 
-		rtvk_program_location_kind kind;
+		rtvk_program_descriptor_kind descriptor_kind;
+		bool data_location = false;
+		rtvk_program_data_kind data_kind = RTVK_DATA_UNIFORM;
 		switch (resource.kind) {
-		case RTSL_SPIRV_UNIFORM_BUFFER:
-			kind = RTVK_LOCATION_BUFFER;
+		case RT_SPIRV_UNIFORM_DATA:
+			descriptor_kind = RTVK_DESCRIPTOR_BUFFER;
+			data_kind = RTVK_DATA_UNIFORM;
+			data_location = true;
 			break;
-		case RTSL_SPIRV_STORAGE_BUFFER:
-			kind = RTVK_LOCATION_STORAGE_BUFFER;
+		case RT_SPIRV_STORAGE_DATA:
+			descriptor_kind = RTVK_DESCRIPTOR_STORAGE_BUFFER;
+			data_kind = RTVK_DATA_STORAGE;
+			data_location = true;
 			break;
-		case RTSL_SPIRV_SAMPLED_TEXTURE:
-			kind = RTVK_LOCATION_TEXTURE;
+		case RT_SPIRV_UNIFORM_BUFFER:
+			descriptor_kind = RTVK_DESCRIPTOR_BUFFER;
 			break;
-		case RTSL_SPIRV_SAMPLER:
-		case RTSL_SPIRV_STORAGE_IMAGE:
+		case RT_SPIRV_STORAGE_BUFFER:
+			descriptor_kind = RTVK_DESCRIPTOR_STORAGE_BUFFER;
+			break;
+		case RT_SPIRV_SAMPLED_TEXTURE:
+			descriptor_kind = RTVK_DESCRIPTOR_TEXTURE;
+			break;
+		case RT_SPIRV_SAMPLER:
+			descriptor_kind = RTVK_DESCRIPTOR_SAMPLER;
+			break;
+		case RT_SPIRV_STORAGE_TEXTURE:
+		case RT_SPIRV_INPUT_ATTACHMENT:
 		default:
 			rtvk_throwf(RT_UNSUPPORTED_FEATURE, "RTSL resource %s has an unsupported graphics resource kind", resource.name);
 			return false;
 		}
 
-		struct rt_location_t* location = NULL;
-		for (u32 existing_index = 0; existing_index < program->location_count; existing_index++) {
-			struct rt_location_t* existing = &program->locations[existing_index];
-			if (existing->kind == RTVK_LOCATION_VERTEX || existing->kind == RTVK_LOCATION_OUTPUT) {
+		struct rt_location_t* location = rtvk_program_add_location(program, resource.name);
+		if (!location) {
+			return false;
+		}
+		for (u32 existing_index = 0; existing_index < 256; existing_index++) {
+			if (data_location) {
+				break;
+			}
+			if (!program->descriptor_mapping_occupied[existing_index] || existing_index == location->address) {
 				continue;
 			}
+			struct rtvk_program_descriptor_mapping* existing = &program->descriptor_mappings[existing_index];
 			if (existing->binding != resource.binding) {
 				continue;
 			}
-			if (existing->kind != kind) {
-				rtvk_throwf(RT_SHADER_LINK_FAILED, "RTSL resources %s and %s use binding %u with different descriptor kinds", existing->name, resource.name, resource.binding);
+			if (existing->kind != descriptor_kind) {
+				rtvk_throwf(RT_SHADER_LINK_FAILED, "RTSL resources %s and %s use binding %u with different descriptor kinds", program->location_names[existing_index], resource.name, resource.binding);
 				return false;
 			}
-			if (strcmp(existing->name, resource.name) != 0) {
-				rtvk_throwf(RT_SHADER_LINK_FAILED, "RTSL resources %s and %s both use binding %u", existing->name, resource.name, resource.binding);
+			if (strcmp(program->location_names[existing_index], resource.name) != 0) {
+				rtvk_throwf(RT_SHADER_LINK_FAILED, "RTSL resources %s and %s both use binding %u", program->location_names[existing_index], resource.name, resource.binding);
 				return false;
 			}
-			location = existing;
-			break;
 		}
 
-		if (location) {
-			location->stages |= stages;
-			continue;
-		}
-
-		if (resource.binding > UINT8_MAX) {
-			rtvk_throwf(RT_SHADER_LINK_FAILED, "RTSL resource %s address exceeds the rt_location range", resource.name);
+		struct rtvk_program_descriptor_mapping* descriptor = &program->descriptor_mappings[location->address];
+		if (program->descriptor_mapping_occupied[location->address] &&
+			(descriptor->kind != descriptor_kind || descriptor->binding != resource.binding)) {
+			rtvk_throwf(RT_SHADER_LINK_FAILED, "RTSL location %s resolves to incompatible descriptors", resource.name);
 			return false;
 		}
-		location = &program->locations[program->location_count];
-		location->address = (u08)resource.binding;
-		location->program = program;
-		memcpy(location->name, resource.name, strlen(resource.name) + 1);
-		location->stages = stages;
-		location->kind = kind;
-		location->binding = resource.binding;
-		program->location_occupied[program->location_count++] = true;
+		descriptor->stages |= stages;
+		descriptor->kind = descriptor_kind;
+		descriptor->binding = resource.binding;
+		program->descriptor_mapping_occupied[location->address] = true;
+		if (data_location) {
+			program->data_mappings[location->address] = (struct rtvk_program_data_mapping){
+				data_kind,
+				resource.binding,
+				resource.offset,
+				resource.size,
+				resource.block_size,
+			};
+			program->data_mapping_occupied[location->address] = true;
+		}
 	}
 	return true;
 }
@@ -934,6 +1036,11 @@ static bool rtvk_program_create_shader(
 ) {
 	if (!words || word_count == 0) {
 		rtvk_throwf(RT_SHADER_COMPILATION_FAILED, "RTSL transpiler returned an empty SPIR-V module");
+		return false;
+	}
+	char validation_message[512] = { 0 };
+	if (!rt_spirv_validate(words, (usize)word_count, validation_message, sizeof(validation_message))) {
+		rtvk_throwf(RT_SHADER_COMPILATION_FAILED, "RTSL transpiler returned invalid SPIR-V: %s", validation_message);
 		return false;
 	}
 
@@ -951,11 +1058,11 @@ static bool rtvk_program_create_shader(
 static bool rtvk_program_add_shader(
 	struct rtvk_context* ctx,
 	struct rtvk_program* program,
-	const rtsl_spirv_translation* translation,
-	rtsl_spirv_stage translation_stage,
+	const rt_spirv_program* translation,
+	rt_spirv_stage translation_stage,
 	VkShaderStageFlagBits vk_stage
 ) {
-	const char* entry_point = rtsl_spirv_stage_entry_point(translation, translation_stage);
+	const char* entry_point = rt_spirv_stage_entry_point(translation, translation_stage);
 	if (!entry_point || strlen(entry_point) >= RTVK_MAX_SHADER_UNIFORM_NAME) {
 		rtvk_throwf(RT_SHADER_LINK_FAILED, "RTSL translation returned an invalid native entry-point name");
 		return false;
@@ -977,8 +1084,8 @@ static bool rtvk_program_add_shader(
 	shader->stage = vk_stage;
 	memcpy(shader->entry_point, entry_point, strlen(entry_point) + 1);
 
-	u64 word_count = 0;
-	const u32* words = rtsl_spirv_stage_words(translation, translation_stage, &word_count);
+	usize word_count = 0;
+	const u32* words = rt_spirv_stage_words(translation, translation_stage, &word_count);
 	if (!rtvk_program_create_shader(ctx, words, word_count, &shader->vk_shader)) {
 		return false;
 	}
@@ -990,8 +1097,8 @@ void rtvk_program_finalize(struct rtvk_context* ctx, struct rtvk_program* progra
 	assert(ctx);
 	assert(program);
 
-	if (!program->program_source || program->program_source_size == 0) {
-		rtvk_throwf(RT_SHADER_LINK_FAILED, "program finalize requires an RTSLP source set via rtProgramSource");
+	if (!program->program_bytes || program->program_byte_size == 0) {
+		rtvk_throwf(RT_SHADER_LINK_FAILED, "program finalize requires linked RTSLP program bytes set via rtProgramSource");
 		return;
 	}
 	if (program->vk_pipeline_layout || program->shader_count) {
@@ -1000,35 +1107,48 @@ void rtvk_program_finalize(struct rtvk_context* ctx, struct rtvk_program* progra
 	}
 
 	char translation_message[1024] = { 0 };
-	rtsl_spirv_translation* translation = NULL;
-	const rtsl_spirv_status status = rtsl_spirv_translate(
-		program->program_source_size,
-		program->program_source,
+	rt_spirv_program* translation = NULL;
+	const rt_spirv_status status = rt_spirv_transpile(
+		program->program_bytes,
+		program->program_byte_size,
+		program->entry_point,
 		&translation,
 		translation_message,
 		sizeof(translation_message)
 	);
-	if (status != RTSL_SPIRV_SUCCESS) {
-		const enum rt_error error = status == RTSL_SPIRV_OUT_OF_MEMORY
+	if (status != RT_SPIRV_SUCCESS) {
+		const enum rt_error error = status == RT_SPIRV_OUT_OF_MEMORY
 										? RT_OUT_OF_HOST_MEMORY
-									: status == RTSL_SPIRV_INVALID_PROGRAM
+									: status == RT_SPIRV_INVALID_ARTIFACT || status == RT_SPIRV_INVALID_MODULE
 										? RT_SHADER_LINK_FAILED
 										: RT_SHADER_COMPILATION_FAILED;
 		rtvk_throwf(error, "RTSL translation failed: %s", translation_message);
 		return;
 	}
 	bool complete = false;
-	static const struct {
-		rtsl_spirv_stage translation_stage;
+	const struct {
+		rt_spirv_stage translation_stage;
 		VkShaderStageFlagBits vk_stage;
 	} translated_stages[] = {
-		{ RTSL_SPIRV_VERTEX, VK_SHADER_STAGE_VERTEX_BIT },
-		{ RTSL_SPIRV_FRAGMENT, VK_SHADER_STAGE_FRAGMENT_BIT },
+		{ RT_SPIRV_VERTEX, VK_SHADER_STAGE_VERTEX_BIT },
+		{ RT_SPIRV_TESSELLATION_CONTROL, VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT },
+		{ RT_SPIRV_TESSELLATION_EVALUATION, VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT },
+		{ RT_SPIRV_GEOMETRY, VK_SHADER_STAGE_GEOMETRY_BIT },
+		{ RT_SPIRV_FRAGMENT, VK_SHADER_STAGE_FRAGMENT_BIT },
+		{ RT_SPIRV_COMPUTE, VK_SHADER_STAGE_COMPUTE_BIT },
 	};
 	for (u32 index = 0; index < (u32)(sizeof(translated_stages) / sizeof(translated_stages[0])); index++) {
+		usize word_count = 0;
+		if (!rt_spirv_stage_words(translation, translated_stages[index].translation_stage, &word_count) || word_count == 0) {
+			continue;
+		}
 		if (!rtvk_program_add_shader(ctx, program, translation, translated_stages[index].translation_stage, translated_stages[index].vk_stage)) {
 			goto cleanup;
 		}
+	}
+	if (!program->shader_count) {
+		rtvk_throwf(RT_SHADER_LINK_FAILED, "RTSL translation contains no shader entry points");
+		goto cleanup;
 	}
 
 	if (!rtvk_program_build_locations(program, translation)) {
@@ -1041,7 +1161,7 @@ void rtvk_program_finalize(struct rtvk_context* ctx, struct rtvk_program* progra
 	complete = true;
 
 cleanup:
-	rtsl_spirv_translation_destroy(translation);
+	rt_spirv_program_destroy(translation);
 	if (!complete) {
 		rtvk_program_destroy_pipeline_layout(ctx, program);
 		rtvk_program_clear_shaders(ctx, program);
@@ -1058,10 +1178,12 @@ rt_location rtvk_program_uniform_location(struct rtvk_program* program, const ch
 		rtvk_throwf(RT_IMPROPER_USAGE, "program must be finalized before querying locations");
 		return NULL;
 	}
-	for (u32 index = 0; index < program->location_count; index++) {
-		struct rt_location_t* location = &program->locations[index];
-		if (location->kind != RTVK_LOCATION_VERTEX && location->kind != RTVK_LOCATION_OUTPUT && strcmp(location->name, name) == 0) {
-			return location;
+	for (u32 index = 0; index < 256; index++) {
+		if (!program->location_occupied[index]) {
+			continue;
+		}
+		if ((program->descriptor_mapping_occupied[index] || program->data_mapping_occupied[index]) && strcmp(program->location_names[index], name) == 0) {
+			return &program->locations[index];
 		}
 	}
 	return NULL;
@@ -1075,10 +1197,10 @@ rt_location rtvk_program_input_location(struct rtvk_program* program, const rt_v
 		if (program->vertex_attribute_sources[input_index] != attributes || program->vertex_inputs[input_index].attribute_count != attribute_count) {
 			continue;
 		}
-		for (u32 location_index = 0; location_index < program->location_count; location_index++) {
-			struct rt_location_t* location = &program->locations[location_index];
-			if (location->kind == RTVK_LOCATION_VERTEX && location->binding == input_index) {
-				return location;
+		for (u32 location_index = 0; location_index < 256; location_index++) {
+			struct rtvk_program_input_mapping* mapping = &program->input_mappings[location_index];
+			if (program->input_mapping_occupied[location_index] && mapping->binding == input_index) {
+				return &program->locations[location_index];
 			}
 		}
 	}
@@ -1086,13 +1208,15 @@ rt_location rtvk_program_input_location(struct rtvk_program* program, const rt_v
 }
 
 rt_location rtvk_program_output_location(struct rtvk_program* program, const char* name) {
-	if (!program || !program->vk_pipeline_layout) {
+	if (!program || !program->vk_pipeline_layout || !name) {
 		return NULL;
 	}
-	for (u32 index = 0; index < program->location_count; index++) {
-		struct rt_location_t* location = &program->locations[index];
-		if (location->kind == RTVK_LOCATION_OUTPUT && ((name && strcmp(location->name, name) == 0) || (!name && !location->name[0]))) {
-			return location;
+	for (u32 index = 0; index < 256; index++) {
+		if (!program->location_occupied[index]) {
+			continue;
+		}
+		if (program->output_mapping_occupied[index] && strcmp(program->location_names[index], name) == 0) {
+			return &program->locations[index];
 		}
 	}
 	return NULL;

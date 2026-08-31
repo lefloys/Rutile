@@ -24,6 +24,8 @@ RTGL_API void rtCmdClearStencil(rt_command_buffer command_buffer, usize stencil)
 RTGL_API void rtCmdClear(rt_command_buffer command_buffer, enum rt_clear_flag attachments);
 RTGL_API void rtCmdSetViewport(rt_command_buffer command_buffer, usize x, usize y, usize width, usize height, f32 min_depth, f32 max_depth);
 RTGL_API void rtCmdUseProgram(rt_command_buffer command_buffer, rt_program program);
+RTGL_API void rtCmdUniformData(rt_command_buffer command_buffer, rt_location location, const u08* data, usize size);
+RTGL_API void rtCmdStorageData(rt_command_buffer command_buffer, rt_location location, const u08* data, usize size);
 RTGL_API void rtCmdSetScissor(rt_command_buffer command_buffer, usize x, usize y, usize width, usize height);
 RTGL_API void rtCmdBindBuffer(rt_command_buffer command_buffer, rt_location location, rt_buffer buffer, rt_buffer_range range);
 RTGL_API void rtCmdBindTexture(rt_command_buffer command_buffer, rt_location location, rt_texture_view texture_view);
@@ -53,6 +55,8 @@ typedef enum rtgl_recorded_command_kind {
 	RTGL_RECORDED_COMMAND_CLEAR,
 	RTGL_RECORDED_COMMAND_SET_VIEWPORT,
 	RTGL_RECORDED_COMMAND_USE_PROGRAM,
+	RTGL_RECORDED_COMMAND_UNIFORM_DATA,
+	RTGL_RECORDED_COMMAND_STORAGE_DATA,
 	RTGL_RECORDED_COMMAND_SET_SCISSOR,
 	RTGL_RECORDED_COMMAND_BIND_BUFFER,
 	RTGL_RECORDED_COMMAND_BIND_TEXTURE,
@@ -97,21 +101,24 @@ typedef struct rtgl_recorded_command {
 			struct rtgl_program* program;
 		} use_program;
 		struct {
+			u08 address;
+			u08* bytes;
+			usize size;
+		} program_data;
+		struct {
 			usize x;
 			usize y;
 			usize width;
 			usize height;
 		} set_scissor;
 		struct {
-			struct rt_location_t* location;
-			struct rtgl_program* location_program;
+			u08 address;
 			struct rtgl_buffer_storage* storage;
 			u64 offset;
 			u64 size;
 		} bind_buffer;
 		struct {
-			struct rt_location_t* location;
-			struct rtgl_program* location_program;
+			u08 address;
 			struct rtgl_texture_view* texture_view;
 			struct rtgl_image_base* image;
 			enum rt_filter mag_filter;
@@ -126,8 +133,7 @@ typedef struct rtgl_recorded_command {
 			f32 lod_bias;
 		} bind_texture;
 		struct {
-			struct rt_location_t* location;
-			struct rtgl_program* location_program;
+			u08 address;
 			struct rtgl_buffer_storage* storage;
 			u64 offset;
 			u64 size;
@@ -227,9 +233,9 @@ RTGL_DECLARE_NEW_RESOURCE(command_buffer)
 rtgl_recorded_command* rtgl_command_buffer_append(struct rtgl_command_buffer* command_buffer);
 void rtgl_command_buffer_release_command(struct rtgl_command_buffer* command_buffer, rtgl_recorded_command* command);
 void rtgl_command_buffer_clear_commands(struct rtgl_command_buffer* command_buffer);
-void rtgl_record_location_program(struct rt_location_t* location, struct rtgl_program** program);
 rt_timepoint rtgl_command_buffer_submit(struct rtgl_context* ctx, struct rtgl_queue* queue, struct rtgl_command_buffer* command_buffer);
 void rtgl_command_buffer_execute(struct rtgl_context* ctx, struct rtgl_command_buffer* command_buffer, struct rtgl_queue* queue, u64 complete_value);
+void rtgl_command_buffer_program_data(struct rtgl_command_buffer* command_buffer, struct rt_location_t* location, const u08* data, usize size, rtgl_location_kind expected_kind, rtgl_recorded_command_kind command_kind);
 
 RTGL_EXTERN_C_EXIT
 

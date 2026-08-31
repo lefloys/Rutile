@@ -3,17 +3,31 @@ find_package(glm CONFIG REQUIRED)
 find_package(CLI11 CONFIG REQUIRED)
 find_package(Stb REQUIRED)
 
-function(rutile_embed_program target symbol source)
-    file(READ "${source}" _program_hex HEX)
-    string(REGEX REPLACE "([0-9a-fA-F][0-9a-fA-F])" "0x\\1, " _program_bytes "${_program_hex}")
+set(RUTILE_EXAMPLE_RUNTIMES "rt-vulkan" CACHE STRING "Runtime backends built and deployed with examples")
 
-    set(_program_source "${CMAKE_CURRENT_BINARY_DIR}/${symbol}.cpp")
-    file(WRITE "${_program_source}"
-        "#include \"embedded_program.hpp\"\n\n"
-        "static const u08 ${symbol}_data[] = { ${_program_bytes} };\n"
-        "extern \"C\" const rt_example_program ${symbol} = { ${symbol}_data, sizeof(${symbol}_data) };\n"
+function(rutile_embed_program target symbol source)
+    get_filename_component(module_name "${source}" NAME_WE)
+    set(program_artifact "${CMAKE_CURRENT_BINARY_DIR}/${symbol}.rtslp")
+    set(program_source "${CMAKE_CURRENT_BINARY_DIR}/${symbol}.cpp")
+
+    add_custom_command(
+        OUTPUT "${program_artifact}"
+        COMMAND "$<TARGET_FILE:rtslc>" "${source}" --module "${module_name}" --emit-program -o "${program_artifact}"
+        DEPENDS rtslc "${source}"
+        VERBATIM
     )
-    target_sources("${target}" PRIVATE "${_program_source}")
+    add_custom_command(
+        OUTPUT "${program_source}"
+        COMMAND "${CMAKE_COMMAND}"
+            "-DINPUT=${program_artifact}"
+            "-DOUTPUT=${program_source}"
+            "-DSYMBOL=${symbol}"
+            -P "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../cmake/embed_program.cmake"
+        DEPENDS "${program_artifact}" "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../cmake/embed_program.cmake"
+        VERBATIM
+    )
+    set_source_files_properties("${program_source}" PROPERTIES GENERATED TRUE)
+    target_sources("${target}" PRIVATE "${program_source}")
 endfunction()
 
 function(rutile_configure_example target)
@@ -35,13 +49,7 @@ function(rutile_configure_example target)
     )
 
     target_link_libraries("${target}" PRIVATE rutile)
-    foreach(_runtime IN ITEMS
-        rt-vulkan
-        rt-d3d12
-        rt-opengl
-        rt-validation-layer
-        rt-logging-layer
-    )
+    foreach(_runtime IN LISTS RUTILE_EXAMPLE_RUNTIMES)
         if(TARGET "${_runtime}")
             add_dependencies("${target}" "${_runtime}")
             add_custom_command(TARGET "${target}" POST_BUILD

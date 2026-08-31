@@ -161,7 +161,7 @@ int main(int argc, char** argv) {
 	glfwSetFramebufferSizeCallback(window, framebuffer_resized);
 
 	Swapchain = rtSwapchainCreate();
-	rtSwapchainBindWindowGLFW(Swapchain, window);
+	rtSwapchainBindGLFW(Swapchain, window);
 
 	rt_queue queue = rtQueueCreate(RT_QUEUE_GRAPHICS);
 
@@ -232,7 +232,7 @@ int main(int argc, char** argv) {
 		rtCmdBufferData(primary, scene_buffer, { sizeof(scene), 0 }, reinterpret_cast<const u08*>(&scene));
 		rtCmdBufferBarrier(primary, scene_buffer, { sizeof(scene), 0 }, { RT_STAGE_TRANSFER, RT_ACCESS_WRITE }, { RT_STAGE_VERTEX, RT_ACCESS_READ });
 		rtCmdBeginRendering(primary, acquired.framebuffer);
-		rtCmdClearColor(primary, RT_LOCATION_ZERO, 0.035f, 0.045f, 0.075f, 1.0f);
+		rtCmdClearColor(primary, nullptr, 0.035f, 0.045f, 0.075f, 1.0f);
 		rtCmdClearDepth(primary, 1.0f);
 		rtCmdClear(primary, static_cast<enum rt_clear_flag>(RT_CLEAR_COLOR | RT_CLEAR_DEPTH));
 		rtCmdBindBuffer(primary, scene_location, scene_buffer, { sizeof(scene), 0 });

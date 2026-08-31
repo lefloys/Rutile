@@ -455,6 +455,8 @@ rt::proc rtGetProc(const char* name);
 	X(rt_location_t*, rtProgramOutputLocation, (rt_program_t* program, const char* name), (program, name))
 
 #define RT_BUFFER_EXTENSION_PROCEDURES(X)                                                                                                                                                                                                          \
+	X(void, rtCmdUniformData, (rt_command_buffer_t* command_buffer, rt_location_t* location, const u08* data, usize size), (command_buffer, location, data, size))                                                                                   \
+	X(void, rtCmdStorageData, (rt_command_buffer_t* command_buffer, rt_location_t* location, const u08* data, usize size), (command_buffer, location, data, size))                                                                                   \
 	X(void, rtCmdBindBuffer, (rt_command_buffer_t* command_buffer, rt_location_t* location, rt_buffer_t* buffer, rt::buffer_range range), (command_buffer, location, buffer, range))                                                                  \
 	X(void, rtCmdVertexBuffer, (rt_command_buffer_t* command_buffer, rt_location_t* location, rt_buffer_t* buffer, rt::buffer_range range), (command_buffer, location, buffer, range))                                                                \
 	X(void, rtCmdIndexBuffer, (rt_command_buffer_t* command_buffer, rt_buffer_t* buffer, rt::buffer_range range, rt::index_format format), (command_buffer, buffer, range, format))                                                                   \

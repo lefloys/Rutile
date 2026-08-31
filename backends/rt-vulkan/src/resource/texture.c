@@ -110,7 +110,7 @@ static VkSamplerAddressMode rtvk_sampler_address_mode(enum rt_address_mode mode)
 	}
 }
 
-static VkSampler rtvk_sampler_create(struct rtvk_context* ctx, struct rtvk_texture_view* view) {
+static VkSampler rtvk_texture_view_sampler_create(struct rtvk_context* ctx, struct rtvk_texture_view* view) {
 	VkSamplerCreateInfo sampler_info = { VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
 	sampler_info.magFilter = view->mag_filter == RT_FILTER_NEAREST ? VK_FILTER_NEAREST : VK_FILTER_LINEAR;
 	sampler_info.minFilter = view->min_filter == RT_FILTER_NEAREST ? VK_FILTER_NEAREST : VK_FILTER_LINEAR;
@@ -231,7 +231,7 @@ void rtTextureViewRead(rt_texture_view texture_view, rt_texture_range range, u08
 	VkResult result = VK_SUCCESS;
 
 	rtvk_queue_lock_pair(queue, queue);
-	rtvk_queue_flush(ctx, queue);
+	rtvk_queue_flush_locked(ctx, queue);
 	if (rtvk_error() != RT_SUCCESS) {
 		goto finish;
 	}
@@ -313,12 +313,19 @@ void rtTextureViewRead(rt_texture_view texture_view, rt_texture_range range, u08
 	VkSubmitInfo submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
 	submit_info.commandBufferCount = 1;
 	submit_info.pCommandBuffers = &command_buffer;
-	result = vkQueueSubmit(queue->vk_queue, 1, &submit_info, fence);
-	if (result != VK_SUCCESS) {
-		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
-		goto finish;
+	rtvk_mutex_lock(&queue->lock);
+	if (queue->pending_head) {
+		rtvk_queue_flush_locked(ctx, queue);
+		if (rtvk_error() != RT_SUCCESS) {
+			rtvk_mutex_unlock(&queue->lock);
+			goto finish;
+		}
 	}
-	result = vkWaitForFences(ctx->vk_device, 1, &fence, VK_TRUE, UINT64_MAX);
+	result = vkQueueSubmit(queue->vk_queue, 1, &submit_info, fence);
+	if (result == VK_SUCCESS) {
+		result = vkWaitForFences(ctx->vk_device, 1, &fence, VK_TRUE, UINT64_MAX);
+	}
+	rtvk_mutex_unlock(&queue->lock);
 	if (result != VK_SUCCESS) {
 		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
 		goto finish;
@@ -882,7 +889,7 @@ void rtvk_texture_view_init(struct rtvk_context* ctx, struct rtvk_texture_view* 
 	view->address_v = RT_ADDRESS_REPEAT;
 	view->address_w = RT_ADDRESS_REPEAT;
 	view->max_anisotropy = 1;
-	view->vk_sampler = rtvk_sampler_create(ctx, view);
+	view->vk_sampler = rtvk_texture_view_sampler_create(ctx, view);
 }
 
 void rtvk_texture_finish(struct rtvk_texture* texture) {
@@ -1041,7 +1048,7 @@ struct rtvk_texture_view* rtvk_texture_view_create_for_texture(struct rtvk_conte
 }
 
 static void rtvk_texture_view_recreate_sampler(struct rtvk_texture_view* texture_view) {
-	VkSampler vk_sampler = rtvk_sampler_create(texture_view->base.ctx, texture_view);
+	VkSampler vk_sampler = rtvk_texture_view_sampler_create(texture_view->base.ctx, texture_view);
 	if (!vk_sampler) {
 		return;
 	}
@@ -1211,9 +1218,11 @@ static void rtvk_texture_copy_region(struct rtvk_context* ctx, struct rtvk_queue
 	const u32 dst_h = dst_texture->active->base.height >> dst_mip;
 	const u32 dst_mip_h = dst_h ? dst_h : 1;
 
-	rtvk_queue_flush(ctx, queue);
+	rtvk_mutex_lock(&queue->lock);
+	rtvk_queue_flush_locked(ctx, queue);
 	rtvk_texture_copy_buffer_command(ctx, queue);
 	if (rtvk_error() != RT_SUCCESS) {
+		rtvk_mutex_unlock(&queue->lock);
 		return;
 	}
 	VkCommandBuffer command_buffer = queue->copy_command_buffer;
@@ -1223,6 +1232,7 @@ static void rtvk_texture_copy_region(struct rtvk_context* ctx, struct rtvk_queue
 	VkResult result = vkBeginCommandBuffer(command_buffer, &begin_info);
 	if (result != VK_SUCCESS) {
 		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
+		rtvk_mutex_unlock(&queue->lock);
 		return;
 	}
 
@@ -1294,30 +1304,18 @@ static void rtvk_texture_copy_region(struct rtvk_context* ctx, struct rtvk_queue
 	result = vkEndCommandBuffer(command_buffer);
 	if (result != VK_SUCCESS) {
 		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
+		rtvk_mutex_unlock(&queue->lock);
 		return;
 	}
 
-	u64 value = queue->timeline_value + 1;
-	VkTimelineSemaphoreSubmitInfo timeline_info = { VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO };
-	timeline_info.signalSemaphoreValueCount = 1;
-	timeline_info.pSignalSemaphoreValues = &value;
-	VkSubmitInfo submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
-	submit_info.pNext = &timeline_info;
-	submit_info.commandBufferCount = 1;
-	submit_info.pCommandBuffers = &command_buffer;
-	submit_info.signalSemaphoreCount = 1;
-	submit_info.pSignalSemaphores = &queue->vk_timeline;
-	result = vkQueueSubmit(queue->vk_queue, 1, &submit_info, VK_NULL_HANDLE);
-	if (result != VK_SUCCESS) {
-		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
+	queue->copy_command_timepoint = rtvk_queue_submit_immediate_locked(ctx, queue, command_buffer);
+	if (!queue->copy_command_timepoint.value) {
+		rtvk_mutex_unlock(&queue->lock);
 		return;
 	}
-
-	queue->timeline_value = value;
-	queue->submitted_value = value;
-	queue->copy_command_timepoint = rtvk_timepoint_make(queue, value);
 	src_node->base.vk_layout = src_restore_layout;
 	dst_node->base.vk_layout = dst_restore_layout;
+	rtvk_mutex_unlock(&queue->lock);
 }
 
 rt_timepoint rtvk_texture_data(struct rtvk_context* ctx, struct rtvk_texture* texture, enum rt_texture_type type, u32 mip, u32 width, u32 height, u32 depth, enum rt_format format, const void* data) {
@@ -1564,23 +1562,11 @@ rt_timepoint rtvk_texture_data(struct rtvk_context* ctx, struct rtvk_texture* te
 
 	result = vkEndCommandBuffer(command_buffer);
 	if (result == VK_SUCCESS) {
-		u64 value = queue->timeline_value + 1;
-		VkTimelineSemaphoreSubmitInfo timeline_info = { VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO };
-		timeline_info.signalSemaphoreValueCount = 1;
-		timeline_info.pSignalSemaphoreValues = &value;
-
-		VkSubmitInfo submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
-		submit_info.pNext = &timeline_info;
-		submit_info.commandBufferCount = 1;
-		submit_info.pCommandBuffers = &command_buffer;
-		submit_info.signalSemaphoreCount = 1;
-		submit_info.pSignalSemaphores = &queue->vk_timeline;
-		result = vkQueueSubmit(queue->vk_queue, 1, &submit_info, VK_NULL_HANDLE);
-		if (result == VK_SUCCESS) {
-			queue->timeline_value = value;
-			queue->submitted_value = value;
-			timepoint = rtvk_timepoint_make(queue, value);
+		timepoint = rtvk_queue_submit_immediate(ctx, queue, command_buffer);
+		if (timepoint.value) {
 			queue->upload_command_timepoint = timepoint;
+		} else {
+			return timepoint;
 		}
 	}
 
@@ -1734,24 +1720,12 @@ rt_timepoint rtvk_texture_subdata(struct rtvk_context* ctx, struct rtvk_texture*
 
 	result = vkEndCommandBuffer(command_buffer);
 	if (result == VK_SUCCESS) {
-		u64 value = queue->timeline_value + 1;
-		VkTimelineSemaphoreSubmitInfo timeline_info = { VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO };
-		timeline_info.signalSemaphoreValueCount = 1;
-		timeline_info.pSignalSemaphoreValues = &value;
-
-		VkSubmitInfo submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
-		submit_info.pNext = &timeline_info;
-		submit_info.commandBufferCount = 1;
-		submit_info.pCommandBuffers = &command_buffer;
-		submit_info.signalSemaphoreCount = 1;
-		submit_info.pSignalSemaphores = &queue->vk_timeline;
-		result = vkQueueSubmit(queue->vk_queue, 1, &submit_info, VK_NULL_HANDLE);
-		if (result == VK_SUCCESS) {
-			queue->timeline_value = value;
-			queue->submitted_value = value;
-			timepoint = rtvk_timepoint_make(queue, value);
+		timepoint = rtvk_queue_submit_immediate(ctx, queue, command_buffer);
+		if (timepoint.value) {
 			queue->upload_command_timepoint = timepoint;
 			node->base.vk_layout = restore_layout;
+		} else {
+			return timepoint;
 		}
 	}
 
@@ -1892,23 +1866,11 @@ rt_timepoint rtvk_texture_view_copy_to_buffer(struct rtvk_context* ctx, struct r
 
 	result = vkEndCommandBuffer(command_buffer);
 	if (result == VK_SUCCESS) {
-		u64 value = queue->timeline_value + 1;
-		VkTimelineSemaphoreSubmitInfo timeline_info = { VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO };
-		timeline_info.signalSemaphoreValueCount = 1;
-		timeline_info.pSignalSemaphoreValues = &value;
-
-		VkSubmitInfo submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
-		submit_info.pNext = &timeline_info;
-		submit_info.commandBufferCount = 1;
-		submit_info.pCommandBuffers = &command_buffer;
-		submit_info.signalSemaphoreCount = 1;
-		submit_info.pSignalSemaphores = &queue->vk_timeline;
-		result = vkQueueSubmit(queue->vk_queue, 1, &submit_info, VK_NULL_HANDLE);
-		if (result == VK_SUCCESS) {
-			queue->timeline_value = value;
-			queue->submitted_value = value;
-			timepoint = rtvk_timepoint_make(queue, value);
+		timepoint = rtvk_queue_submit_immediate(ctx, queue, command_buffer);
+		if (timepoint.value) {
 			queue->copy_command_timepoint = timepoint;
+		} else {
+			return timepoint;
 		}
 	}
 

@@ -110,6 +110,9 @@ void rtvk_queue_unlock_pair(struct rtvk_queue* first, struct rtvk_queue* second)
 rt_timepoint rtvk_queue_submit(struct rtvk_context* ctx, struct rtvk_queue* queue, struct rtvk_command_buffer* command_buffer, rt_timepoint** wait_timepoints, usize* wait_count, usize* wait_capacity);
 rt_timepoint rtvk_queue_submit_lowered(struct rtvk_context* ctx, struct rtvk_queue* queue, struct rtvk_lowered_command_buffer* lowered, rt_timepoint* wait_timepoints, usize wait_count);
 rt_timepoint rtvk_queue_flush(struct rtvk_context* ctx, struct rtvk_queue* queue);
+rt_timepoint rtvk_queue_flush_locked(struct rtvk_context* ctx, struct rtvk_queue* queue);
+rt_timepoint rtvk_queue_submit_immediate(struct rtvk_context* ctx, struct rtvk_queue* queue, VkCommandBuffer command_buffer);
+rt_timepoint rtvk_queue_submit_immediate_locked(struct rtvk_context* ctx, struct rtvk_queue* queue, VkCommandBuffer command_buffer);
 rt_timepoint rtvk_queue_signal(struct rtvk_context* ctx, struct rtvk_queue* queue);
 rt_timepoint rtvk_queue_wait_binary(struct rtvk_context* ctx, struct rtvk_queue* queue, VkSemaphore semaphore);
 bool rtvk_queue_signal_binary_on_next_flush(struct rtvk_queue* queue, VkSemaphore semaphore);

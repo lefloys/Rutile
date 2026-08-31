@@ -1,20 +1,23 @@
-#ifndef RTVK_WINDOWS_SYNC_H
-#define RTVK_WINDOWS_SYNC_H
+#ifndef RTVK_SYSTEM_SYNC_H
+#define RTVK_SYSTEM_SYNC_H
 
 #define RT_TYPES_ONLY
 #include "rutile.h"
 #undef RT_TYPES_ONLY
 
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
-#include <windows.h>
+#define RTVK_MUTEX_STORAGE_SIZE 64
+#define RTVK_CONDITION_STORAGE_SIZE 64
 
 struct rtvk_mutex {
-	SRWLOCK native;
+	union {
+		uptr storage[RTVK_MUTEX_STORAGE_SIZE / sizeof(uptr)];
+	};
 };
 
 struct rtvk_condition {
-	CONDITION_VARIABLE native;
+	union {
+		uptr storage[RTVK_CONDITION_STORAGE_SIZE / sizeof(uptr)];
+	};
 };
 
 bool rtvk_mutex_init(struct rtvk_mutex* mutex);

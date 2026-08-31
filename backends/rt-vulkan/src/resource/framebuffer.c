@@ -20,14 +20,16 @@ void rtFramebufferDestroy(rt_framebuffer framebuffer) {
 }
 
 rt_texture_view rtFramebufferColorView(rt_framebuffer framebuffer, rt_location location) {
-	return rtvk_texture_view_to_handle(rtvk_framebuffer_color_view(rtvk_framebuffer_from_handle(framebuffer), location ? location->address : 0));
+	struct rtvk_program_output_mapping* mapping = rtvk_program_output_mapping(rtvk_location_program(location), location);
+	return rtvk_texture_view_to_handle(rtvk_framebuffer_color_view(rtvk_framebuffer_from_handle(framebuffer), mapping ? mapping->attachment : 0));
 }
 
 void rtFramebufferSetColorView(rt_framebuffer framebuffer, rt_texture_view view, rt_location location) {
+	struct rtvk_program_output_mapping* mapping = rtvk_program_output_mapping(rtvk_location_program(location), location);
 	rtvk_framebuffer_set_color_view(
 		rtvk_get_current_context(),
 		rtvk_framebuffer_from_handle(framebuffer),
-		location ? location->address : 0,
+		mapping ? mapping->attachment : 0,
 		rtvk_texture_view_from_handle(view)
 	);
 }

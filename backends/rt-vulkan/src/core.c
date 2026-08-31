@@ -30,6 +30,7 @@ void rtExit(void) {
 	rtvk_context_destroy(current_context);
 	current_context = NULL;
 }
+u64 rtVersion(void) { return RT_HEADER_VERSION; }
 void rtSettingSet(const char* name, const char* value) {
 	(void)name;
 	(void)value;

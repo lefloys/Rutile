@@ -10,6 +10,7 @@
 #include <string.h>
 
 static void rtd3d12_lower_texture_revision_copy(ID3D12GraphicsCommandList* command_list, rtd3d12_image_base* source, rtd3d12_image_base* target);
+void rtd3d12_lower_bind_program_data(rtd3d12_context* ctx, rtd3d12_command_lower_state* state, ID3D12GraphicsCommandList* command_list, const rtd3d12_program_data_mapping& mapping, ID3D12Resource* resource, bool storage);
 
 static void rtd3d12_buffer_node_retain(rt_buffer_t* buffer) {
 	if (buffer) {
@@ -20,18 +21,6 @@ static void rtd3d12_buffer_node_retain(rt_buffer_t* buffer) {
 static void rtd3d12_buffer_node_release(rt_buffer_t* buffer) {
 	if (buffer) {
 		(buffer)->release();
-	}
-}
-
-static void rtd3d12_location_program_retain(rt::location* location) {
-	if (location && location->program) {
-		location->program->retain();
-	}
-}
-
-static void rtd3d12_location_program_release(rt::location* location) {
-	if (location && location->program) {
-		location->program->release();
 	}
 }
 
@@ -65,7 +54,10 @@ void rtCmdBeginRendering(rt_command_buffer_t* command_buffer, rt_framebuffer_t* 
 }
 
 void rtCmdClearColor(rt_command_buffer_t* command_buffer, rt::location* location, f32 r, f32 g, f32 b, f32 a) {
-	rtd3d12_command_buffer_clear_color(command_buffer, location ? location->address : 0, r, g, b, a);
+	rt_program_t* program = rtd3d12_location_program(location);
+	const rtd3d12_program_output_mapping* mapping = program && location && program->output_mappings[location->address]
+		? &*program->output_mappings[location->address] : nullptr;
+	rtd3d12_command_buffer_clear_color(command_buffer, mapping ? mapping->binding : 0, r, g, b, a);
 }
 
 void rtCmdClearDepth(rt_command_buffer_t* command_buffer, f32 depth) {
@@ -94,6 +86,14 @@ void rtCmdEndRendering(rt_command_buffer_t* command_buffer) {
 
 void rtCmdUseProgram(rt_command_buffer_t* command_buffer, rt_program_t* program) {
 	rtd3d12_command_buffer_use_program(command_buffer, program);
+}
+
+void rtCmdUniformData(rt_command_buffer_t* command_buffer, rt::location* location, const u08* data, usize size) {
+	if (command_buffer) command_buffer->uniform_data(location, data, size);
+}
+
+void rtCmdStorageData(rt_command_buffer_t* command_buffer, rt::location* location, const u08* data, usize size) {
+	if (command_buffer) command_buffer->storage_data(location, data, size);
 }
 
 void rtCmdBindBuffer(rt_command_buffer_t* command_buffer, rt::location* location, rt_buffer_t* buffer, rt::buffer_range range) {
@@ -249,6 +249,10 @@ usize rtd3d12_command_record_size(rtd3d12_command_opcode opcode) {
 	case rtd3d12_command_opcode::use_program:
 		size += sizeof(rtd3d12_ir_program);
 		break;
+	case rtd3d12_command_opcode::uniform_data:
+	case rtd3d12_command_opcode::storage_data:
+		size += sizeof(rtd3d12_ir_program_data);
+		break;
 	case rtd3d12_command_opcode::bind_buffer:
 		size += sizeof(rtd3d12_ir_buffer);
 		break;
@@ -345,10 +349,17 @@ void rtd3d12_command_buffer_release_resources(rt_command_buffer_t* command_buffe
 			}
 			break;
 		}
+		case rtd3d12_command_opcode::uniform_data:
+		case rtd3d12_command_opcode::storage_data: {
+			rtd3d12_ir_program_data* command = static_cast<rtd3d12_ir_program_data*>(payload);
+			rtd3d12::release_bytes(command->bytes);
+			if (command->resource) command->resource->Release();
+			if (command->upload) command->upload->Release();
+			break;
+		}
 		case rtd3d12_command_opcode::bind_buffer: {
 			rtd3d12_ir_buffer* command = static_cast<rtd3d12_ir_buffer*>(payload);
 			rtd3d12_buffer_node_release(command->buffer);
-			rtd3d12_location_program_release(command->location);
 			break;
 		}
 		case rtd3d12_command_opcode::bind_texture: {
@@ -364,13 +375,11 @@ void rtd3d12_command_buffer_release_resources(rt_command_buffer_t* command_buffe
 				command->sampler_heap->Release();
 				command->sampler_heap = nullptr;
 			}
-			rtd3d12_location_program_release(command->location);
 			break;
 		}
 		case rtd3d12_command_opcode::vertex_buffer: {
 			rtd3d12_ir_vertex_buffer* command = static_cast<rtd3d12_ir_vertex_buffer*>(payload);
 			rtd3d12_buffer_node_release(command->buffer);
-			rtd3d12_location_program_release(command->location);
 			break;
 		}
 		case rtd3d12_command_opcode::index_buffer: {
@@ -511,10 +520,16 @@ static void rtd3d12_command_buffer_retain_payload(rtd3d12_command_opcode opcode,
 		}
 		break;
 	}
+	case rtd3d12_command_opcode::uniform_data:
+	case rtd3d12_command_opcode::storage_data: {
+		rtd3d12_ir_program_data* command = static_cast<rtd3d12_ir_program_data*>(payload);
+		if (command->resource) command->resource->AddRef();
+		if (command->upload) command->upload->AddRef();
+		break;
+	}
 	case rtd3d12_command_opcode::bind_buffer: {
 		rtd3d12_ir_buffer* command = static_cast<rtd3d12_ir_buffer*>(payload);
 		rtd3d12_buffer_node_retain(command->buffer);
-		rtd3d12_location_program_retain(command->location);
 		break;
 	}
 	case rtd3d12_command_opcode::bind_texture: {
@@ -528,13 +543,11 @@ static void rtd3d12_command_buffer_retain_payload(rtd3d12_command_opcode opcode,
 		if (command->sampler_heap) {
 			command->sampler_heap->AddRef();
 		}
-		rtd3d12_location_program_retain(command->location);
 		break;
 	}
 	case rtd3d12_command_opcode::vertex_buffer: {
 		rtd3d12_ir_vertex_buffer* command = static_cast<rtd3d12_ir_vertex_buffer*>(payload);
 		rtd3d12_buffer_node_retain(command->buffer);
-		rtd3d12_location_program_retain(command->location);
 		break;
 	}
 	case rtd3d12_command_opcode::index_buffer:
@@ -651,6 +664,16 @@ rt_command_buffer_t* rtd3d12_command_buffer_snapshot_create(const rt_command_buf
 	memcpy(snapshot->ir_data, command_buffer->ir_data, snapshot->ir_size);
 	for (usize offset = 0; offset < snapshot->ir_size;) {
 		rtd3d12_command_header* header = reinterpret_cast<rtd3d12_command_header*>(snapshot->ir_data + offset);
+		if (header->opcode == rtd3d12_command_opcode::uniform_data || header->opcode == rtd3d12_command_opcode::storage_data) {
+			rtd3d12_ir_program_data* command = reinterpret_cast<rtd3d12_ir_program_data*>(header + 1);
+			std::byte* bytes = rtd3d12::allocate_bytes(command->size);
+			if (!bytes) {
+				delete snapshot;
+				return nullptr;
+			}
+			memcpy(bytes, command->bytes, command->size);
+			command->bytes = bytes;
+		}
 		rtd3d12_command_buffer_retain_payload(header->opcode, header + 1);
 		offset += rtd3d12_command_record_size(header->opcode);
 	}
@@ -669,6 +692,16 @@ void rtd3d12_command_buffer_execute(rt_command_buffer_t* command_buffer, rt_comm
 			return;
 		}
 		memcpy(destination, source + 1, record_size - sizeof(*source));
+		if (source->opcode == rtd3d12_command_opcode::uniform_data || source->opcode == rtd3d12_command_opcode::storage_data) {
+			rtd3d12_ir_program_data* command = static_cast<rtd3d12_ir_program_data*>(destination);
+			std::byte* bytes = rtd3d12::allocate_bytes(command->size);
+			if (!bytes) {
+				command_buffer->ir_size -= record_size;
+				return;
+			}
+			memcpy(bytes, command->bytes, command->size);
+			command->bytes = bytes;
+		}
 		rtd3d12_command_buffer_retain_payload(source->opcode, destination);
 		offset += record_size;
 	}
@@ -770,9 +803,8 @@ void rtd3d12_command_buffer_bind_buffer(rt_command_buffer_t* command_buffer, rt:
 		return;
 	}
 	rt_buffer_t* node = buffer ? buffer->active : nullptr;
-	*command = { location, node, offset, size };
+	*command = { location ? location->address : 0, node, offset, size };
 	rtd3d12_buffer_node_retain(node);
-	rtd3d12_location_program_retain(location);
 }
 void rtd3d12_command_buffer_bind_texture(rt_command_buffer_t* command_buffer, rt::location* location, rt_texture_view_t* texture_view) {
 	if (!command_buffer || !command_buffer->recording || !texture_view || !rtd3d12_texture_view_refresh(rtd3d12_get_current_context(), texture_view) || !rtd3d12_texture_view_prepare_sampler(rtd3d12_get_current_context(), texture_view)) {
@@ -783,7 +815,7 @@ void rtd3d12_command_buffer_bind_texture(rt_command_buffer_t* command_buffer, rt
 	if (!command) {
 		return;
 	}
-	*command = { location, texture_view, image, texture_view->d3d_sampler_heap, texture_view->sampler_cpu };
+	*command = { location ? location->address : 0, texture_view, image, texture_view->d3d_sampler_heap, texture_view->sampler_cpu };
 	(texture_view)->retain();
 	if (image) {
 		(image)->retain();
@@ -791,7 +823,6 @@ void rtd3d12_command_buffer_bind_texture(rt_command_buffer_t* command_buffer, rt
 	if (command->sampler_heap) {
 		command->sampler_heap->AddRef();
 	}
-	rtd3d12_location_program_retain(location);
 }
 void rtd3d12_command_buffer_vertex_buffer(rt_command_buffer_t* command_buffer, rt::location* location, rt_buffer_t* buffer, usize offset) {
 	rtd3d12_ir_vertex_buffer* command = static_cast<rtd3d12_ir_vertex_buffer*>(rtd3d12_command_append(command_buffer, rtd3d12_command_opcode::vertex_buffer));
@@ -799,9 +830,52 @@ void rtd3d12_command_buffer_vertex_buffer(rt_command_buffer_t* command_buffer, r
 		return;
 	}
 	rt_buffer_t* node = buffer ? buffer->active : nullptr;
-	*command = { location, node, offset };
+	*command = { location ? location->address : 0, node, offset };
 	rtd3d12_buffer_node_retain(node);
-	rtd3d12_location_program_retain(location);
+}
+
+void rt_command_buffer_t::uniform_data(rt::location* location, const u08* data, usize size) {
+	rt_program_t* program = rtd3d12_location_program(location);
+	const rtd3d12_program_data_mapping* mapping = program && location && program->uniform_data_mappings[location->address]
+		? &*program->uniform_data_mappings[location->address] : nullptr;
+	if (!recording || !mapping || !data || size != mapping->byte_size) {
+		rtd3d12_throwf(rt::error::improper_usage, "program data write does not match its reflected location");
+		return;
+	}
+	rtd3d12_ir_program_data* command = static_cast<rtd3d12_ir_program_data*>(rtd3d12_command_append(this, rtd3d12_command_opcode::uniform_data));
+	if (!command) return;
+	command->bytes = rtd3d12::allocate_bytes(size);
+	if (!command->bytes) {
+		ir_size -= rtd3d12_command_record_size(rtd3d12_command_opcode::uniform_data);
+		return;
+	}
+	memcpy(command->bytes, data, size);
+	command->address = location->address;
+	command->size = size;
+	command->resource = nullptr;
+	command->upload = nullptr;
+}
+
+void rt_command_buffer_t::storage_data(rt::location* location, const u08* data, usize size) {
+	rt_program_t* program = rtd3d12_location_program(location);
+	const rtd3d12_program_data_mapping* mapping = program && location && program->storage_data_mappings[location->address]
+		? &*program->storage_data_mappings[location->address] : nullptr;
+	if (!recording || !mapping || !data || size != mapping->byte_size) {
+		rtd3d12_throwf(rt::error::improper_usage, "program data write does not match its reflected location");
+		return;
+	}
+	rtd3d12_ir_program_data* command = static_cast<rtd3d12_ir_program_data*>(rtd3d12_command_append(this, rtd3d12_command_opcode::storage_data));
+	if (!command) return;
+	command->bytes = rtd3d12::allocate_bytes(size);
+	if (!command->bytes) {
+		ir_size -= rtd3d12_command_record_size(rtd3d12_command_opcode::storage_data);
+		return;
+	}
+	memcpy(command->bytes, data, size);
+	command->address = location->address;
+	command->size = size;
+	command->resource = nullptr;
+	command->upload = nullptr;
 }
 void rtd3d12_command_buffer_index_buffer(rt_command_buffer_t* command_buffer, rt_buffer_t* buffer, usize offset, rt::index_format format) {
 	rtd3d12_ir_index_buffer* command = static_cast<rtd3d12_ir_index_buffer*>(rtd3d12_command_append(command_buffer, rtd3d12_command_opcode::index_buffer));
@@ -1198,7 +1272,7 @@ void rtd3d12_lower_set_scissor(ID3D12GraphicsCommandList* command_list, const rt
 
 static void rtd3d12_lower_remember_buffer_binding(rtd3d12_command_lower_state* state, const rtd3d12_ir_buffer* command) {
 	for (usize index = 0; index < state->pending_buffer_count; ++index) {
-		if (state->pending_buffers[index].location == command->location) {
+		if (state->pending_buffers[index].address == command->address) {
 			state->pending_buffers[index] = *command;
 			return;
 		}
@@ -1210,7 +1284,7 @@ static void rtd3d12_lower_remember_buffer_binding(rtd3d12_command_lower_state* s
 
 static void rtd3d12_lower_remember_texture_binding(rtd3d12_command_lower_state* state, const rtd3d12_ir_texture* command) {
 	for (usize index = 0; index < state->pending_texture_count; ++index) {
-		if (state->pending_textures[index].location == command->location) {
+		if (state->pending_textures[index].address == command->address) {
 			state->pending_textures[index] = *command;
 			return;
 		}
@@ -1235,6 +1309,12 @@ void rtd3d12_lower_use_program(rtd3d12_context* ctx, rtd3d12_command_lower_state
 	for (usize index = 0; index < state->pending_texture_count; ++index) {
 		rtd3d12_lower_bind_texture(ctx, state, command_list, &state->pending_textures[index]);
 	}
+	for (u32 address = 0; address < 256; address++) {
+		if (state->program->uniform_data_mappings[address] && state->uniform_resources[address])
+			rtd3d12_lower_bind_program_data(ctx, state, command_list, *state->program->uniform_data_mappings[address], state->uniform_resources[address], false);
+		if (state->program->storage_data_mappings[address] && state->storage_resources[address])
+			rtd3d12_lower_bind_program_data(ctx, state, command_list, *state->program->storage_data_mappings[address], state->storage_resources[address], true);
+	}
 }
 
 void rtd3d12_lower_bind_buffer(rtd3d12_context* ctx, rtd3d12_command_lower_state* state, ID3D12GraphicsCommandList* command_list, const rtd3d12_ir_buffer* command) {
@@ -1245,10 +1325,11 @@ void rtd3d12_lower_bind_buffer(rtd3d12_context* ctx, rtd3d12_command_lower_state
 	if (!state->program) {
 		return;
 	}
-	const rt::location* location = command->location;
-	if (!location || location->program != state->program || (location->kind != rtd3d12_program_location_kind::buffer && location->kind != rtd3d12_program_location_kind::storage_buffer)) {
+	if (!state->program->descriptor_mappings[command->address]) {
 		return;
 	}
+	const rtd3d12_program_descriptor_mapping& mapping = *state->program->descriptor_mappings[command->address];
+	if (mapping.type != rtd3d12_descriptor_type::constant_buffer && mapping.type != rtd3d12_descriptor_type::storage_buffer) return;
 	if (!state->resource_heap || !command->buffer->d3d_resource) {
 		return;
 	}
@@ -1256,7 +1337,7 @@ void rtd3d12_lower_bind_buffer(rtd3d12_context* ctx, rtd3d12_command_lower_state
 	D3D12_GPU_DESCRIPTOR_HANDLE gpu = state->resource_heap->GetGPUDescriptorHandleForHeapStart();
 	cpu.ptr += state->resource_index * state->resource_step;
 	gpu.ptr += state->resource_index++ * state->resource_step;
-	if (location->kind == rtd3d12_program_location_kind::buffer) {
+	if (mapping.type == rtd3d12_descriptor_type::constant_buffer) {
 		/* A D3D12 CBV uses a 256-byte-aligned address and rounded byte size.
 		 * The public range is logical, but it must fit in the physical backing
 		 * after D3D12's rounding. */
@@ -1272,18 +1353,18 @@ void rtd3d12_lower_bind_buffer(rtd3d12_context* ctx, rtd3d12_command_lower_state
 			static_cast<UINT>(cbv_size),
 		};
 		ctx->d3d_device->CreateConstantBufferView(&desc, cpu);
-		command_list->SetGraphicsRootDescriptorTable(location->root_parameter, gpu);
-	} else if (location->kind == rtd3d12_program_location_kind::storage_buffer && location->storage_stride && command->offset % location->storage_stride == 0 && command->size % location->storage_stride == 0) {
+		command_list->SetGraphicsRootDescriptorTable(mapping.root_parameter, gpu);
+	} else if (mapping.storage_stride && command->offset % mapping.storage_stride == 0 && command->size % mapping.storage_stride == 0) {
 		rtd3d12_command_transition_buffer(command_list, command->buffer, D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
 		D3D12_SHADER_RESOURCE_VIEW_DESC desc = {};
 		desc.Format = DXGI_FORMAT_UNKNOWN;
 		desc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
 		desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-		desc.Buffer.FirstElement = command->offset / location->storage_stride;
-		desc.Buffer.NumElements = command->size / location->storage_stride;
-		desc.Buffer.StructureByteStride = location->storage_stride;
+		desc.Buffer.FirstElement = command->offset / mapping.storage_stride;
+		desc.Buffer.NumElements = command->size / mapping.storage_stride;
+		desc.Buffer.StructureByteStride = mapping.storage_stride;
 		ctx->d3d_device->CreateShaderResourceView(command->buffer->d3d_resource, &desc, cpu);
-		command_list->SetGraphicsRootDescriptorTable(location->root_parameter, gpu);
+		command_list->SetGraphicsRootDescriptorTable(mapping.root_parameter, gpu);
 	}
 }
 
@@ -1297,10 +1378,11 @@ void rtd3d12_lower_bind_texture(rtd3d12_context* ctx, rtd3d12_command_lower_stat
 	if (!state->program || !state->resource_heap || !state->sampler_heap) {
 		return;
 	}
-	const rt::location* location = command->location;
-	if (!location || location->program != state->program || location->kind != rtd3d12_program_location_kind::texture) {
+	if (!state->program->descriptor_mappings[command->address]) {
 		return;
 	}
+	const rtd3d12_program_descriptor_mapping& mapping = *state->program->descriptor_mappings[command->address];
+	if (mapping.type != rtd3d12_descriptor_type::texture) return;
 	D3D12_CPU_DESCRIPTOR_HANDLE resource_cpu = state->resource_heap->GetCPUDescriptorHandleForHeapStart();
 	D3D12_GPU_DESCRIPTOR_HANDLE resource_gpu = state->resource_heap->GetGPUDescriptorHandleForHeapStart();
 	D3D12_CPU_DESCRIPTOR_HANDLE sampler_cpu = state->sampler_heap->GetCPUDescriptorHandleForHeapStart();
@@ -1359,25 +1441,26 @@ void rtd3d12_lower_bind_texture(rtd3d12_context* ctx, rtd3d12_command_lower_stat
 	}
 	ctx->d3d_device->CreateShaderResourceView(image->d3d_resource, &srv, resource_cpu);
 	ctx->d3d_device->CopyDescriptorsSimple(1, sampler_cpu, command->sampler_cpu, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
-	command_list->SetGraphicsRootDescriptorTable(location->root_parameter, resource_gpu);
-	command_list->SetGraphicsRootDescriptorTable(location->sampler_root_parameter, sampler_gpu);
+	command_list->SetGraphicsRootDescriptorTable(mapping.root_parameter, resource_gpu);
+	command_list->SetGraphicsRootDescriptorTable(mapping.sampler_root_parameter, sampler_gpu);
 }
 
 void rtd3d12_lower_vertex_buffer(rtd3d12_command_lower_state* state, ID3D12GraphicsCommandList* command_list, const rtd3d12_ir_vertex_buffer* command) {
 	if (!command->buffer || !state->program) {
 		return;
 	}
-	const rt::location* location = command->location;
-	if (!location || location->program != state->program || location->kind != rtd3d12_program_location_kind::vertex_input || location->vertex_input >= state->program->vertex_layout.input_count) {
+	if (!state->program->input_mappings[command->address]) {
 		return;
 	}
+	const rtd3d12_program_input_mapping& mapping = *state->program->input_mappings[command->address];
+	if (mapping.vertex_input >= state->program->vertex_layout.input_count) return;
 
 	rtd3d12_command_transition_buffer(command_list, command->buffer, D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER);
 	D3D12_VERTEX_BUFFER_VIEW view = command->buffer->vertex_view;
 	view.BufferLocation += command->offset;
 	view.SizeInBytes -= static_cast<UINT>(command->offset);
-	view.StrideInBytes = static_cast<UINT>(state->program->vertex_layout.inputs[location->vertex_input].stride);
-	command_list->IASetVertexBuffers(static_cast<UINT>(location->vertex_input), 1, &view);
+	view.StrideInBytes = static_cast<UINT>(state->program->vertex_layout.inputs[mapping.vertex_input].stride);
+	command_list->IASetVertexBuffers(static_cast<UINT>(mapping.vertex_input), 1, &view);
 }
 
 void rtd3d12_lower_index_buffer(ID3D12GraphicsCommandList* command_list, const rtd3d12_ir_index_buffer* command) {
@@ -1788,6 +1871,30 @@ void rtd3d12_lower_texture_copy_to_buffer(rtd3d12_context* ctx, ID3D12GraphicsCo
 	command_list->ResourceBarrier(1, &staging_barrier);
 }
 
+void rtd3d12_lower_bind_program_data(rtd3d12_context* ctx, rtd3d12_command_lower_state* state, ID3D12GraphicsCommandList* command_list, const rtd3d12_program_data_mapping& mapping, ID3D12Resource* resource, bool storage) {
+	if (!resource || !state->resource_heap) {
+		return;
+	}
+	D3D12_CPU_DESCRIPTOR_HANDLE cpu = state->resource_heap->GetCPUDescriptorHandleForHeapStart();
+	D3D12_GPU_DESCRIPTOR_HANDLE gpu = state->resource_heap->GetGPUDescriptorHandleForHeapStart();
+	cpu.ptr += state->resource_index * state->resource_step;
+	gpu.ptr += state->resource_index++ * state->resource_step;
+	if (storage) {
+		D3D12_UNORDERED_ACCESS_VIEW_DESC desc = {};
+		desc.Format = DXGI_FORMAT_R32_TYPELESS;
+		desc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+		desc.Buffer.NumElements = static_cast<UINT>((mapping.block_size + 3u) / 4u);
+		desc.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
+		ctx->d3d_device->CreateUnorderedAccessView(resource, nullptr, &desc, cpu);
+	} else {
+		D3D12_CONSTANT_BUFFER_VIEW_DESC desc = {};
+		desc.BufferLocation = resource->GetGPUVirtualAddress();
+		desc.SizeInBytes = static_cast<UINT>((mapping.block_size + 255u) & ~usize(255u));
+		ctx->d3d_device->CreateConstantBufferView(&desc, cpu);
+	}
+	command_list->SetGraphicsRootDescriptorTable(mapping.root_parameter, gpu);
+}
+
 void rtd3d12_command_buffer_lower(rtd3d12_context* ctx, rt_command_buffer_t* command_buffer, ID3D12GraphicsCommandList* command_list, ID3D12DescriptorHeap** resource_heap, ID3D12DescriptorHeap** sampler_heap) {
 	const usize begin = 0;
 	const usize end = command_buffer ? command_buffer->ir_size : 0;
@@ -1796,7 +1903,7 @@ void rtd3d12_command_buffer_lower(rtd3d12_context* ctx, rt_command_buffer_t* com
 	usize program_count = 0;
 	for (usize offset = begin; offset < end; (void)0) {
 		rtd3d12_command_header* header = reinterpret_cast<rtd3d12_command_header*>(command_buffer->ir_data + offset);
-		if (header->opcode == rtd3d12_command_opcode::bind_buffer || header->opcode == rtd3d12_command_opcode::bind_texture) {
+		if (header->opcode == rtd3d12_command_opcode::bind_buffer || header->opcode == rtd3d12_command_opcode::bind_texture || header->opcode == rtd3d12_command_opcode::uniform_data || header->opcode == rtd3d12_command_opcode::storage_data) {
 			resource_bind_count++;
 		}
 		if (header->opcode == rtd3d12_command_opcode::bind_texture) {
@@ -1879,6 +1986,74 @@ void rtd3d12_command_buffer_lower(rtd3d12_context* ctx, rt_command_buffer_t* com
 		case rtd3d12_command_opcode::use_program:
 			rtd3d12_lower_use_program(ctx, &state, command_list, static_cast<rtd3d12_ir_program*>(payload));
 			break;
+		case rtd3d12_command_opcode::uniform_data:
+		case rtd3d12_command_opcode::storage_data: {
+			rtd3d12_ir_program_data* command = static_cast<rtd3d12_ir_program_data*>(payload);
+			if (!state.program) break;
+			auto& mappings = header->opcode == rtd3d12_command_opcode::uniform_data
+				? state.program->uniform_data_mappings : state.program->storage_data_mappings;
+			if (!mappings[command->address]) break;
+			const rtd3d12_program_data_mapping& mapping = *mappings[command->address];
+			if (command->size != mapping.byte_size || mapping.byte_offset > mapping.block_size || command->size > mapping.block_size - mapping.byte_offset) {
+				break;
+			}
+			u32 block_address = command->address;
+			for (u32 address = 0; address < command->address; address++) {
+				if (mappings[address] && mappings[address]->binding == mapping.binding) {
+					block_address = address;
+					break;
+				}
+			}
+			std::vector<std::byte>& block = header->opcode == rtd3d12_command_opcode::uniform_data ? state.uniform_blocks[block_address] : state.storage_blocks[block_address];
+			if (block.size() != mapping.block_size) block.resize(mapping.block_size);
+			memcpy(block.data() + mapping.byte_offset, command->bytes, command->size);
+			if (command->resource) {
+				command->resource->Release();
+				command->resource = nullptr;
+			}
+			if (command->upload) {
+				command->upload->Release();
+				command->upload = nullptr;
+			}
+			if (header->opcode == rtd3d12_command_opcode::uniform_data) {
+				const usize padded_size = (mapping.block_size + 255u) & ~usize(255u);
+				std::vector<std::byte> padded(padded_size);
+				memcpy(padded.data(), block.data(), block.size());
+				command->resource = rtd3d12_command_buffer_upload(ctx, reinterpret_cast<const u08*>(padded.data()), padded.size());
+				state.uniform_resources[block_address] = command->resource;
+				rtd3d12_lower_bind_program_data(ctx, &state, command_list, mapping, command->resource, false);
+			} else {
+				command->upload = rtd3d12_command_buffer_upload(ctx, reinterpret_cast<const u08*>(block.data()), block.size());
+				D3D12_HEAP_PROPERTIES heap = {};
+				heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+				D3D12_RESOURCE_DESC desc = {};
+				desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+				desc.Width = (mapping.block_size + 3u) & ~usize(3u);
+				desc.Height = 1;
+				desc.DepthOrArraySize = 1;
+				desc.MipLevels = 1;
+				desc.SampleDesc.Count = 1;
+				desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+				desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+				HRESULT result = ctx->d3d_device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&command->resource));
+				if (FAILED(result)) {
+					rtd3d12_fail(rtd3d12_error_from_hresult(result), "CreateCommittedResource(program storage) failed: 0x{:08x}", static_cast<u32>(result));
+					break;
+				}
+				if (!command->upload) break;
+				command_list->CopyBufferRegion(command->resource, 0, command->upload, 0, mapping.block_size);
+				D3D12_RESOURCE_BARRIER barrier = {};
+				barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+				barrier.Transition.pResource = command->resource;
+				barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+				barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+				barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+				command_list->ResourceBarrier(1, &barrier);
+				state.storage_resources[block_address] = command->resource;
+				rtd3d12_lower_bind_program_data(ctx, &state, command_list, mapping, command->resource, true);
+			}
+			break;
+		}
 		case rtd3d12_command_opcode::bind_buffer:
 			rtd3d12_lower_bind_buffer(ctx, &state, command_list, static_cast<rtd3d12_ir_buffer*>(payload));
 			break;

@@ -33,7 +33,7 @@ static const rt_vertex_layout Layout = { Inputs, 1 };
 
 int main(int argc, char* argv[]) {
 	const ExampleOptions options = parse_cli(argc, argv);
-	if (rtLoad("rt-vulkan", nullptr, 0) != RT_SUCCESS) {
+	if (rtLoad(options.backend.c_str(), nullptr, 0) != RT_SUCCESS) {
 		std::cerr << "rtLoad failed\n";
 		return 1;
 	}
@@ -52,7 +52,7 @@ int main(int argc, char* argv[]) {
 	GLFWwindow* window = glfwCreateWindow(960, 540, "Rutile 01 Triangle", nullptr, nullptr);
 
 	rt_swapchain swapchain = rtSwapchainCreate();
-	rtSwapchainBindWindowGLFW(swapchain, window);
+	rtSwapchainBindGLFW(swapchain, window);
 
 	rt_queue queue = rtQueueCreate(RT_QUEUE_GRAPHICS);
 	rt_buffer vbo = rtBufferCreate();
@@ -85,7 +85,7 @@ int main(int argc, char* argv[]) {
 		rtCommandBufferReset(primary);
 		rtCommandBufferBegin(primary);
 		rtCmdBeginRendering(primary, acquired.framebuffer);
-		rtCmdClearColor(primary, RT_LOCATION_ZERO, 0.08f, 0.09f, 0.12f, 1.0f);
+		rtCmdClearColor(primary, nullptr, 0.08f, 0.09f, 0.12f, 1.0f);
 		rtCmdClear(primary, RT_CLEAR_COLOR);
 		int width = 0;
 		int height = 0;

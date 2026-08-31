@@ -192,11 +192,11 @@ static void rtgl_program_reflect_fragment_outputs(struct rtgl_program* program, 
 				word_index += instruction_word_count;
 				continue;
 			}
-			location->program = program;
-			strncpy(location->name, name, sizeof(location->name) - 1);
-			location->binding = shader_location;
-			location->gl_location = (GLint)shader_location;
-			location->kind = RTGL_LOCATION_MAPPING_OUTPUT;
+			struct rtgl_program_mapping* mapping = rtgl_program_mapping(program, location);
+			strncpy(mapping->name, name, sizeof(mapping->name) - 1);
+			mapping->binding = shader_location;
+			mapping->gl_location = (GLint)shader_location;
+			mapping->kind = RTGL_LOCATION_MAPPING_OUTPUT;
 		}
 		word_index += instruction_word_count;
 	}
@@ -214,11 +214,11 @@ static void rtgl_program_reflect_spirv(struct rtgl_program* program, const rtsl_
 		if (!location) {
 			break;
 		}
-		location->program = program;
-		strncpy(location->name, resource.name, sizeof(location->name) - 1);
-		location->binding = resource.binding;
-		location->gl_location = -1;
-		location->kind = rtgl_location_mapping_kind_from_spirv(resource.kind);
+		struct rtgl_program_mapping* mapping = rtgl_program_mapping(program, location);
+		strncpy(mapping->name, resource.name, sizeof(mapping->name) - 1);
+		mapping->binding = resource.binding;
+		mapping->gl_location = -1;
+		mapping->kind = rtgl_location_mapping_kind_from_spirv(resource.kind);
 	}
 	rtgl_program_reflect_fragment_outputs(program, translation);
 }
@@ -288,21 +288,21 @@ void rtgl_execution_program_finalize(struct rtgl_context* ctx, struct rtgl_progr
 				if (!program->location_occupied[address]) {
 					continue;
 				}
-				struct rt_location_t* location = &program->locations[address];
-				if (location->kind == RTGL_LOCATION_MAPPING_TEXTURE) {
-					location->gl_location = glGetUniformLocation(program->gl_program, location->name);
-					if (location->gl_location >= 0) {
-						glProgramUniform1i(program->gl_program, location->gl_location, (GLint)location->binding);
+				struct rtgl_program_mapping* mapping = &program->mappings[address];
+				if (mapping->kind == RTGL_LOCATION_MAPPING_TEXTURE) {
+					mapping->gl_location = glGetUniformLocation(program->gl_program, mapping->name);
+					if (mapping->gl_location >= 0) {
+						glProgramUniform1i(program->gl_program, mapping->gl_location, (GLint)mapping->binding);
 					}
-				} else if (location->kind == RTGL_LOCATION_MAPPING_STORAGE_BUFFER) {
-					const GLuint block = glGetProgramResourceIndex(program->gl_program, GL_SHADER_STORAGE_BLOCK, location->name);
+				} else if (mapping->kind == RTGL_LOCATION_MAPPING_STORAGE_BUFFER || mapping->kind == RTGL_LOCATION_MAPPING_STORAGE_DATA) {
+					const GLuint block = glGetProgramResourceIndex(program->gl_program, GL_SHADER_STORAGE_BLOCK, mapping->name);
 					if (block != GL_INVALID_INDEX) {
-						glShaderStorageBlockBinding(program->gl_program, block, location->binding);
+						glShaderStorageBlockBinding(program->gl_program, block, mapping->binding);
 					}
-				} else if (location->kind == RTGL_LOCATION_MAPPING_UNIFORM_BUFFER) {
-					const GLuint block = glGetUniformBlockIndex(program->gl_program, location->name);
+				} else if (mapping->kind == RTGL_LOCATION_MAPPING_UNIFORM_BUFFER || mapping->kind == RTGL_LOCATION_MAPPING_UNIFORM_DATA) {
+					const GLuint block = glGetUniformBlockIndex(program->gl_program, mapping->name);
 					if (block != GL_INVALID_INDEX) {
-						glUniformBlockBinding(program->gl_program, block, location->binding);
+						glUniformBlockBinding(program->gl_program, block, mapping->binding);
 					}
 				}
 			}

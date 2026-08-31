@@ -27,6 +27,8 @@ void rtval_command_buffer_set_viewport(struct rtval_command_buffer* command_buff
 void rtval_command_buffer_set_scissor(struct rtval_command_buffer* command_buffer, usize x, usize y, usize width, usize height);
 void rtval_command_buffer_end_rendering(struct rtval_command_buffer* command_buffer);
 void rtval_command_buffer_use_program(struct rtval_command_buffer* command_buffer, struct rtval_program* program);
+void rtval_command_buffer_uniform_data(struct rtval_command_buffer* command_buffer, rt_location location, const u08* data, usize size);
+void rtval_command_buffer_storage_data(struct rtval_command_buffer* command_buffer, rt_location location, const u08* data, usize size);
 void rtval_command_buffer_bind_buffer(struct rtval_command_buffer* command_buffer, rt_location location, struct rtval_buffer* buffer, rt_buffer_range range);
 void rtval_command_buffer_bind_texture(struct rtval_command_buffer* command_buffer, rt_location location, struct rtval_texture_view* texture_view);
 void rtval_command_buffer_vertex_buffer(struct rtval_command_buffer* command_buffer, rt_location location, struct rtval_buffer* buffer, rt_buffer_range range);

@@ -213,9 +213,26 @@ static void rtvk_swapchain_mark_unacquired(struct rtvk_swapchain* swapchain) {
 
 static void rtvk_swapchain_release_acquired_image_locked(struct rtvk_swapchain* swapchain, struct rtvk_swapchain_generation* generation) {
 	u32 frame_index = generation->frame_index;
+	VkSemaphore present_wait = generation->image_available[frame_index];
+	if (generation->acquire_wait[frame_index].value) {
+		rt_timepoint release = rtvk_queue_signal_binary_after_timepoint(
+			generation->present_queue,
+			rtvk_timepoint_value(generation->acquire_wait[frame_index]),
+			generation->present_ready[frame_index]
+		);
+		if (release.value) {
+			rtvk_mutex_lock(&generation->present_queue->lock);
+			rtvk_queue_flush_locked(swapchain->base.ctx, generation->present_queue);
+			rtvk_mutex_unlock(&generation->present_queue->lock);
+			if (rtvk_error() == RT_SUCCESS) {
+				generation->present_done[frame_index] = release;
+				present_wait = generation->present_ready[frame_index];
+			}
+		}
+	}
 	VkPresentInfoKHR present_info = { VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
 	present_info.waitSemaphoreCount = 1;
-	present_info.pWaitSemaphores = &generation->image_available[frame_index];
+	present_info.pWaitSemaphores = &present_wait;
 	present_info.swapchainCount = 1;
 	present_info.pSwapchains = &generation->vk_swapchain;
 	present_info.pImageIndices = &generation->acquired_image_index;
@@ -666,6 +683,15 @@ rt_swapchain_acquire_result rtvk_swapchain_acquire(struct rtvk_context* ctx, str
 		rtvk_swapchain_unlock(swapchain);
 		return acquire;
 	}
+	rtvk_mutex_lock(&generation->present_queue->lock);
+	rtvk_queue_flush_locked(ctx, generation->present_queue);
+	rtvk_mutex_unlock(&generation->present_queue->lock);
+	if (rtvk_error() != RT_SUCCESS) {
+		generation->acquire_wait[frame_index] = (rt_timepoint){ 0 };
+		rtvk_swapchain_release_acquired_image_locked(swapchain, generation);
+		rtvk_swapchain_unlock(swapchain);
+		return acquire;
+	}
 	if (generation->acquire_wait[frame_index].value == 0) {
 		rtvk_throwf(RT_PLATFORM_FAILURE, "swapchain acquire failed: acquire wait is invalid");
 		generation->acquire_wait[frame_index] = (rt_timepoint){ 0 };
@@ -704,7 +730,13 @@ void rtvk_swapchain_present(struct rtvk_context* ctx, struct rtvk_swapchain* swa
 		rtvk_timepoint_value(rendered),
 		generation->present_ready[frame_index]
 	);
-	rtvk_queue_flush(ctx, rendered_queue);
+	if (!generation->present_done[frame_index].value) {
+		rtvk_swapchain_mark_unacquired(swapchain);
+		return;
+	}
+	rtvk_mutex_lock(&rendered_queue->lock);
+	rtvk_queue_flush_locked(ctx, rendered_queue);
+	rtvk_mutex_unlock(&rendered_queue->lock);
 	if (rtvk_error() != RT_SUCCESS) {
 		rtvk_swapchain_mark_unacquired(swapchain);
 		return;

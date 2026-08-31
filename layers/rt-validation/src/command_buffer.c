@@ -242,6 +242,14 @@ RT_API_PUBLIC void rtCmdUseProgram(rt_command_buffer command_buffer, rt_program 
 	);
 }
 
+RT_API_PUBLIC void rtCmdUniformData(rt_command_buffer command_buffer, rt_location location, const u08* data, usize size) {
+	rtval_command_buffer_uniform_data(rtval_command_buffer_from_handle(command_buffer), location, data, size);
+}
+
+RT_API_PUBLIC void rtCmdStorageData(rt_command_buffer command_buffer, rt_location location, const u08* data, usize size) {
+	rtval_command_buffer_storage_data(rtval_command_buffer_from_handle(command_buffer), location, data, size);
+}
+
 RT_API_PUBLIC void rtCmdBindBuffer(rt_command_buffer command_buffer, rt_location location, rt_buffer buffer, rt_buffer_range range) {
 	rtval_command_buffer_bind_buffer(
 		rtval_command_buffer_from_handle(command_buffer),
@@ -485,6 +493,32 @@ void rtval_command_buffer_use_program(struct rtval_command_buffer* command_buffe
 	}
 	rtval_next_rtCmdUseProgram(state->backend, program_state->backend);
 	rtval_report_error("rtCmdUseProgram");
+}
+
+void rtval_command_buffer_uniform_data(struct rtval_command_buffer* command_buffer, rt_location location, const u08* data, usize size) {
+	struct rtval_command_buffer* state = RTVAL_PAYLOAD(command_buffer, struct rtval_command_buffer);
+	if (!rtval_command_buffer_recording(command_buffer, "rtCmdUniformData")) {
+		return;
+	}
+	if (!location || !data || !size) {
+		RTVAL_DROP("rtCmdUniformData: location and non-empty data required");
+		return;
+	}
+	rtval_next_rtCmdUniformData(state->backend, location, data, size);
+	rtval_report_error("rtCmdUniformData");
+}
+
+void rtval_command_buffer_storage_data(struct rtval_command_buffer* command_buffer, rt_location location, const u08* data, usize size) {
+	struct rtval_command_buffer* state = RTVAL_PAYLOAD(command_buffer, struct rtval_command_buffer);
+	if (!rtval_command_buffer_recording(command_buffer, "rtCmdStorageData")) {
+		return;
+	}
+	if (!location || !data || !size) {
+		RTVAL_DROP("rtCmdStorageData: location and non-empty data required");
+		return;
+	}
+	rtval_next_rtCmdStorageData(state->backend, location, data, size);
+	rtval_report_error("rtCmdStorageData");
 }
 
 void rtval_command_buffer_bind_buffer(struct rtval_command_buffer* command_buffer, rt_location location, struct rtval_buffer* buffer, rt_buffer_range range) {

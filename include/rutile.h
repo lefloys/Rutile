@@ -667,8 +667,8 @@ RT_API void rtCmdBeginRendering(rt_command_buffer command_buffer, rt_framebuffer
 ** selected value.
 **
 ** @param command_buffer  Command buffer being recorded.
-** @param location        Non-null fragment-output location obtained from the
-**                        program.
+** @param location        Named fragment-output location obtained from the
+**                        program, or NULL for the unnamed attachment zero.
 ** @param r               Red.
 ** @param g               Green.
 ** @param b               Blue.
@@ -756,6 +756,24 @@ RT_API void rtCmdEndRendering(rt_command_buffer command_buffer);
 ** @param program         Finalized program to use.
 */
 RT_API void rtCmdUseProgram(rt_command_buffer command_buffer, rt_program program);
+
+/*!
+** @brief Copy bytes into the current command buffer's uniform state.
+**
+** @p location must identify a reflected uniform-qualified variable in the
+** current program. The bytes are copied while recording and remain part of
+** this command buffer's state.
+*/
+RT_API void rtCmdUniformData(rt_command_buffer command_buffer, rt_location location, const u08* data, usize size);
+
+/*!
+** @brief Copy bytes into the current command buffer's storage state.
+**
+** @p location must identify a reflected storage-qualified variable in the
+** current program. The bytes are copied while recording and remain part of
+** this command buffer's state.
+*/
+RT_API void rtCmdStorageData(rt_command_buffer command_buffer, rt_location location, const u08* data, usize size);
 
 /*!
 ** @brief Bind a buffer range for subsequent draws.
@@ -968,8 +986,8 @@ RT_API void rtFramebufferDestroy(rt_framebuffer framebuffer);
 ** @brief Return the color attachment at a location.
 **
 ** @param framebuffer  Framebuffer to query.
-** @param location     Non-null fragment-output location obtained from the
-**                     program.
+** @param location     Named fragment-output location obtained from the
+**                     program, or NULL for attachment zero.
 ** @return Attached texture view, or NULL when the location is empty.
 */
 RT_API rt_texture_view rtFramebufferColorView(rt_framebuffer framebuffer, rt_location location);
@@ -980,8 +998,8 @@ RT_API rt_texture_view rtFramebufferColorView(rt_framebuffer framebuffer, rt_loc
 ** @param framebuffer  Framebuffer to update.
 ** @param view         Texture view to attach, or NULL to detach the current
 **                     view at @p location.
-** @param location     Non-null fragment-output location obtained from the
-**                     program.
+** @param location     Named fragment-output location obtained from the
+**                     program, or NULL for attachment zero.
 */
 RT_API void rtFramebufferSetColorView(rt_framebuffer framebuffer, rt_texture_view view, rt_location location);
 
@@ -1053,7 +1071,7 @@ RT_API void rtProgramSetLayout(rt_program program, const rt_vertex_layout* layou
 ** @param bytes        Pointer to an RTSL Program binary.
 ** @param byte_size    Size of @p bytes in bytes.
 */
-RT_API void rtProgramSource(rt_program program, const char* entry_point, const u08* bytes, usize byte_size);
+RT_API void rtProgramSource(rt_program program, const char* entry_point, const u08* program_bytes, usize program_byte_size);
 
 /*!
 ** @brief Set rasterization state for a program.
@@ -1130,15 +1148,14 @@ RT_API rt_location rtProgramInputLocation(rt_program program, const rt_vertex_at
 /*!
 ** @brief Look up a named fragment-output location.
 **
-** The program must be finalized. Pass NULL for an unnamed single color
-** output. A matching output returns a non-null location whose address is
-** zero. Named output locations may be passed to
-** @ref rtFramebufferSetColorView.
+** The program must be finalized. A direct fragment return is the unnamed
+** attachment-zero output and has no public location; pass NULL directly to
+** @ref rtFramebufferSetColorView or @ref rtCmdClearColor for that attachment.
 **
 ** @param program  Finalized program to query.
-** @param name     Null for the single unnamed color output, or a
-**                 null-terminated fragment-output field name.
-** @return Location handle, or NULL if @p name is not a fragment output.
+** @param name     Null-terminated named fragment-output field name.
+** @return Location handle, or NULL when @p name is NULL or not a named
+**         fragment output.
 */
 RT_API rt_location rtProgramOutputLocation(rt_program program, const char* name);
 
@@ -1543,6 +1560,8 @@ RT_API void rtSamplerSetLod(rt_sampler sampler, f32 min_lod, f32 max_lod, f32 lo
 /* RT_PROGRAM_EXTENSION_PROCEDURES */
 
 #define RT_BUFFER_EXTENSION_PROCEDURES(X)                                                                                                                                                                         \
+	X(void, rtCmdUniformData, (rt_command_buffer command_buffer, rt_location location, const u08* data, usize size), (command_buffer, location, data, size))                                                       \
+	X(void, rtCmdStorageData, (rt_command_buffer command_buffer, rt_location location, const u08* data, usize size), (command_buffer, location, data, size))                                                       \
 	X(void, rtCmdBindBuffer, (rt_command_buffer command_buffer, rt_location location, rt_buffer buffer, rt_buffer_range range), (command_buffer, location, buffer, range))                                        \
 	X(void, rtCmdVertexBuffer, (rt_command_buffer command_buffer, rt_location location, rt_buffer buffer, rt_buffer_range range), (command_buffer, location, buffer, range))                                      \
 	X(void, rtCmdIndexBuffer, (rt_command_buffer command_buffer, rt_buffer buffer, rt_buffer_range range, enum rt_index_format format), (command_buffer, buffer, range, format))                                  \

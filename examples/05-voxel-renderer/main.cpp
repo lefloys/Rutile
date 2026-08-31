@@ -128,7 +128,7 @@ void update_camera(GLFWwindow* window, Camera* camera, f32 dt) {
 
 int main(int argc, char** argv) {
 	const ExampleOptions options = parse_cli(argc, argv);
-	if (rtLoad("rt-d3d12", Layers, 1) != RT_SUCCESS) {
+	if (rtLoad("rt-vulkan", Layers, 0) != RT_SUCCESS) {
 		std::cerr << "rtLoad failed\n";
 		return 1;
 	}
@@ -158,7 +158,7 @@ int main(int argc, char** argv) {
 	}
 
 	rt_swapchain swapchain = rtSwapchainCreate();
-	rtSwapchainBindWindowGLFW(swapchain, window);
+	rtSwapchainBindGLFW(swapchain, window);
 	Swapchain = swapchain;
 	rt_queue queue = rtQueueCreate(RT_QUEUE_GRAPHICS);
 
@@ -257,7 +257,7 @@ int main(int argc, char** argv) {
 		rtCmdBufferBarrier(primary, transform_buffer, { sizeof(transform), 0 }, { RT_STAGE_TRANSFER, RT_ACCESS_WRITE }, { RT_STAGE_VERTEX, RT_ACCESS_READ });
 		rtCmdBufferBarrier(primary, water_transform_buffer, { sizeof(water_transform), 0 }, { RT_STAGE_TRANSFER, RT_ACCESS_WRITE }, { RT_STAGE_VERTEX, RT_ACCESS_READ });
 		rtCmdBeginRendering(primary, acquired.framebuffer);
-		rtCmdClearColor(primary, RT_LOCATION_ZERO, 0.54f, 0.72f, 0.94f, 1.0f);
+		rtCmdClearColor(primary, nullptr, 0.54f, 0.72f, 0.94f, 1.0f);
 		rtCmdClearDepth(primary, 1.0f);
 		rtCmdClear(primary, static_cast<enum rt_clear_flag>(RT_CLEAR_COLOR | RT_CLEAR_DEPTH));
 		rtCmdBindBuffer(primary, transform_location, transform_buffer, { sizeof(transform), 0 });

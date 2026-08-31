@@ -26,6 +26,10 @@ typedef int64_t i64;
 typedef float f32;
 typedef double f64;
 
+#define RT_MAKE_VERSION(major, minor, patch, snapshot) \
+	((((u64)(major) & 0xffffu) << 48u) | (((u64)(minor) & 0xffffu) << 32u) | (((u64)(patch) & 0xffffu) << 16u) | ((u64)(snapshot) & 0xffffu))
+#define RT_HEADER_VERSION RT_MAKE_VERSION(0, 1, 0, 0)
+
 enum rt_error {
 	RT_SUCCESS = 0,
 	RT_OUT_OF_HOST_MEMORY,

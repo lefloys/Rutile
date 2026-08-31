@@ -4,6 +4,7 @@
 #include "resource.hpp"
 
 #include <d3d12.h>
+#include <vector>
 
 struct rt_buffer_t;
 struct rt_framebuffer_t;
@@ -30,6 +31,8 @@ RTD3D12_API void rtCmdSetViewport(rt_command_buffer_t* command_buffer, usize x, 
 RTD3D12_API void rtCmdSetScissor(rt_command_buffer_t* command_buffer, usize x, usize y, usize width, usize height);
 RTD3D12_API void rtCmdEndRendering(rt_command_buffer_t* command_buffer);
 RTD3D12_API void rtCmdUseProgram(rt_command_buffer_t* command_buffer, rt_program_t* program);
+RTD3D12_API void rtCmdUniformData(rt_command_buffer_t* command_buffer, rt::location* location, const u08* data, usize size);
+RTD3D12_API void rtCmdStorageData(rt_command_buffer_t* command_buffer, rt::location* location, const u08* data, usize size);
 RTD3D12_API void rtCmdBindBuffer(rt_command_buffer_t* command_buffer, rt::location* location, rt_buffer_t* buffer, rt::buffer_range range);
 RTD3D12_API void rtCmdBindTexture(rt_command_buffer_t* command_buffer, rt::location* location, rt_texture_view_t* texture_view);
 RTD3D12_API void rtCmdVertexBuffer(rt_command_buffer_t* command_buffer, rt::location* location, rt_buffer_t* buffer, rt::buffer_range range);
@@ -56,6 +59,8 @@ enum class rtd3d12_command_opcode : u08 {
 	set_scissor,
 	end_rendering,
 	use_program,
+	uniform_data,
+	storage_data,
 	bind_buffer,
 	bind_texture,
 	vertex_buffer,
@@ -111,21 +116,28 @@ struct rtd3d12_ir_scissor {
 struct rtd3d12_ir_program {
 	rt_program_t* program;
 };
+struct rtd3d12_ir_program_data {
+	u08 address;
+	std::byte* bytes;
+	usize size;
+	ID3D12Resource* resource;
+	ID3D12Resource* upload;
+};
 struct rtd3d12_ir_buffer {
-	rt::location* location;
+	u08 address;
 	rt_buffer_t* buffer;
 	usize offset;
 	usize size;
 };
 struct rtd3d12_ir_texture {
-	rt::location* location;
+	u08 address;
 	rt_texture_view_t* texture_view;
 	rtd3d12_image_base* image;
 	ID3D12DescriptorHeap* sampler_heap;
 	D3D12_CPU_DESCRIPTOR_HANDLE sampler_cpu;
 };
 struct rtd3d12_ir_vertex_buffer {
-	rt::location* location;
+	u08 address;
 	rt_buffer_t* buffer;
 	usize offset;
 };
@@ -215,6 +227,8 @@ struct rtd3d12_ir_texture_barrier {
 struct rt_command_buffer_t : rtd3d12_resource<rt_command_buffer_t> {
 	explicit rt_command_buffer_t(rtd3d12_context* ctx) : rtd3d12_resource(ctx) {}
 	~rt_command_buffer_t();
+	void uniform_data(rt::location* location, const u08* data, usize size);
+	void storage_data(rt::location* location, const u08* data, usize size);
 	u08* ir_data{};
 	usize ir_size{};
 	usize ir_capacity{};
@@ -249,6 +263,10 @@ struct rtd3d12_command_lower_state {
 	usize pending_buffer_count;
 	rtd3d12_ir_texture pending_textures[32];
 	usize pending_texture_count;
+	std::vector<std::byte> uniform_blocks[256];
+	std::vector<std::byte> storage_blocks[256];
+	ID3D12Resource* uniform_resources[256];
+	ID3D12Resource* storage_resources[256];
 };
 
 void rtd3d12_command_buffer_reset(rt_command_buffer_t* command_buffer);

@@ -5,6 +5,7 @@
 
 #include <d3d12.h>
 #include <dxgi1_6.h>
+#include <array>
 #include <cstddef>
 #include <optional>
 #include <rtsl/program.hpp>
@@ -36,27 +37,44 @@ RTD3D12_API rt::location* rtProgramOutputLocation(rt_program_t* program, const c
 /*                                                                                               */
 /*===============================================================================================*/
 
-enum class rtd3d12_program_location_kind {
-	buffer,
-	storage_buffer,
-	texture,
-	vertex_input,
-	output,
-};
-
 namespace rt {
 	struct location {
 		u08 address;
-		rt_program_t* program;
-		char name[RTD3D12_MAX_SHADER_RESOURCE_NAME];
-		rtd3d12_program_location_kind kind;
-		u32 binding;
-		u32 storage_stride;
-		u32 root_parameter;
-		u32 sampler_root_parameter;
-		usize vertex_input;
 	};
 }
+
+enum class rtd3d12_descriptor_type {
+	constant_buffer,
+	storage_buffer,
+	texture,
+};
+
+struct rtd3d12_program_input_mapping {
+	usize vertex_input;
+};
+
+struct rtd3d12_program_output_mapping {
+	std::string name;
+	u32 binding;
+};
+
+struct rtd3d12_program_descriptor_mapping {
+	std::string name;
+	rtd3d12_descriptor_type type;
+	u32 binding;
+	u32 storage_stride;
+	u32 root_parameter;
+	u32 sampler_root_parameter;
+};
+
+struct rtd3d12_program_data_mapping {
+	std::string name;
+	u32 binding;
+	u32 root_parameter;
+	usize byte_offset;
+	usize byte_size;
+	usize block_size;
+};
 
 struct rtd3d12_program_shader {
 	rtsl::Stage stage;
@@ -75,6 +93,8 @@ struct rt_program_t : rtd3d12_resource<rt_program_t> {
 	rt::location* uniform_location(const char* name);
 	rt::location* input_location(const rt::vertex_attribute* attributes, usize attribute_count);
 	rt::location* output_location(const char* name);
+	rt::location* allocate_location(bool zero_address = false);
+	void clear_mappings();
 	void destroy_pipeline();
 	void destroy_root_signature();
 	ID3D12RootSignature* d3d_root_signature;
@@ -98,9 +118,16 @@ struct rt_program_t : rtd3d12_resource<rt_program_t> {
 	DXGI_FORMAT d3d_pipeline_depth_format;
 
 	rt::location locations[256];
-	bool location_occupied[256];
+	std::array<std::optional<rtd3d12_program_input_mapping>, 256> input_mappings;
+	std::array<std::optional<rtd3d12_program_output_mapping>, 256> output_mappings;
+	std::array<std::optional<rtd3d12_program_descriptor_mapping>, 256> descriptor_mappings;
+	std::array<std::optional<rtd3d12_program_data_mapping>, 256> uniform_data_mappings;
+	std::array<std::optional<rtd3d12_program_data_mapping>, 256> storage_data_mappings;
+	std::array<bool, 256> location_allocated;
 	u32 location_count;
 	std::string entry_point;
 	std::optional<rtsl::Program> rtsl_program;
 	std::vector<rtd3d12_program_shader> shaders;
 };
+
+rt_program_t* rtd3d12_location_program(const rt::location* location);

@@ -29,6 +29,8 @@ RTGL_API rt_location rtProgramOutputLocation(rt_program program, const char* nam
 /*===============================================================================================*/
 
 typedef enum rtgl_location_kind {
+	RTGL_LOCATION_MAPPING_UNIFORM_DATA,
+	RTGL_LOCATION_MAPPING_STORAGE_DATA,
 	RTGL_LOCATION_MAPPING_UNIFORM_BUFFER,
 	RTGL_LOCATION_MAPPING_STORAGE_BUFFER,
 	RTGL_LOCATION_MAPPING_STORAGE_TEXTURE_BUFFER,
@@ -39,12 +41,17 @@ typedef enum rtgl_location_kind {
 
 struct rt_location_t {
 	u08 address;
-	struct rtgl_program* program;
+};
+
+struct rtgl_program_mapping {
 	char name[64];
+	rtgl_location_kind kind;
 	u32 binding;
 	GLint gl_location;
 	GLenum storage_texture_format;
-	rtgl_location_kind kind;
+	usize byte_offset;
+	usize byte_size;
+	usize block_size;
 };
 
 struct rtgl_program {
@@ -54,6 +61,7 @@ struct rtgl_program {
 	u08* source_bytes;
 	u64 source_size;
 	struct rt_location_t locations[RTGL_LOCATION_ADDRESS_COUNT];
+	struct rtgl_program_mapping mappings[RTGL_LOCATION_ADDRESS_COUNT];
 	bool location_occupied[RTGL_LOCATION_ADDRESS_COUNT];
 	rt_vertex_layout vertex_layout;
 	rt_vertex_input vertex_inputs[16];
@@ -79,6 +87,8 @@ void rtgl_program_blend_state(struct rtgl_context* ctx, struct rtgl_program* pro
 void rtgl_program_finalize(struct rtgl_context* ctx, struct rtgl_program* program);
 struct rt_location_t* rtgl_program_uniform_location(struct rtgl_context* ctx, struct rtgl_program* program, const char* name);
 struct rt_location_t* rtgl_program_allocate_location(struct rtgl_program* program, bool zero_address);
+struct rtgl_program_mapping* rtgl_program_mapping(struct rtgl_program* program, const struct rt_location_t* location);
+struct rtgl_program* rtgl_location_program(const struct rt_location_t* location);
 void rtgl_program_clear_locations(struct rtgl_program* program);
 
 /*===============================================================================================*/

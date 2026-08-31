@@ -1,0 +1,1316 @@
+#include "transpiler.h"
+
+#include <rtsl/IR/Verifier.hpp>
+#include <rtsl/Serialization/Artifact.hpp>
+#include <spirv-tools/libspirv.h>
+
+#include <algorithm>
+#include <bit>
+#include <cstring>
+#include <new>
+#include <span>
+#include <stdexcept>
+#include <string>
+#include <string_view>
+#include <unordered_map>
+#include <unordered_set>
+#include <utility>
+#include <vector>
+
+struct rt_spirv_stage_binary {
+	std::vector<std::uint32_t> words;
+	std::string entry_point;
+};
+
+struct rt_spirv_owned_location {
+	std::string name;
+	rt_spirv_location_info info{};
+};
+
+struct rt_spirv_program {
+	rt_spirv_stage_binary stages[RT_SPIRV_STAGE_COUNT];
+	std::vector<rt_spirv_owned_location> locations;
+};
+
+namespace rutile::spirv {
+
+std::string_view opcodeName(rtsl::ir::Opcode opcode) {
+	switch (opcode) {
+	case rtsl::ir::Opcode::opcode_undef: return "undef";
+	case rtsl::ir::Opcode::opcode_constant_boolean: return "constant_boolean";
+	case rtsl::ir::Opcode::opcode_constant_integer: return "constant_integer";
+	case rtsl::ir::Opcode::opcode_constant_floating: return "constant_floating";
+	case rtsl::ir::Opcode::opcode_constant_composite: return "constant_composite";
+	case rtsl::ir::Opcode::opcode_variable: return "variable";
+	case rtsl::ir::Opcode::opcode_load: return "load";
+	case rtsl::ir::Opcode::opcode_store: return "store";
+	case rtsl::ir::Opcode::opcode_access: return "access";
+	case rtsl::ir::Opcode::opcode_add: return "add";
+	case rtsl::ir::Opcode::opcode_subtract: return "subtract";
+	case rtsl::ir::Opcode::opcode_multiply: return "multiply";
+	case rtsl::ir::Opcode::opcode_divide: return "divide";
+	case rtsl::ir::Opcode::opcode_remainder: return "remainder";
+	case rtsl::ir::Opcode::opcode_negate: return "negate";
+	case rtsl::ir::Opcode::opcode_compare_equal: return "compare_equal";
+	case rtsl::ir::Opcode::opcode_compare_not_equal: return "compare_not_equal";
+	case rtsl::ir::Opcode::opcode_compare_less: return "compare_less";
+	case rtsl::ir::Opcode::opcode_compare_less_equal: return "compare_less_equal";
+	case rtsl::ir::Opcode::opcode_compare_greater: return "compare_greater";
+	case rtsl::ir::Opcode::opcode_compare_greater_equal: return "compare_greater_equal";
+	case rtsl::ir::Opcode::opcode_logical_and: return "logical_and";
+	case rtsl::ir::Opcode::opcode_logical_or: return "logical_or";
+	case rtsl::ir::Opcode::opcode_logical_not: return "logical_not";
+	case rtsl::ir::Opcode::opcode_convert: return "convert";
+	case rtsl::ir::Opcode::opcode_bitcast: return "bitcast";
+	case rtsl::ir::Opcode::opcode_construct: return "construct";
+	case rtsl::ir::Opcode::opcode_extract: return "extract";
+	case rtsl::ir::Opcode::opcode_insert: return "insert";
+	case rtsl::ir::Opcode::opcode_call: return "call";
+	case rtsl::ir::Opcode::opcode_emit: return "emit";
+	case rtsl::ir::Opcode::opcode_end_primitive: return "end_primitive";
+	case rtsl::ir::Opcode::opcode_barrier: return "barrier";
+	case rtsl::ir::Opcode::opcode_memory_barrier: return "memory_barrier";
+	case rtsl::ir::Opcode::opcode_resource_load: return "resource_load";
+	case rtsl::ir::Opcode::opcode_resource_store: return "resource_store";
+	case rtsl::ir::Opcode::opcode_resource_sample: return "resource_sample";
+	case rtsl::ir::Opcode::opcode_resource_query: return "resource_query";
+	case rtsl::ir::Opcode::opcode_derivative: return "derivative";
+	case rtsl::ir::Opcode::opcode_discard: return "discard";
+	}
+	return "unknown";
+}
+
+std::uint32_t roundUp(std::uint32_t value, std::uint32_t alignment) {
+	return (value + alignment - 1u) / alignment * alignment;
+}
+
+struct UniformLayout {
+	std::uint32_t alignment{};
+	std::uint32_t size{};
+};
+
+UniformLayout uniformLayout(const rtsl::ir::Module& module, rtsl::ir::TypeId type_id) {
+	const rtsl::ir::Type* type = module.findType(type_id);
+	if (!type) throw std::runtime_error("uniform layout references an unknown RTIR type");
+	switch (type->kind) {
+	case rtsl::ir::TypeKind::type_boolean:
+	case rtsl::ir::TypeKind::type_signed_integer:
+	case rtsl::ir::TypeKind::type_unsigned_integer:
+	case rtsl::ir::TypeKind::type_floating:
+		return {.alignment = 4, .size = 4};
+	case rtsl::ir::TypeKind::type_vector: {
+		const UniformLayout element = uniformLayout(module, type->element_type);
+		if (type->element_count == 2) return {.alignment = 8, .size = element.size * 2};
+		if (type->element_count == 3 || type->element_count == 4) return {.alignment = 16, .size = 16};
+		throw std::runtime_error("uniform layout requires vectors with two to four components");
+	}
+	case rtsl::ir::TypeKind::type_matrix:
+		return {.alignment = 16, .size = 16 * type->element_count};
+	case rtsl::ir::TypeKind::type_array: {
+		const UniformLayout element = uniformLayout(module, type->element_type);
+		const std::uint32_t stride = roundUp(element.size, 16);
+		return {.alignment = 16, .size = stride * type->element_count};
+	}
+	case rtsl::ir::TypeKind::type_structure: {
+		std::uint32_t alignment = 16;
+		std::uint32_t offset{};
+		for (const rtsl::ir::StructMember& member : type->members) {
+			const UniformLayout member_layout = uniformLayout(module, member.type);
+			alignment = std::max(alignment, member_layout.alignment);
+			offset = roundUp(offset, member_layout.alignment);
+			offset += member_layout.size;
+		}
+		return {.alignment = alignment, .size = roundUp(offset, alignment)};
+	}
+	default:
+		throw std::runtime_error("RTIR type cannot be placed in a uniform block");
+	}
+}
+
+class ModuleBuilder {
+public:
+	ModuleBuilder(const rtsl::ir::Module& module, const rtsl::ir::EntryPoint& entry) : module(module), entry(entry) {}
+
+	std::vector<std::uint32_t> build() {
+		instruction(17, {1});
+		instruction(14, {0, 1});
+		const rtsl::ir::Function* stage_function = module.findFunction(entry.function);
+		if (!stage_function) throw std::runtime_error("entry point references an unknown RTIR function");
+		declareFunctions();
+		buildInterfaces(*stage_function);
+		declareResources();
+		declareUniforms();
+		declareStorageObjects();
+		const std::uint32_t wrapper_type = functionType(typeVoid(), {});
+		wrapper_function = id();
+		emitEntryPoint(wrapper_function, interface_ids);
+		emitExecutionModes(wrapper_function);
+		for (const rtsl::ir::Function& function : module.functions)
+			if (!function.declaration) emitFunction(function);
+		emitWrapper(*stage_function, wrapper_type);
+		std::vector<std::uint32_t> result{0x07230203, 0x00010300, 0, next_id, 0};
+		for (const std::vector<std::uint32_t>* section : {&preamble, &entry_points, &execution_modes, &debug, &annotations, &types_constants, &functions}) result.insert(result.end(), section->begin(), section->end());
+		return result;
+	}
+
+private:
+	std::uint32_t id() { return next_id++; }
+
+	void instruction(std::uint16_t opcode, std::initializer_list<std::uint32_t> operands) {
+		std::vector<std::uint32_t>& output = section(opcode);
+		output.push_back((static_cast<std::uint32_t>(operands.size()) + 1u) << 16 | opcode);
+		output.insert(output.end(), operands.begin(), operands.end());
+	}
+
+	void instruction(std::uint16_t opcode, const std::vector<std::uint32_t>& operands) {
+		std::vector<std::uint32_t>& output = section(opcode);
+		output.push_back((static_cast<std::uint32_t>(operands.size()) + 1u) << 16 | opcode);
+		output.insert(output.end(), operands.begin(), operands.end());
+	}
+
+	std::vector<std::uint32_t>& section(std::uint16_t opcode) {
+		if (opcode == 17 || opcode == 14) return preamble;
+		if (opcode == 15) return entry_points;
+		if (opcode == 16) return execution_modes;
+		if (opcode == 5) return debug;
+		if (opcode == 71 || opcode == 72) return annotations;
+		if ((opcode >= 54 && opcode <= 87) ||
+			(opcode >= 126 && opcode <= 190) || opcode == 224 || (opcode >= 245 && opcode <= 254))
+			return functions;
+		return types_constants;
+	}
+
+	void appendString(std::vector<std::uint32_t>& operands, std::string_view text) {
+		const std::size_t words = (text.size() + 1u + 3u) / 4u;
+		const std::size_t start = operands.size();
+		operands.resize(start + words);
+		std::memcpy(operands.data() + start, text.data(), text.size());
+	}
+
+	std::uint32_t typeVoid() {
+		if (!void_type) { void_type = id(); instruction(19, {void_type}); }
+		return void_type;
+	}
+
+	std::uint32_t typeFloat() {
+		if (!float_type) { float_type = id(); instruction(22, {float_type, 32}); }
+		return float_type;
+	}
+
+	std::uint32_t typeUnsignedInteger() {
+		return typeInteger(32, false);
+	}
+
+	std::uint32_t typeInteger(std::uint32_t bit_width, bool is_signed) {
+		const std::uint64_t key = static_cast<std::uint64_t>(bit_width) << 1 |
+			static_cast<std::uint64_t>(is_signed);
+		if (const auto found = integer_types.find(key); found != integer_types.end()) return found->second;
+		const std::uint32_t result = id();
+		instruction(21, {result, bit_width, is_signed ? 1u : 0u});
+		integer_types.emplace(key, result);
+		return result;
+	}
+
+	std::uint32_t typeFor(rtsl::ir::TypeId type_id) {
+		if (const auto found = types.find(type_id.value()); found != types.end()) return found->second;
+		const rtsl::ir::Type* type = module.findType(type_id);
+		if (!type) return typeFloat();
+		std::uint32_t result{};
+		switch (type->kind) {
+		case rtsl::ir::TypeKind::type_void:
+			result = typeVoid(); break;
+		case rtsl::ir::TypeKind::type_boolean:
+			result = id(); instruction(20, {result}); break;
+		case rtsl::ir::TypeKind::type_signed_integer:
+		case rtsl::ir::TypeKind::type_unsigned_integer:
+			result = typeInteger(type->bit_width ? type->bit_width : 32u,
+				type->kind == rtsl::ir::TypeKind::type_signed_integer);
+			break;
+		case rtsl::ir::TypeKind::type_floating:
+			if (!type->bit_width || type->bit_width == 32) result = typeFloat();
+			else { result = id(); instruction(22, {result, type->bit_width}); }
+			break;
+		case rtsl::ir::TypeKind::type_vector:
+			result = typeVector(typeFor(type->element_type), type->element_count); break;
+		case rtsl::ir::TypeKind::type_matrix:
+			result = typeMatrix(typeVector(typeFor(type->element_type), type->element_count), type->element_count); break;
+		case rtsl::ir::TypeKind::type_structure: {
+			result = id();
+			std::vector<std::uint32_t> operands{result};
+			for (const rtsl::ir::StructMember& member : type->members) operands.push_back(typeFor(member.type));
+			instruction(30, operands);
+			break;
+		}
+		default:
+			throw std::runtime_error("RTIR type is not supported by the SPIR-V translator");
+		}
+		types.emplace(type_id.value(), result);
+		return result;
+	}
+
+	std::uint32_t functionType(std::uint32_t result_type, std::span<const std::uint32_t> parameters) {
+		for (const FunctionTypeRecord& record : function_type_records) {
+			if (record.result == result_type && std::ranges::equal(record.parameters, parameters)) return record.id;
+		}
+		std::vector<std::uint32_t> operands{id(), result_type};
+		operands.insert(operands.end(), parameters.begin(), parameters.end());
+		instruction(33, operands);
+		function_type_records.push_back(FunctionTypeRecord{
+			result_type,
+			std::vector<std::uint32_t>(parameters.begin(), parameters.end()),
+			operands[0],
+		});
+		return operands[0];
+	}
+
+	std::uint32_t typeVector(std::uint32_t element, std::uint32_t count) {
+		const std::uint64_t key = static_cast<std::uint64_t>(element) << 32 | count;
+		if (const auto found = vectors.find(key); found != vectors.end()) return found->second;
+		const std::uint32_t result = id();
+		instruction(23, {result, element, count});
+		vectors.emplace(key, result);
+		return result;
+	}
+
+	std::uint32_t typeMatrix(std::uint32_t column, std::uint32_t count) {
+		const std::uint64_t key = static_cast<std::uint64_t>(column) << 32 | count;
+		if (const auto found = matrices.find(key); found != matrices.end()) return found->second;
+		const std::uint32_t result = id();
+		instruction(24, {result, column, count});
+		matrices.emplace(key, result);
+		return result;
+	}
+
+	std::uint32_t typeSampledImage2D() {
+		if (sampled_image_type) return sampled_image_type;
+		const std::uint32_t image = id();
+		instruction(25, {image, typeFloat(), 1, 0, 0, 0, 1, 0});
+		sampled_image_type = id();
+		instruction(27, {sampled_image_type, image});
+		return sampled_image_type;
+	}
+
+	std::uint32_t pointerType(std::uint32_t storage_class, std::uint32_t type) {
+		const std::uint64_t key = static_cast<std::uint64_t>(storage_class) << 32 | type;
+		if (const auto found = pointers.find(key); found != pointers.end()) return found->second;
+		const std::uint32_t result = id();
+		instruction(32, {result, storage_class, type});
+		pointers.emplace(key, result);
+		return result;
+	}
+
+	std::uint32_t constantFloat(float value) {
+		const std::uint32_t bits = std::bit_cast<std::uint32_t>(value);
+		if (const auto found = float_constants.find(bits); found != float_constants.end()) return found->second;
+		const std::uint32_t result = id();
+		instruction(43, {typeFloat(), result, bits});
+		float_constants.emplace(bits, result);
+		return result;
+	}
+
+	std::uint32_t constantUnsignedInteger(std::uint32_t value) {
+		if (const auto found = unsigned_integer_constants.find(value); found != unsigned_integer_constants.end()) return found->second;
+		const std::uint32_t result = id();
+		instruction(43, {typeUnsignedInteger(), result, value});
+		unsigned_integer_constants.emplace(value, result);
+		return result;
+	}
+
+	void name(std::uint32_t target, std::string_view value) {
+		std::vector<std::uint32_t> operands{target};
+		appendString(operands, value);
+		instruction(5, operands);
+	}
+
+	struct InterfaceLeaf {
+		std::uint32_t parameter_index{};
+		std::vector<std::uint32_t> path;
+		rtsl::ir::TypeId type;
+		std::string name;
+		std::string contract;
+		std::uint32_t variable{};
+		bool omitted{};
+	};
+
+	std::string parameterContract(std::uint32_t parameter_index, std::span<const std::uint32_t> path) const {
+		for (const rtsl::ir::InterfaceContract& contract : entry.parameter_contracts) {
+			if (contract.parameter_index != parameter_index || contract.member_path.size() != path.size()) continue;
+			const rtsl::ir::Function* function = module.findFunction(entry.function);
+			if (!function || parameter_index >= function->parameters.size()) continue;
+			rtsl::ir::TypeId type_id = function->parameters[parameter_index].type;
+			bool matches = true;
+			for (std::size_t index = 0; index < path.size(); ++index) {
+				const rtsl::ir::Type* type = module.findType(type_id);
+				if (!type || path[index] >= type->members.size() ||
+					module.strings.get(type->members[path[index]].name) != module.strings.get(contract.member_path[index])) {
+					matches = false;
+					break;
+				}
+				type_id = type->members[path[index]].type;
+			}
+			if (matches) return std::string(module.strings.get(contract.contract));
+		}
+		return {};
+	}
+
+	void collectLeaves(std::uint32_t parameter_index, rtsl::ir::TypeId type_id, std::string name_value, std::vector<std::uint32_t>& path,
+		std::vector<InterfaceLeaf>& leaves) {
+		const rtsl::ir::Type* type = module.findType(type_id);
+		if (type && type->kind == rtsl::ir::TypeKind::type_structure) {
+			for (std::uint32_t index = 0; index < type->members.size(); ++index) {
+				const rtsl::ir::StructMember& member = type->members[index];
+				std::string member_name(module.strings.get(member.name));
+				path.push_back(index);
+				collectLeaves(parameter_index, member.type, member_name.empty() ? name_value : member_name, path, leaves);
+				path.pop_back();
+			}
+			return;
+		}
+		InterfaceLeaf leaf{.parameter_index = parameter_index, .path = path, .type = type_id, .name = name_value};
+		if (!path.empty() && name_value == "position") leaf.contract = "clip";
+		if (const std::string contract = parameterContract(parameter_index, path); !contract.empty()) leaf.contract = contract;
+		leaves.push_back(leaf);
+	}
+
+	void createInterfaceVariables(std::vector<InterfaceLeaf>& leaves, bool output) {
+		std::uint32_t location{};
+		for (InterfaceLeaf& leaf : leaves) {
+			const bool clip = leaf.contract == "clip";
+			if (!output && entry.stage == rtsl::ir::Stage::stage_fragment && clip) {
+				leaf.omitted = true;
+				continue;
+			}
+			leaf.variable = id();
+			const std::uint32_t storage_class = output ? 3u : 1u;
+			instruction(59, {pointerType(storage_class, typeFor(leaf.type)), leaf.variable, storage_class});
+			name(leaf.variable, std::string(output ? "out_" : "in_") + leaf.name);
+			if (output && entry.stage == rtsl::ir::Stage::stage_vertex && clip)
+				instruction(71, {leaf.variable, 11, 0});
+			else instruction(71, {leaf.variable, 30, location++});
+			if (leaf.contract == "flat") instruction(71, {leaf.variable, 14});
+			interface_ids.push_back(leaf.variable);
+		}
+	}
+
+	void buildInterfaces(const rtsl::ir::Function& function) {
+		if (entry.stage == rtsl::ir::Stage::stage_compute) return;
+		std::vector<std::uint32_t> path;
+		for (std::uint32_t index = 0; index < function.parameters.size(); ++index)
+			collectLeaves(index, function.parameters[index].type, "value", path, input_leaves);
+		// A scalar or vector fragment return is the unnamed color output.  It has
+		// a physical SPIR-V location but deliberately no public Rutile location.
+		// Structure members keep their member names as public output names.
+		collectLeaves(0, function.return_type, "", path, output_leaves);
+		createInterfaceVariables(input_leaves, false);
+		createInterfaceVariables(output_leaves, true);
+	}
+
+	void declareResources() {
+		for (const rtsl::ir::Resource& resource : module.resources) {
+			if (resource.kind != rtsl::ir::ResourceKind::resource_sampled_texture) continue;
+			const std::uint32_t variable = id();
+			instruction(59, {pointerType(0, typeSampledImage2D()), variable, 0});
+			instruction(71, {variable, 34, resource.binding ? resource.binding->set : 0});
+			instruction(71, {variable, 33, resource.binding ? resource.binding->binding : next_resource_binding++});
+			resource_variables.emplace(resource.symbol.value(), variable);
+		}
+	}
+
+	void declareUniforms() {
+		if (module.uniforms.empty()) return;
+		std::vector<std::uint32_t> members;
+		members.reserve(module.uniforms.size() + 1);
+		const std::uint32_t block_type = id();
+		members.push_back(block_type);
+		for (const rtsl::ir::Uniform& uniform : module.uniforms) members.push_back(typeFor(uniform.type));
+		instruction(30, members);
+		instruction(71, {block_type, 2});
+		std::uint32_t offset{};
+		for (std::uint32_t index = 0; index < module.uniforms.size(); ++index) {
+			const rtsl::ir::Uniform& uniform = module.uniforms[index];
+			const UniformLayout layout = uniformLayout(module, uniform.type);
+			offset = uniform.offset ? *uniform.offset : roundUp(offset, layout.alignment);
+			instruction(72, {block_type, index, 35, offset});
+			decorateUniformMember(block_type, index, uniform.type);
+			uniform_members.emplace(uniform.symbol.value(), index);
+			offset += uniform.size ? *uniform.size : layout.size;
+		}
+		uniform_block_variable = id();
+		instruction(59, {pointerType(2, block_type), uniform_block_variable, 2});
+		name(uniform_block_variable, "rutile_uniforms");
+		instruction(71, {uniform_block_variable, 34, 0});
+		instruction(71, {uniform_block_variable, 33, next_resource_binding++});
+	}
+
+	void declareStorageObjects() {
+		std::vector<const rtsl::ir::StorageObject*> objects;
+		for (const rtsl::ir::StorageObject& object : module.storage_objects)
+			if (object.address_space == rtsl::ir::AddressSpace::address_space_storage) objects.push_back(&object);
+		if (objects.empty()) return;
+		std::vector<std::uint32_t> members;
+		members.reserve(objects.size() + 1);
+		const std::uint32_t block_type = id();
+		members.push_back(block_type);
+		for (const rtsl::ir::StorageObject* object : objects) members.push_back(typeFor(object->type));
+		instruction(30, members);
+		instruction(71, {block_type, 2});
+		std::uint32_t offset{};
+		for (std::uint32_t index = 0; index < objects.size(); ++index) {
+			const rtsl::ir::StorageObject& object = *objects[index];
+			const UniformLayout layout = uniformLayout(module, object.type);
+			offset = roundUp(offset, layout.alignment);
+			instruction(72, {block_type, index, 35, offset});
+			decorateUniformMember(block_type, index, object.type);
+			storage_members.emplace(object.symbol.value(), index);
+			offset += layout.size;
+		}
+		storage_block_variable = id();
+		instruction(59, {pointerType(12, block_type), storage_block_variable, 12});
+		name(storage_block_variable, "rutile_storage");
+		instruction(71, {storage_block_variable, 34, 0});
+		instruction(71, {storage_block_variable, 33, next_resource_binding++});
+	}
+
+	void decorateUniformArray(rtsl::ir::TypeId type_id) {
+		if (!uniform_arrays.insert(type_id.value()).second) return;
+		const rtsl::ir::Type& type = requireType(type_id);
+		const UniformLayout element = uniformLayout(module, type.element_type);
+		instruction(71, {typeFor(type_id), 6, roundUp(element.size, 16)});
+		decorateUniformType(type.element_type);
+	}
+
+	void decorateUniformStructure(rtsl::ir::TypeId type_id) {
+		if (!uniform_structures.insert(type_id.value()).second) return;
+		const rtsl::ir::Type& type = requireType(type_id);
+		const std::uint32_t structure = typeFor(type_id);
+		std::uint32_t offset{};
+		for (std::uint32_t index = 0; index < type.members.size(); ++index) {
+			const rtsl::ir::StructMember& member = type.members[index];
+			const UniformLayout layout = uniformLayout(module, member.type);
+			offset = roundUp(offset, layout.alignment);
+			instruction(72, {structure, index, 35, offset});
+			decorateUniformMember(structure, index, member.type);
+			offset += layout.size;
+		}
+	}
+
+	void decorateUniformType(rtsl::ir::TypeId type_id) {
+		const rtsl::ir::Type& type = requireType(type_id);
+		if (type.kind == rtsl::ir::TypeKind::type_array) decorateUniformArray(type_id);
+		if (type.kind == rtsl::ir::TypeKind::type_structure) decorateUniformStructure(type_id);
+	}
+
+	void decorateUniformMember(std::uint32_t structure, std::uint32_t member, rtsl::ir::TypeId type_id) {
+		const rtsl::ir::Type& type = requireType(type_id);
+		if (type.kind == rtsl::ir::TypeKind::type_matrix) {
+			instruction(72, {structure, member, 5});
+			instruction(72, {structure, member, 7, 16});
+		}
+		decorateUniformType(type_id);
+	}
+
+	void declareFunctions() {
+		for (const rtsl::ir::Function& function : module.functions) {
+			std::vector<std::uint32_t> parameters;
+			for (const rtsl::ir::Parameter& parameter : function.parameters) parameters.push_back(typeFor(parameter.type));
+			function_types[function.id.value()] = functionType(typeFor(function.return_type), parameters);
+			function_ids[function.id.value()] = id();
+		}
+	}
+
+	std::uint32_t undef(rtsl::ir::TypeId type) {
+		const std::uint32_t result = id();
+		instruction(1, {typeFor(type), result});
+		return result;
+	}
+
+	InterfaceLeaf* leafAt(std::vector<InterfaceLeaf>& leaves, std::span<const std::uint32_t> path) {
+		for (InterfaceLeaf& leaf : leaves)
+			if (std::ranges::equal(leaf.path, path)) return &leaf;
+		return nullptr;
+	}
+
+	std::uint32_t loadInterfaceValue(rtsl::ir::TypeId type_id, std::vector<std::uint32_t>& path) {
+		const rtsl::ir::Type* type = module.findType(type_id);
+		if (type && type->kind == rtsl::ir::TypeKind::type_structure) {
+			std::vector<std::uint32_t> operands{typeFor(type_id), id()};
+			for (std::uint32_t index = 0; index < type->members.size(); ++index) {
+				path.push_back(index);
+				operands.push_back(loadInterfaceValue(type->members[index].type, path));
+				path.pop_back();
+			}
+			instruction(80, operands);
+			return operands[1];
+		}
+		InterfaceLeaf* leaf = leafAt(input_leaves, path);
+		if (!leaf || leaf->omitted) return undef(type_id);
+		const std::uint32_t result = id();
+		instruction(61, {typeFor(type_id), result, leaf->variable});
+		return result;
+	}
+
+	void storeInterfaceValue(rtsl::ir::TypeId type_id, std::uint32_t value, std::vector<std::uint32_t>& path) {
+		const rtsl::ir::Type* type = module.findType(type_id);
+		if (type && type->kind == rtsl::ir::TypeKind::type_structure) {
+			for (std::uint32_t index = 0; index < type->members.size(); ++index) {
+				const std::uint32_t extracted = id();
+				instruction(81, {typeFor(type->members[index].type), extracted, value, index});
+				path.push_back(index);
+				storeInterfaceValue(type->members[index].type, extracted, path);
+				path.pop_back();
+			}
+			return;
+		}
+		InterfaceLeaf* leaf = leafAt(output_leaves, path);
+		if (leaf && !leaf->omitted) instruction(62, {leaf->variable, value});
+	}
+
+	std::uint32_t memberIndex(rtsl::ir::TypeId aggregate_type, rtsl::ir::StringId member_name) const {
+		const rtsl::ir::Type* type = module.findType(aggregate_type);
+		if (!type || type->kind != rtsl::ir::TypeKind::type_structure)
+			throw std::runtime_error("RTIR member access does not target a structure");
+		for (std::uint32_t index = 0; index < type->members.size(); ++index)
+			if (type->members[index].name == member_name) return index;
+		throw std::runtime_error("RTIR member access references an unknown member");
+	}
+
+	const rtsl::ir::Type& requireType(rtsl::ir::TypeId type_id) const {
+		const rtsl::ir::Type* type = module.findType(type_id);
+		if (!type) throw std::runtime_error("RTIR instruction references an unknown type");
+		return *type;
+	}
+
+	rtsl::ir::TypeKind scalarKind(rtsl::ir::TypeId type_id) const {
+		const rtsl::ir::Type& type = requireType(type_id);
+		return type.kind == rtsl::ir::TypeKind::type_vector ? scalarKind(type.element_type) : type.kind;
+	}
+
+	std::uint32_t componentIndex(char component) const {
+		switch (component) {
+		case 'x': return 0;
+		case 'y': return 1;
+		case 'z': return 2;
+		case 'w': return 3;
+		default: throw std::runtime_error("RTIR vector swizzle contains an invalid component");
+		}
+	}
+
+	std::uint32_t valueFor(const std::unordered_map<std::uint32_t, std::uint32_t>& values, rtsl::ir::ValueId value) const {
+		const auto found = values.find(value.value());
+		if (found == values.end()) throw std::runtime_error("RTIR instruction references a value not available in this SPIR-V block");
+		return found->second;
+	}
+
+	std::uint16_t arithmeticOpcode(rtsl::ir::Opcode opcode, rtsl::ir::TypeId operand_type) const {
+		const rtsl::ir::TypeKind kind = scalarKind(operand_type);
+		const bool floating = kind == rtsl::ir::TypeKind::type_floating;
+		const bool signed_integer = kind == rtsl::ir::TypeKind::type_signed_integer;
+		const bool unsigned_integer = kind == rtsl::ir::TypeKind::type_unsigned_integer;
+		switch (opcode) {
+		case rtsl::ir::Opcode::opcode_add:
+			if (floating) return 129;
+			if (signed_integer || unsigned_integer) return 128;
+			break;
+		case rtsl::ir::Opcode::opcode_subtract:
+			if (floating) return 131;
+			if (signed_integer || unsigned_integer) return 130;
+			break;
+		case rtsl::ir::Opcode::opcode_multiply:
+			if (floating) return 133;
+			if (signed_integer || unsigned_integer) return 132;
+			break;
+		case rtsl::ir::Opcode::opcode_divide:
+			if (floating) return 136;
+			if (signed_integer) return 135;
+			if (unsigned_integer) return 134;
+			break;
+		case rtsl::ir::Opcode::opcode_remainder:
+			if (floating) return 140;
+			if (signed_integer) return 138;
+			if (unsigned_integer) return 137;
+			break;
+		default:
+			break;
+		}
+		throw std::runtime_error("RTIR arithmetic instruction has unsupported operand types");
+	}
+
+	std::uint16_t comparisonOpcode(rtsl::ir::Opcode opcode, rtsl::ir::TypeId operand_type) const {
+		const rtsl::ir::TypeKind kind = scalarKind(operand_type);
+		const bool floating = kind == rtsl::ir::TypeKind::type_floating;
+		const bool signed_integer = kind == rtsl::ir::TypeKind::type_signed_integer;
+		const bool unsigned_integer = kind == rtsl::ir::TypeKind::type_unsigned_integer;
+		const bool boolean = kind == rtsl::ir::TypeKind::type_boolean;
+		switch (opcode) {
+		case rtsl::ir::Opcode::opcode_compare_equal:
+			if (floating) return 180;
+			if (boolean) return 164;
+			if (signed_integer || unsigned_integer) return 170;
+			break;
+		case rtsl::ir::Opcode::opcode_compare_not_equal:
+			if (floating) return 182;
+			if (boolean) return 165;
+			if (signed_integer || unsigned_integer) return 171;
+			break;
+		case rtsl::ir::Opcode::opcode_compare_less:
+			if (floating) return 184;
+			if (signed_integer) return 177;
+			if (unsigned_integer) return 176;
+			break;
+		case rtsl::ir::Opcode::opcode_compare_less_equal:
+			if (floating) return 188;
+			if (signed_integer) return 179;
+			if (unsigned_integer) return 178;
+			break;
+		case rtsl::ir::Opcode::opcode_compare_greater:
+			if (floating) return 186;
+			if (signed_integer) return 173;
+			if (unsigned_integer) return 172;
+			break;
+		case rtsl::ir::Opcode::opcode_compare_greater_equal:
+			if (floating) return 190;
+			if (signed_integer) return 175;
+			if (unsigned_integer) return 174;
+			break;
+		default:
+			break;
+		}
+		throw std::runtime_error("RTIR comparison instruction has unsupported operand types");
+	}
+
+	void emitIRInstruction(const rtsl::ir::Instruction& source,
+		std::unordered_map<std::uint32_t, std::uint32_t>& values,
+		std::unordered_map<std::uint32_t, rtsl::ir::TypeId>& value_types) {
+		std::vector<std::uint32_t> operands;
+		for (rtsl::ir::ValueId operand : source.operands) operands.push_back(valueFor(values, operand));
+		std::uint32_t result{};
+		switch (source.opcode) {
+		case rtsl::ir::Opcode::opcode_constant_floating:
+			result = id(); instruction(43, {typeFor(source.type), result, source.immediates.at(0)}); break;
+		case rtsl::ir::Opcode::opcode_constant_integer: {
+			const rtsl::ir::Type& type = requireType(source.type);
+			if (type.kind != rtsl::ir::TypeKind::type_signed_integer && type.kind != rtsl::ir::TypeKind::type_unsigned_integer)
+				throw std::runtime_error("RTIR integer constant does not have an integer type");
+			const std::size_t word_count = (std::max<std::uint32_t>(type.bit_width, 1u) + 31u) / 32u;
+			if (source.immediates.size() < word_count)
+				throw std::runtime_error("RTIR integer constant does not contain enough literal words");
+			result = id();
+			std::vector<std::uint32_t> encoded{typeFor(source.type), result};
+			encoded.insert(encoded.end(), source.immediates.begin(), source.immediates.begin() + word_count);
+			instruction(43, encoded);
+			break;
+		}
+		case rtsl::ir::Opcode::opcode_constant_boolean:
+			if (source.immediates.size() != 1) throw std::runtime_error("RTIR boolean constant is malformed");
+			result = id(); instruction(source.immediates[0] ? 41 : 42, {typeFor(source.type), result}); break;
+		case rtsl::ir::Opcode::opcode_construct: {
+			result = id();
+			std::vector<std::uint32_t> encoded{typeFor(source.type), result};
+			encoded.insert(encoded.end(), operands.begin(), operands.end());
+			instruction(80, encoded);
+			break;
+		}
+		case rtsl::ir::Opcode::opcode_access: {
+			result = id();
+			const rtsl::ir::TypeId base_type = value_types.at(source.operands.at(0).value());
+			const rtsl::ir::Type& base = requireType(base_type);
+			if (base.kind == rtsl::ir::TypeKind::type_vector) {
+				if (source.immediates.empty()) {
+					if (operands.size() != 2) throw std::runtime_error("RTIR vector subscript is malformed");
+					instruction(77, {typeFor(source.type), result, operands[0], operands[1]});
+					break;
+				}
+				const std::string_view swizzle = module.strings.get(rtsl::ir::StringId{source.immediates[0]});
+				if (swizzle.empty()) throw std::runtime_error("RTIR vector member access is malformed");
+				if (swizzle.size() == 1) instruction(81, {typeFor(source.type), result, operands.at(0), componentIndex(swizzle.front())});
+				else {
+					std::vector<std::uint32_t> encoded{typeFor(source.type), result, operands.at(0), operands.at(0)};
+					for (char component : swizzle) encoded.push_back(componentIndex(component));
+					instruction(79, encoded);
+				}
+				break;
+			}
+			if (source.immediates.empty()) throw std::runtime_error("RTIR aggregate subscript lowering is not implemented");
+			const std::uint32_t index = memberIndex(base_type, rtsl::ir::StringId{source.immediates[0]});
+			instruction(81, {typeFor(source.type), result, operands.at(0), index});
+			break;
+		}
+		case rtsl::ir::Opcode::opcode_add:
+		case rtsl::ir::Opcode::opcode_subtract:
+		case rtsl::ir::Opcode::opcode_divide:
+		case rtsl::ir::Opcode::opcode_remainder:
+			if (operands.size() != 2) throw std::runtime_error("RTIR binary arithmetic instruction is malformed");
+			result = id(); instruction(arithmeticOpcode(source.opcode, value_types.at(source.operands[0].value())),
+				{typeFor(source.type), result, operands[0], operands[1]}); break;
+		case rtsl::ir::Opcode::opcode_multiply: {
+			if (operands.size() != 2) throw std::runtime_error("RTIR multiply instruction is malformed");
+			const rtsl::ir::Type& left = requireType(value_types.at(source.operands[0].value()));
+			const rtsl::ir::Type& right = requireType(value_types.at(source.operands[1].value()));
+			result = id();
+			if (left.kind == rtsl::ir::TypeKind::type_matrix && right.kind == rtsl::ir::TypeKind::type_vector)
+				instruction(145, {typeFor(source.type), result, operands[0], operands[1]});
+			else if (left.kind == rtsl::ir::TypeKind::type_vector && right.kind == rtsl::ir::TypeKind::type_matrix)
+				instruction(144, {typeFor(source.type), result, operands[0], operands[1]});
+			else if (left.kind == rtsl::ir::TypeKind::type_vector && scalarKind(value_types.at(source.operands[1].value())) == rtsl::ir::TypeKind::type_floating)
+				instruction(142, {typeFor(source.type), result, operands[0], operands[1]});
+			else if (right.kind == rtsl::ir::TypeKind::type_vector && scalarKind(value_types.at(source.operands[0].value())) == rtsl::ir::TypeKind::type_floating)
+				instruction(142, {typeFor(source.type), result, operands[1], operands[0]});
+			else if (left.kind == rtsl::ir::TypeKind::type_matrix && scalarKind(value_types.at(source.operands[1].value())) == rtsl::ir::TypeKind::type_floating)
+				instruction(143, {typeFor(source.type), result, operands[0], operands[1]});
+			else if (right.kind == rtsl::ir::TypeKind::type_matrix && scalarKind(value_types.at(source.operands[0].value())) == rtsl::ir::TypeKind::type_floating)
+				instruction(143, {typeFor(source.type), result, operands[1], operands[0]});
+			else instruction(arithmeticOpcode(source.opcode, value_types.at(source.operands[0].value())),
+				{typeFor(source.type), result, operands[0], operands[1]});
+			break;
+		}
+		case rtsl::ir::Opcode::opcode_negate: {
+			if (operands.size() != 1) throw std::runtime_error("RTIR negate instruction is malformed");
+			const rtsl::ir::TypeKind kind = scalarKind(value_types.at(source.operands[0].value()));
+			if (kind != rtsl::ir::TypeKind::type_floating && kind != rtsl::ir::TypeKind::type_signed_integer)
+				throw std::runtime_error("RTIR negate instruction requires a floating or signed integer operand");
+			result = id(); instruction(kind == rtsl::ir::TypeKind::type_floating ? 127 : 126,
+				{typeFor(source.type), result, operands[0]}); break;
+		}
+		case rtsl::ir::Opcode::opcode_compare_equal:
+		case rtsl::ir::Opcode::opcode_compare_not_equal:
+		case rtsl::ir::Opcode::opcode_compare_less:
+		case rtsl::ir::Opcode::opcode_compare_less_equal:
+		case rtsl::ir::Opcode::opcode_compare_greater:
+		case rtsl::ir::Opcode::opcode_compare_greater_equal:
+			if (operands.size() != 2) throw std::runtime_error("RTIR comparison instruction is malformed");
+			result = id(); instruction(comparisonOpcode(source.opcode, value_types.at(source.operands[0].value())),
+				{typeFor(source.type), result, operands[0], operands[1]}); break;
+		case rtsl::ir::Opcode::opcode_logical_and:
+		case rtsl::ir::Opcode::opcode_logical_or:
+			if (operands.size() != 2) throw std::runtime_error("RTIR logical instruction is malformed");
+			result = id(); instruction(source.opcode == rtsl::ir::Opcode::opcode_logical_and ? 167 : 166,
+				{typeFor(source.type), result, operands[0], operands[1]}); break;
+		case rtsl::ir::Opcode::opcode_logical_not:
+			if (operands.size() != 1) throw std::runtime_error("RTIR logical not instruction is malformed");
+			result = id(); instruction(168, {typeFor(source.type), result, operands[0]}); break;
+		case rtsl::ir::Opcode::opcode_call: {
+			result = id();
+			std::vector<std::uint32_t> encoded{typeFor(source.type), result, function_ids.at(source.callee.value())};
+			encoded.insert(encoded.end(), operands.begin(), operands.end());
+			instruction(57, encoded);
+			break;
+		}
+		case rtsl::ir::Opcode::opcode_resource_sample: {
+			if (source.immediates.empty() || operands.size() != 1) throw std::runtime_error("RTIR texture sample is malformed");
+			auto resource = resource_variables.find(source.immediates[0]);
+			if (resource == resource_variables.end()) throw std::runtime_error("RTIR texture sample references an unknown resource");
+			const std::uint32_t image = id();
+			instruction(61, {typeSampledImage2D(), image, resource->second});
+			result = id();
+			instruction(87, {typeFor(source.type), result, image, operands[0]});
+			break;
+		}
+		case rtsl::ir::Opcode::opcode_barrier:
+			if (source.result || source.type || !source.operands.empty())
+				throw std::runtime_error("RTIR barrier instruction is malformed");
+			// The frontend admits barriers only in compute and tessellation-control
+			// entry functions. Both synchronize the current workgroup's shared memory.
+			instruction(224, {constantUnsignedInteger(2), constantUnsignedInteger(2), constantUnsignedInteger(0x108)});
+			break;
+		case rtsl::ir::Opcode::opcode_resource_load: {
+			if (source.immediates.size() != 1 || !source.type)
+				throw std::runtime_error("RTIR resource load is malformed");
+			const auto uniform = uniform_members.find(source.immediates[0]);
+			const auto storage = storage_members.find(source.immediates[0]);
+			if (uniform == uniform_members.end() && storage == storage_members.end())
+				throw std::runtime_error("RTIR resource load does not reference a uniform or storage value");
+			const bool is_storage = storage != storage_members.end();
+			const std::uint32_t storage_class = is_storage ? 12 : 2;
+			const std::uint32_t block = is_storage ? storage_block_variable : uniform_block_variable;
+			const std::uint32_t member = is_storage ? storage->second : uniform->second;
+			const std::uint32_t pointer = id();
+			instruction(65, {pointerType(storage_class, typeFor(source.type)), pointer, block,
+				constantUnsignedInteger(member)});
+			result = id();
+			instruction(61, {typeFor(source.type), result, pointer});
+			break;
+		}
+		default:
+			throw std::runtime_error("RTIR instruction is not supported by the SPIR-V translator");
+		}
+		if (source.result) {
+			values[source.result.value()] = result;
+			value_types[source.result.value()] = source.type;
+		}
+	}
+
+	void emitFunction(const rtsl::ir::Function& source) {
+		instruction(54, {typeFor(source.return_type), function_ids.at(source.id.value()), 0,
+			function_types.at(source.id.value())});
+		std::unordered_map<std::uint32_t, std::uint32_t> values;
+		std::unordered_map<std::uint32_t, rtsl::ir::TypeId> value_types;
+		std::unordered_map<std::uint32_t, std::uint32_t> block_labels;
+		for (const rtsl::ir::Block& block : source.blocks) block_labels.emplace(block.id.value(), id());
+		for (const rtsl::ir::Parameter& parameter : source.parameters) {
+			const std::uint32_t parameter_id = id();
+			instruction(55, {typeFor(parameter.type), parameter_id});
+			values[parameter.value.value()] = parameter_id;
+			value_types[parameter.value.value()] = parameter.type;
+		}
+		const rtsl::ir::Symbol* symbol = module.findSymbol(source.symbol);
+		const std::string_view function_name = symbol ? module.strings.get(symbol->fully_qualified_name) : "<unknown>";
+		for (const rtsl::ir::Block& block : source.blocks) {
+			instruction(248, {block_labels.at(block.id.value())});
+			for (std::size_t argument_index = 0; argument_index < block.arguments.size(); ++argument_index) {
+				const rtsl::ir::BlockArgument& argument = block.arguments[argument_index];
+				std::vector<std::uint32_t> incoming{typeFor(argument.type), id()};
+				for (const rtsl::ir::Block& predecessor : source.blocks) {
+					if (!predecessor.terminator) continue;
+					for (const rtsl::ir::Successor& successor : predecessor.terminator->successors) {
+						if (successor.block != block.id) continue;
+						if (argument_index >= successor.arguments.size())
+							throw std::runtime_error("RTIR branch does not provide a block argument");
+						incoming.push_back(valueFor(values, successor.arguments[argument_index]));
+						incoming.push_back(block_labels.at(predecessor.id.value()));
+					}
+				}
+				if (incoming.size() == 2) throw std::runtime_error("RTIR block argument has no predecessor");
+				instruction(245, incoming);
+				values[argument.value.value()] = incoming[1];
+				value_types[argument.value.value()] = argument.type;
+			}
+			for (const rtsl::ir::Instruction& source_instruction : block.instructions) {
+				try {
+					emitIRInstruction(source_instruction, values, value_types);
+				} catch (const std::exception& error) {
+					throw std::runtime_error("RTIR function " + std::string(function_name) +
+						" instruction " + std::string(opcodeName(source_instruction.opcode)) + ": " + error.what());
+				}
+			}
+			if (!block.terminator) throw std::runtime_error("RTIR block is missing a terminator");
+			if (block.merge.kind == rtsl::ir::MergeKind::merge_selection)
+				instruction(247, {block_labels.at(block.merge.merge_block.value()), 0});
+			else if (block.merge.kind == rtsl::ir::MergeKind::merge_loop)
+				instruction(246, {block_labels.at(block.merge.merge_block.value()), block_labels.at(block.merge.continue_block.value()), 0});
+
+			const rtsl::ir::Terminator& terminator = *block.terminator;
+			switch (terminator.kind) {
+			case rtsl::ir::TerminatorKind::terminator_branch:
+				if (terminator.successors.size() != 1) throw std::runtime_error("RTIR branch terminator is malformed");
+				instruction(249, {block_labels.at(terminator.successors[0].block.value())});
+				break;
+			case rtsl::ir::TerminatorKind::terminator_conditional_branch:
+				if (terminator.operands.size() != 1 || terminator.successors.size() != 2)
+					throw std::runtime_error("RTIR conditional branch terminator is malformed");
+				instruction(250, {valueFor(values, terminator.operands[0]),
+					block_labels.at(terminator.successors[0].block.value()), block_labels.at(terminator.successors[1].block.value())});
+				break;
+			case rtsl::ir::TerminatorKind::terminator_return:
+				instruction(253, {});
+				break;
+			case rtsl::ir::TerminatorKind::terminator_return_value:
+				if (terminator.operands.size() != 1) throw std::runtime_error("RTIR value return terminator is malformed");
+				instruction(254, {valueFor(values, terminator.operands[0])});
+				break;
+			case rtsl::ir::TerminatorKind::terminator_kill:
+				instruction(252, {});
+				break;
+			default:
+				throw std::runtime_error("RTIR terminator is not supported by the SPIR-V translator");
+			}
+		}
+		instruction(56, {});
+	}
+
+	void emitWrapper(const rtsl::ir::Function& stage_function, std::uint32_t wrapper_type) {
+		instruction(54, {typeVoid(), wrapper_function, 0, wrapper_type});
+		instruction(248, {id()});
+		std::vector<std::uint32_t> arguments;
+		std::vector<std::uint32_t> path;
+		for (const rtsl::ir::Parameter& parameter : stage_function.parameters)
+			arguments.push_back(loadInterfaceValue(parameter.type, path));
+		const std::uint32_t result = id();
+		std::vector<std::uint32_t> call{typeFor(stage_function.return_type), result,
+			function_ids.at(stage_function.id.value())};
+		call.insert(call.end(), arguments.begin(), arguments.end());
+		instruction(57, call);
+		storeInterfaceValue(stage_function.return_type, result, path);
+		instruction(253, {});
+		instruction(56, {});
+	}
+
+	void emitEntryPoint(std::uint32_t function, const std::vector<std::uint32_t>& interfaces) {
+		std::vector<std::uint32_t> operands{executionModel(), function};
+		appendString(operands, "main");
+		operands.insert(operands.end(), interfaces.begin(), interfaces.end());
+		instruction(15, operands);
+	}
+
+	std::uint32_t executionModel() const {
+		switch (entry.stage) {
+		case rtsl::ir::Stage::stage_vertex: return 0;
+		case rtsl::ir::Stage::stage_tessellation_control: return 1;
+		case rtsl::ir::Stage::stage_tessellation_evaluation: return 2;
+		case rtsl::ir::Stage::stage_geometry: return 3;
+		case rtsl::ir::Stage::stage_fragment: return 4;
+		case rtsl::ir::Stage::stage_compute: return 5;
+		}
+		return 0;
+	}
+
+	void emitExecutionModes(std::uint32_t function) {
+		if (entry.stage == rtsl::ir::Stage::stage_fragment) instruction(16, {function, 7});
+		if (const auto* compute = std::get_if<rtsl::ir::ComputeConfiguration>(&entry.configuration)) instruction(16, {function, 17, compute->workgroup_size[0], compute->workgroup_size[1], compute->workgroup_size[2]});
+		if (const auto* control = std::get_if<rtsl::ir::TessellationControlConfiguration>(&entry.configuration)) instruction(16, {function, 26, control->output_control_points});
+		if (const auto* geometry = std::get_if<rtsl::ir::GeometryConfiguration>(&entry.configuration)) {
+			instruction(16, {function, 26, geometry->maximum_vertices});
+			instruction(16, {function, 0, geometry->invocations});
+		}
+	}
+
+	const rtsl::ir::Module& module;
+	const rtsl::ir::EntryPoint& entry;
+	std::vector<std::uint32_t> preamble;
+	std::vector<std::uint32_t> entry_points;
+	std::vector<std::uint32_t> execution_modes;
+	std::vector<std::uint32_t> debug;
+	std::vector<std::uint32_t> annotations;
+	std::vector<std::uint32_t> types_constants;
+	std::vector<std::uint32_t> functions;
+	std::unordered_map<std::uint32_t, std::uint32_t> types;
+	std::unordered_map<std::uint64_t, std::uint32_t> integer_types;
+	std::unordered_map<std::uint64_t, std::uint32_t> vectors;
+	std::unordered_map<std::uint64_t, std::uint32_t> matrices;
+	std::unordered_map<std::uint64_t, std::uint32_t> pointers;
+	std::unordered_map<std::uint32_t, std::uint32_t> float_constants;
+	std::unordered_map<std::uint32_t, std::uint32_t> unsigned_integer_constants;
+	std::unordered_map<std::uint32_t, std::uint32_t> function_ids;
+	std::unordered_map<std::uint32_t, std::uint32_t> function_types;
+	std::unordered_map<std::uint32_t, std::uint32_t> resource_variables;
+	std::unordered_map<std::uint32_t, std::uint32_t> uniform_members;
+	std::unordered_map<std::uint32_t, std::uint32_t> storage_members;
+	std::unordered_set<std::uint32_t> uniform_arrays;
+	std::unordered_set<std::uint32_t> uniform_structures;
+	struct FunctionTypeRecord {
+		std::uint32_t result;
+		std::vector<std::uint32_t> parameters;
+		std::uint32_t id;
+	};
+	std::vector<FunctionTypeRecord> function_type_records;
+	std::vector<InterfaceLeaf> input_leaves;
+	std::vector<InterfaceLeaf> output_leaves;
+	std::vector<std::uint32_t> interface_ids;
+	std::uint32_t next_id{1};
+	std::uint32_t void_type{};
+	std::uint32_t float_type{};
+	std::uint32_t sampled_image_type{};
+	std::uint32_t next_resource_binding{};
+	std::uint32_t uniform_block_variable{};
+	std::uint32_t storage_block_variable{};
+	std::uint32_t wrapper_function{};
+};
+
+rt_spirv_stage stage(const rtsl::ir::Stage value) {
+	return static_cast<rt_spirv_stage>(value);
+}
+
+std::string symbolName(const rtsl::ir::Module& module, rtsl::ir::SymbolId id) {
+	const rtsl::ir::Symbol* symbol = module.findSymbol(id);
+	return symbol ? std::string(module.strings.get(symbol->fully_qualified_name)) : std::string{};
+}
+
+std::size_t typeSize(const rtsl::ir::Module& module, rtsl::ir::TypeId id) {
+	const rtsl::ir::Type* type = module.findType(id);
+	if (!type) return 0;
+	switch (type->kind) {
+	case rtsl::ir::TypeKind::type_boolean:
+	case rtsl::ir::TypeKind::type_signed_integer:
+	case rtsl::ir::TypeKind::type_unsigned_integer:
+	case rtsl::ir::TypeKind::type_floating: return std::max<std::size_t>(1, type->bit_width / 8);
+	case rtsl::ir::TypeKind::type_vector:
+	case rtsl::ir::TypeKind::type_matrix:
+	case rtsl::ir::TypeKind::type_array: return typeSize(module, type->element_type) * type->element_count;
+	case rtsl::ir::TypeKind::type_structure: {
+		std::size_t size{};
+		for (const rtsl::ir::StructMember& member : type->members) size += typeSize(module, member.type);
+		return size;
+	}
+	default: return 0;
+	}
+}
+
+void reflect(const rtsl::ir::Module& module, std::uint32_t selected_stages, rt_spirv_program& program) {
+	std::uint32_t next_binding{};
+	for (const rtsl::ir::Resource& resource : module.resources) {
+		rt_spirv_owned_location location;
+		location.name = symbolName(module, resource.symbol);
+		location.info.kind = static_cast<rt_spirv_location_kind>(static_cast<std::uint32_t>(resource.kind) + 2u);
+		location.info.stages = selected_stages;
+		location.info.descriptor_set = resource.binding ? resource.binding->set : 0;
+		location.info.binding = resource.binding ? resource.binding->binding : next_binding++;
+		program.locations.push_back(std::move(location));
+	}
+	const std::uint32_t uniform_binding = next_binding++;
+	std::size_t uniform_offset{};
+	for (const rtsl::ir::Uniform& uniform : module.uniforms) {
+		const UniformLayout layout = uniformLayout(module, uniform.type);
+		uniform_offset = uniform.offset ? *uniform.offset : roundUp(static_cast<std::uint32_t>(uniform_offset), layout.alignment);
+		rt_spirv_owned_location location;
+		location.name = symbolName(module, uniform.symbol);
+		location.info.kind = RT_SPIRV_UNIFORM_DATA;
+		location.info.stages = selected_stages;
+		location.info.descriptor_set = 0;
+		location.info.binding = uniform_binding;
+		location.info.offset = uniform_offset;
+		location.info.size = uniform.size ? *uniform.size : layout.size;
+		uniform_offset = location.info.offset + location.info.size;
+		program.locations.push_back(std::move(location));
+	}
+	const std::size_t uniform_block_size = roundUp(static_cast<std::uint32_t>(uniform_offset), 16);
+	for (rt_spirv_owned_location& location : program.locations) if (location.info.kind == RT_SPIRV_UNIFORM_DATA) location.info.block_size = uniform_block_size;
+	const std::uint32_t storage_binding = next_binding++;
+	std::size_t storage_offset{};
+	for (const rtsl::ir::StorageObject& object : module.storage_objects) {
+		if (object.address_space != rtsl::ir::AddressSpace::address_space_storage) continue;
+		const UniformLayout layout = uniformLayout(module, object.type);
+		storage_offset = roundUp(static_cast<std::uint32_t>(storage_offset), layout.alignment);
+		rt_spirv_owned_location location;
+		location.name = symbolName(module, object.symbol);
+		location.info.kind = RT_SPIRV_STORAGE_DATA;
+		location.info.stages = selected_stages;
+		location.info.descriptor_set = object.binding ? object.binding->set : 0;
+		location.info.binding = object.binding ? object.binding->binding : storage_binding;
+		location.info.offset = storage_offset;
+		location.info.size = layout.size;
+		storage_offset += location.info.size;
+		program.locations.push_back(std::move(location));
+	}
+	for (rt_spirv_owned_location& location : program.locations) if (location.info.kind == RT_SPIRV_STORAGE_DATA) location.info.block_size = storage_offset;
+	for (rt_spirv_owned_location& location : program.locations) location.info.name = location.name.c_str();
+}
+
+std::string artifactError(const rtsl::Error& artifact_error) {
+	std::string result{"RTSL program artifact"};
+	if (!artifact_error.context.empty()) {
+		result += " ";
+		result += artifact_error.context;
+		result += " at byte ";
+		result += std::to_string(artifact_error.offset);
+	}
+	if (!artifact_error.message.empty()) {
+		result += ": ";
+		result += artifact_error.message;
+	}
+	return result;
+}
+
+bool linkedModule(std::span<const std::byte> bytes, rtsl::ir::Module& module, std::string& error) {
+	rtsl::ArtifactReader reader;
+	rtsl::ReadResult read = reader.read(bytes);
+	if (!read) {
+		error = read.error ? artifactError(*read.error) : "RTSL program artifact is invalid";
+		return false;
+	}
+	if (read.artifact->kind != rtsl::ArtifactKind::artifact_program) {
+		error = "artifact is not a linked RTSL program";
+		return false;
+	}
+	module = std::move(read.artifact->module);
+	return true;
+}
+
+bool structurallyValid(std::span<const std::uint32_t> words, std::string& error) {
+	if (words.size() < 5 || words[0] != 0x07230203u) {
+		error = "SPIR-V module header is invalid";
+		return false;
+	}
+	if (!words[3]) {
+		error = "SPIR-V module declares a zero id bound";
+		return false;
+	}
+	std::vector<std::vector<std::uint32_t>> function_types;
+	for (std::size_t offset = 5; offset < words.size();) {
+		const std::uint32_t instruction = words[offset];
+		const std::uint16_t word_count = static_cast<std::uint16_t>(instruction >> 16);
+		const std::uint16_t opcode = static_cast<std::uint16_t>(instruction);
+		if (!word_count || offset + word_count > words.size()) {
+			error = "SPIR-V instruction has an invalid word count";
+			return false;
+		}
+		if (opcode == 33) {
+			if (word_count < 3) {
+				error = "SPIR-V function type is truncated";
+				return false;
+			}
+			std::vector<std::uint32_t> signature(words.begin() + offset + 2, words.begin() + offset + word_count);
+			for (const std::vector<std::uint32_t>& existing : function_types) {
+				if (existing == signature) {
+					error = "SPIR-V module contains a duplicate function type";
+					return false;
+				}
+			}
+			function_types.push_back(signature);
+		}
+		if (opcode == 45 && word_count != 6) {
+			error = "SPIR-V constant sampler is truncated or malformed";
+			return false;
+		}
+		offset += word_count;
+	}
+	return true;
+}
+
+}
+
+extern "C" {
+
+int rt_spirv_validate(const uint32_t* words, size_t word_count, char* message, size_t message_size) {
+	std::string error;
+	if (!words || !rutile::spirv::structurallyValid(std::span<const std::uint32_t>{words, word_count}, error)) {
+		if (message && message_size) {
+			if (error.empty()) error = "SPIR-V module is empty";
+			std::strncpy(message, error.c_str(), message_size - 1);
+			message[message_size - 1] = 0;
+		}
+		return 0;
+	}
+
+	spv_context context = spvContextCreate(SPV_ENV_VULKAN_1_3);
+	if (!context) {
+		if (message && message_size) {
+			std::strncpy(message, "SPIR-V Tools could not create a Vulkan 1.3 validation context", message_size - 1);
+			message[message_size - 1] = 0;
+		}
+		return 0;
+	}
+	spv_diagnostic diagnostic = nullptr;
+	const spv_result_t result = spvValidateBinary(context, words, word_count, &diagnostic);
+	if (result != SPV_SUCCESS) {
+		error = diagnostic && diagnostic->error ? diagnostic->error : "SPIR-V Tools rejected the module";
+	}
+	spvDiagnosticDestroy(diagnostic);
+	spvContextDestroy(context);
+	const bool valid = result == SPV_SUCCESS;
+	if (!valid && message && message_size) {
+		std::strncpy(message, error.c_str(), message_size - 1);
+		message[message_size - 1] = 0;
+	}
+	return valid ? 1 : 0;
+}
+
+rt_spirv_status rt_spirv_transpile(const uint8_t* bytes, size_t byte_size, const char* entry_name, rt_spirv_program** program, char* message, size_t message_size) {
+	if (program) *program = nullptr;
+	if (!bytes || !byte_size || !entry_name || !entry_name[0] || !program) return RT_SPIRV_INVALID_ARTIFACT;
+	try {
+		rtsl::ir::Module module;
+		std::string error;
+		if (!rutile::spirv::linkedModule(
+			std::as_bytes(std::span{bytes, byte_size}), module, error)) {
+			if (message && message_size) { std::strncpy(message, error.c_str(), message_size - 1); message[message_size - 1] = 0; }
+			return RT_SPIRV_INVALID_ARTIFACT;
+		}
+		const rtsl::ir::VerificationResult verification = rtsl::ir::verify(module);
+		if (!verification.valid()) {
+			if (message && message_size) {
+				const rtsl::ir::VerificationIssue& issue = verification.issues().front();
+				const std::string diagnostic = issue.context.empty() ? issue.message : issue.context + ": " + issue.message;
+				std::strncpy(message, diagnostic.c_str(), message_size - 1);
+				message[message_size - 1] = 0;
+			}
+			return RT_SPIRV_INVALID_MODULE;
+		}
+		std::vector<const rtsl::ir::EntryPoint*> selected_entries;
+		std::uint32_t selected_stages{};
+		for (const rtsl::ir::EntryPoint& entry : module.entry_points) {
+			if (module.strings.get(entry.source_name) != entry_name) continue;
+			const rt_spirv_stage output_stage = rutile::spirv::stage(entry.stage);
+			const std::uint32_t stage_bit = 1u << static_cast<std::uint32_t>(output_stage);
+			if (selected_stages & stage_bit) {
+				if (message && message_size) {
+					std::strncpy(message, "requested entry name has more than one overload for the same shader stage", message_size - 1);
+					message[message_size - 1] = 0;
+				}
+				return RT_SPIRV_INVALID_MODULE;
+			}
+			selected_stages |= stage_bit;
+			selected_entries.push_back(&entry);
+		}
+		if (selected_entries.empty()) {
+			if (message && message_size) {
+				std::strncpy(message, "requested entry name has no shader-stage overloads", message_size - 1);
+				message[message_size - 1] = 0;
+			}
+			return RT_SPIRV_INVALID_MODULE;
+		}
+		const std::uint32_t compute = 1u << RT_SPIRV_COMPUTE;
+		const std::uint32_t vertex = 1u << RT_SPIRV_VERTEX;
+		const std::uint32_t tessellation_control = 1u << RT_SPIRV_TESSELLATION_CONTROL;
+		const std::uint32_t tessellation_evaluation = 1u << RT_SPIRV_TESSELLATION_EVALUATION;
+		if ((selected_stages & compute) && selected_stages != compute) {
+			if (message && message_size) {
+				std::strncpy(message, "compute entry cannot be combined with graphics shader stages", message_size - 1);
+				message[message_size - 1] = 0;
+			}
+			return RT_SPIRV_INVALID_MODULE;
+		}
+		if (!(selected_stages & compute) && !(selected_stages & vertex)) {
+			if (message && message_size) {
+				std::strncpy(message, "graphics entry requires a vertex-stage overload", message_size - 1);
+				message[message_size - 1] = 0;
+			}
+			return RT_SPIRV_INVALID_MODULE;
+		}
+		if (!!(selected_stages & tessellation_control) != !!(selected_stages & tessellation_evaluation)) {
+			if (message && message_size) {
+				std::strncpy(message, "tessellation control and evaluation stages must be provided together", message_size - 1);
+				message[message_size - 1] = 0;
+			}
+			return RT_SPIRV_INVALID_MODULE;
+		}
+
+		auto result = new rt_spirv_program;
+		for (const rtsl::ir::EntryPoint* entry : selected_entries) {
+			const rt_spirv_stage output_stage = rutile::spirv::stage(entry->stage);
+			result->stages[output_stage].words = rutile::spirv::ModuleBuilder(module, *entry).build();
+			if (!rt_spirv_validate(
+					result->stages[output_stage].words.data(),
+					result->stages[output_stage].words.size(),
+					message,
+					message_size
+				)) {
+				delete result;
+				return RT_SPIRV_INVALID_MODULE;
+			}
+			result->stages[output_stage].entry_point = "main";
+		}
+		rutile::spirv::reflect(module, selected_stages, *result);
+		*program = result;
+		return RT_SPIRV_SUCCESS;
+	} catch (const std::bad_alloc&) {
+		return RT_SPIRV_OUT_OF_MEMORY;
+	} catch (const std::exception& exception) {
+		if (message && message_size) {
+			std::strncpy(message, exception.what(), message_size - 1);
+			message[message_size - 1] = 0;
+		}
+		return RT_SPIRV_UNSUPPORTED_IR;
+	}
+}
+
+void rt_spirv_program_destroy(rt_spirv_program* program) { delete program; }
+
+const uint32_t* rt_spirv_stage_words(const rt_spirv_program* program, rt_spirv_stage stage, size_t* word_count) {
+	if (word_count) *word_count = 0;
+	if (!program || stage >= RT_SPIRV_STAGE_COUNT) return nullptr;
+	if (word_count) *word_count = program->stages[stage].words.size();
+	return program->stages[stage].words.data();
+}
+
+const char* rt_spirv_stage_entry_point(const rt_spirv_program* program, rt_spirv_stage stage) {
+	return program && stage < RT_SPIRV_STAGE_COUNT && !program->stages[stage].entry_point.empty() ? program->stages[stage].entry_point.c_str() : nullptr;
+}
+
+uint32_t rt_spirv_location_count(const rt_spirv_program* program) { return program ? static_cast<uint32_t>(program->locations.size()) : 0; }
+
+int rt_spirv_location(const rt_spirv_program* program, uint32_t index, rt_spirv_location_info* location) {
+	if (!program || !location || index >= program->locations.size()) return 0;
+	*location = program->locations[index].info;
+	return 1;
+}
+
+}

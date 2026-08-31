@@ -16,15 +16,21 @@ void rtFramebufferDestroy(rt_framebuffer_t* framebuffer) {
 }
 
 rt_texture_view_t* rtFramebufferColorView(rt_framebuffer_t* framebuffer, rt::location* location) {
-	struct rt_texture_view_t* view = rtd3d12_framebuffer_color_view(framebuffer, location ? location->address : 0);
+	rt_program_t* program = rtd3d12_location_program(location);
+	const rtd3d12_program_output_mapping* mapping = program && location && program->output_mappings[location->address]
+		? &*program->output_mappings[location->address] : nullptr;
+	struct rt_texture_view_t* view = rtd3d12_framebuffer_color_view(framebuffer, mapping ? mapping->binding : 0);
 	return view;
 }
 
 void rtFramebufferSetColorView(rt_framebuffer_t* framebuffer, rt_texture_view_t* view, rt::location* location) {
+	rt_program_t* program = rtd3d12_location_program(location);
+	const rtd3d12_program_output_mapping* mapping = program && location && program->output_mappings[location->address]
+		? &*program->output_mappings[location->address] : nullptr;
 	rtd3d12_framebuffer_set_color_view(
 		rtd3d12_get_current_context(),
 		framebuffer,
-		location ? location->address : 0,
+		mapping ? mapping->binding : 0,
 		view
 	);
 }

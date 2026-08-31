@@ -6,6 +6,7 @@
 #include "framebuffer.h"
 #include "program.h"
 #include "resource.h"
+#include "sampler.h"
 #include "texture.h"
 
 #include <volk.h>
@@ -39,8 +40,11 @@ RTVK_API void rtCmdSetViewport(rt_command_buffer command_buffer, usize x, usize 
 RTVK_API void rtCmdSetScissor(rt_command_buffer command_buffer, usize x, usize y, usize width, usize height);
 RTVK_API void rtCmdEndRendering(rt_command_buffer command_buffer);
 RTVK_API void rtCmdUseProgram(rt_command_buffer command_buffer, rt_program program);
+RTVK_API void rtCmdUniformData(rt_command_buffer command_buffer, rt_location location, const u08* data, usize size);
+RTVK_API void rtCmdStorageData(rt_command_buffer command_buffer, rt_location location, const u08* data, usize size);
 RTVK_API void rtCmdBindBuffer(rt_command_buffer command_buffer, rt_location location, rt_buffer buffer, rt_buffer_range range);
 RTVK_API void rtCmdBindTexture(rt_command_buffer command_buffer, rt_location location, rt_texture_view texture_view);
+RTVK_API void rtCmdBindSampler(rt_command_buffer command_buffer, rt_location location, rt_sampler sampler);
 RTVK_API void rtCmdVertexBuffer(rt_command_buffer command_buffer, rt_location location, rt_buffer buffer, rt_buffer_range range);
 RTVK_API void rtCmdIndexBuffer(rt_command_buffer command_buffer, rt_buffer buffer, rt_buffer_range range, enum rt_index_format format);
 RTVK_API void rtCmdDraw(rt_command_buffer command_buffer, usize vertex_count, usize first_vertex);
@@ -71,8 +75,11 @@ typedef enum rtvk_command_opcode {
 	RTVK_COMMAND_SET_SCISSOR,
 	RTVK_COMMAND_END_RENDERING,
 	RTVK_COMMAND_USE_PROGRAM,
+	RTVK_COMMAND_UNIFORM_DATA,
+	RTVK_COMMAND_STORAGE_DATA,
 	RTVK_COMMAND_BIND_BUFFER,
 	RTVK_COMMAND_BIND_TEXTURE,
+	RTVK_COMMAND_BIND_SAMPLER,
 	RTVK_COMMAND_VERTEX_BUFFER,
 	RTVK_COMMAND_INDEX_BUFFER,
 	RTVK_COMMAND_DRAW,
@@ -194,23 +201,34 @@ struct rtvk_ir_program {
 	struct rtvk_program* program;
 };
 
+struct rtvk_ir_program_data {
+	u08 address;
+	u08* bytes;
+	usize size;
+};
+
 struct rtvk_ir_buffer {
-	rt_location location;
+	u08 address;
 	struct rtvk_buffer* buffer;
 	usize offset;
 	usize size;
 };
 
 struct rtvk_ir_texture {
-	rt_location location;
+	u08 address;
 	struct rtvk_texture_view* view;
 	struct rtvk_image_base* image;
 	VkImageView vk_image_view;
+};
+
+struct rtvk_ir_sampler {
+	u08 address;
+	struct rtvk_sampler* sampler;
 	VkSampler vk_sampler;
 };
 
 struct rtvk_ir_vertex_buffer {
-	rt_location location;
+	u08 address;
 	struct rtvk_buffer* buffer;
 	rt_buffer_range range;
 };
@@ -303,8 +321,10 @@ void rtvk_command_buffer_set_viewport(struct rtvk_command_buffer* command_buffer
 void rtvk_command_buffer_set_scissor(struct rtvk_command_buffer* command_buffer, u32 x, u32 y, u32 width, u32 height);
 void rtvk_command_buffer_end_rendering(struct rtvk_command_buffer* command_buffer);
 void rtvk_command_buffer_use_program(struct rtvk_command_buffer* command_buffer, struct rtvk_program* program);
+void rtvk_command_buffer_program_data(struct rtvk_command_buffer* command_buffer, rt_location location, const u08* data, usize size, rtvk_program_data_kind expected_kind, rtvk_command_opcode opcode);
 void rtvk_command_buffer_bind_buffer(struct rtvk_command_buffer* command_buffer, rt_location location, struct rtvk_buffer* buffer, usize offset, usize size);
 void rtvk_command_buffer_bind_texture(struct rtvk_command_buffer* command_buffer, rt_location location, struct rtvk_texture_view* view);
+void rtvk_command_buffer_bind_sampler(struct rtvk_command_buffer* command_buffer, rt_location location, struct rtvk_sampler* sampler);
 void rtvk_command_buffer_vertex_buffer(struct rtvk_command_buffer* command_buffer, rt_location location, struct rtvk_buffer* buffer, rt_buffer_range range);
 void rtvk_command_buffer_index_buffer(struct rtvk_command_buffer* command_buffer, struct rtvk_buffer* buffer, rt_buffer_range range, enum rt_index_format format);
 void rtvk_command_buffer_draw(struct rtvk_command_buffer* command_buffer, u32 count, u32 first);

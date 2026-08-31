@@ -36,6 +36,7 @@
       "description": "Dependencies used by the Vulkan backend.",
       "dependencies": [
         "spirv-headers",
+        "spirv-tools",
         "vulkan-headers",
         "vulkan-loader",
         "vulkan-memory-allocator",

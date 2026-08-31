@@ -3,6 +3,7 @@
 #include "error.hpp"
 
 #include <cassert>
+#include <cstddef>
 #include <climits>
 #include <cstring>
 #include <dxcapi.h>
@@ -59,6 +60,12 @@ rt::location* rtProgramOutputLocation(rt_program_t* program, const char* name) {
 	return program->output_location(name);
 }
 
+rt_program_t* rtd3d12_location_program(const rt::location* location) {
+	if (!location) return nullptr;
+	const rt::location* locations = location - location->address;
+	return reinterpret_cast<rt_program_t*>(reinterpret_cast<std::byte*>(const_cast<rt::location*>(locations)) - offsetof(rt_program_t, locations));
+}
+
 /*===============================================================================================*/
 /*                                                                                               */
 /*===============================================================================================*/
@@ -84,7 +91,12 @@ rt_program_t::rt_program_t(rtd3d12_context* context)
 	  d3d_pipeline_format(DXGI_FORMAT_UNKNOWN),
 	  d3d_pipeline_depth_format(DXGI_FORMAT_UNKNOWN),
 	  locations{},
-	  location_occupied{},
+	  input_mappings{},
+	  output_mappings{},
+	  descriptor_mappings{},
+	  uniform_data_mappings{},
+	  storage_data_mappings{},
+	  location_allocated{},
 	  location_count(0) {}
 
 void rt_program_t::destroy_pipeline() {
@@ -111,21 +123,33 @@ rt_program_t::~rt_program_t() {
 	shaders.clear();
 }
 
-static void rtd3d12_program_clear_locations(rt_program_t* program) {
-	std::memset(program->locations, 0, sizeof(program->locations));
-	std::memset(program->location_occupied, 0, sizeof(program->location_occupied));
-	program->location_count = 0;
+void rt_program_t::clear_mappings() {
+	std::memset(locations, 0, sizeof(locations));
+	input_mappings.fill(std::nullopt);
+	output_mappings.fill(std::nullopt);
+	descriptor_mappings.fill(std::nullopt);
+	uniform_data_mappings.fill(std::nullopt);
+	storage_data_mappings.fill(std::nullopt);
+	location_allocated.fill(false);
+	location_count = 0;
 }
 
-static bool rtd3d12_program_add_location(rt_program_t* program, const rt::location& location) {
-	if (program->location_count == std::size(program->locations)) {
+rt::location* rt_program_t::allocate_location(bool zero_address) {
+	if (location_count == std::size(locations)) {
 		rtd3d12_fail(rt::error::shader_link_failed, "program exposes more than 256 locations");
-		return false;
+		return nullptr;
 	}
-	const u32 slot = program->location_count++;
-	program->locations[slot] = location;
-	program->location_occupied[slot] = true;
-	return true;
+	for (u32 address = zero_address ? 0u : 1u; address < std::size(locations); ++address) {
+		if (location_allocated[address]) {
+			continue;
+		}
+		locations[address].address = static_cast<u08>(address);
+		location_allocated[address] = true;
+		++location_count;
+		return &locations[address];
+	}
+	rtd3d12_fail(rt::error::shader_link_failed, zero_address ? "program location zero is already mapped" : "program has no free nonzero locations");
+	return nullptr;
 }
 
 static D3D12_SHADER_VISIBILITY rtd3d12_shader_visibility(rtsl::StageMask stages) {
@@ -189,23 +213,17 @@ static bool rtd3d12_program_create_root_signature(rtd3d12_context* ctx, rt_progr
 	std::vector<D3D12_ROOT_PARAMETER> parameters;
 	ranges.reserve(program->rtsl_program->resources().size() * 2);
 	parameters.reserve(program->rtsl_program->resources().size() * 2);
-	rtd3d12_program_clear_locations(program);
+	program->clear_mappings();
 
 	for (const rtsl::Resource& resource : program->rtsl_program->resources()) {
-		if (resource.descriptor.binding > UINT8_MAX) {
-			rtd3d12_fail(rt::error::shader_link_failed, "RTSL resource '{}' address exceeds the rt_location range", resource.name.c_str());
-			return false;
-		}
-		rt::location location = {};
-		location.address = static_cast<u08>(resource.descriptor.binding);
-		location.program = program;
-		strncpy_s(location.name, resource.name.c_str(), _TRUNCATE);
-		location.binding = resource.descriptor.binding;
+		rtd3d12_program_descriptor_mapping mapping = {};
+		mapping.name = resource.name;
+		mapping.binding = resource.descriptor.binding;
 		const D3D12_SHADER_VISIBILITY visibility = rtd3d12_shader_visibility(resource.stages);
 
 		if (resource.kind == rtsl::ResourceKind::uniform_buffer) {
-			location.kind = rtd3d12_program_location_kind::buffer;
-			location.root_parameter = static_cast<u32>(parameters.size());
+			mapping.type = rtd3d12_descriptor_type::constant_buffer;
+			mapping.root_parameter = static_cast<u32>(parameters.size());
 			D3D12_DESCRIPTOR_RANGE range = {};
 			range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
 			range.NumDescriptors = 1;
@@ -220,8 +238,8 @@ static bool rtd3d12_program_create_root_signature(rtd3d12_context* ctx, rt_progr
 			parameter.ShaderVisibility = visibility;
 			parameters.push_back(parameter);
 		} else if (resource.kind == rtsl::ResourceKind::sampled_texture || resource.kind == rtsl::ResourceKind::sampler) {
-			location.kind = rtd3d12_program_location_kind::texture;
-			location.root_parameter = static_cast<u32>(parameters.size());
+			mapping.type = rtd3d12_descriptor_type::texture;
+			mapping.root_parameter = static_cast<u32>(parameters.size());
 			for (const D3D12_DESCRIPTOR_RANGE_TYPE range_type : { D3D12_DESCRIPTOR_RANGE_TYPE_SRV, D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER }) {
 				D3D12_DESCRIPTOR_RANGE range = {};
 				range.RangeType = range_type;
@@ -238,16 +256,16 @@ static bool rtd3d12_program_create_root_signature(rtd3d12_context* ctx, rt_progr
 				parameter.ShaderVisibility = visibility;
 				parameters.push_back(parameter);
 			}
-			location.sampler_root_parameter = location.root_parameter + 1;
+			mapping.sampler_root_parameter = mapping.root_parameter + 1;
 		} else if (resource.kind == rtsl::ResourceKind::storage_buffer) {
 			const std::optional<u32> stride = rtd3d12_storage_buffer_stride(*program->rtsl_program, resource);
 			if (!stride || *stride == 0) {
 				rtd3d12_fail(rt::error::unsupported_feature, "DirectX 12 cannot reflect RTSL storage buffer '{}'", resource.name.c_str());
 				return false;
 			}
-			location.kind = rtd3d12_program_location_kind::storage_buffer;
-			location.storage_stride = *stride;
-			location.root_parameter = static_cast<u32>(parameters.size());
+			mapping.type = rtd3d12_descriptor_type::storage_buffer;
+			mapping.storage_stride = *stride;
+			mapping.root_parameter = static_cast<u32>(parameters.size());
 			D3D12_DESCRIPTOR_RANGE range = {};
 			range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
 			range.NumDescriptors = 1;
@@ -266,40 +284,27 @@ static bool rtd3d12_program_create_root_signature(rtd3d12_context* ctx, rt_progr
 			rtd3d12_fail(rt::error::unsupported_feature, "DirectX 12 does not support RTSL resource '{}' yet", resource.name.c_str());
 			return false;
 		}
-		if (!rtd3d12_program_add_location(program, location)) {
-			return false;
-		}
+		rt::location* location = program->allocate_location();
+		if (!location) return false;
+		program->descriptor_mappings[location->address] = std::move(mapping);
 	}
 	for (usize index = 0; index < program->vertex_layout.input_count; index++) {
-		rt::location location = {};
-		location.address = static_cast<u08>(index);
-		location.program = program;
-		location.kind = rtd3d12_program_location_kind::vertex_input;
-		location.binding = static_cast<u32>(index);
-		location.vertex_input = index;
-		if (!rtd3d12_program_add_location(program, location)) {
-			return false;
-		}
+		rt::location* location = program->allocate_location();
+		if (!location) return false;
+		program->input_mappings[location->address] = rtd3d12_program_input_mapping{.vertex_input = index};
 	}
 	const rtsl::EntryPoint* fragment = program->rtsl_program->entry(rtsl::Stage::fragment);
 	if (fragment && fragment->output) {
 		for (const rtsl::InterfaceElement& element : fragment->output->elements) {
-			if (!element.location || element.name.size() >= RTD3D12_MAX_SHADER_RESOURCE_NAME) {
+			if (!element.location) {
 				continue;
 			}
-			if (*element.location > UINT8_MAX) {
-				rtd3d12_fail(rt::error::shader_link_failed, "fragment output '{}' address exceeds the rt_location range", element.name.c_str());
-				return false;
-			}
-			rt::location location = {};
-			location.address = static_cast<u08>(*element.location);
-			location.program = program;
-			location.kind = rtd3d12_program_location_kind::output;
-			location.binding = *element.location;
-			strncpy_s(location.name, element.name.c_str(), _TRUNCATE);
-			if (!rtd3d12_program_add_location(program, location)) {
-				return false;
-			}
+			rt::location* location = program->allocate_location(element.name.empty());
+			if (!location) return false;
+			program->output_mappings[location->address] = rtd3d12_program_output_mapping{
+				.name = element.name,
+				.binding = *element.location,
+			};
 		}
 	}
 
@@ -565,7 +570,7 @@ void rt_program_t::source(const char* entry_point, const void* data, usize size)
 	}
 	destroy_root_signature();
 	this->entry_point = entry_point;
-	rtd3d12_program_clear_locations(this);
+	clear_mappings();
 	rtsl_program.emplace(std::move(*loaded));
 	shaders.clear();
 }
@@ -737,14 +742,11 @@ rt::location* rt_program_t::uniform_location(const char* name) {
 		rtd3d12_fail(rt::error::improper_usage, "program must be finalized before querying uniforms");
 		return nullptr;
 	}
-	for (u32 index = 0; index < location_count; ++index) {
-		if (!location_occupied[index]) {
-			continue;
-		}
-		rt::location& location = locations[index];
-		if (location.kind != rtd3d12_program_location_kind::vertex_input && location.kind != rtd3d12_program_location_kind::output && std::strcmp(name, location.name) == 0) {
-			return &location;
-		}
+	for (u32 index = 0; index < std::size(locations); ++index) {
+		if (!location_allocated[index]) continue;
+		if ((uniform_data_mappings[index] && uniform_data_mappings[index]->name == name) ||
+			(storage_data_mappings[index] && storage_data_mappings[index]->name == name) ||
+			(descriptor_mappings[index] && descriptor_mappings[index]->name == name)) return &locations[index];
 	}
 	return nullptr;
 }
@@ -758,15 +760,9 @@ rt::location* rt_program_t::input_location(const rt::vertex_attribute* attribute
 		rtd3d12_fail(rt::error::improper_usage, "program must be finalized before querying vertex inputs");
 		return nullptr;
 	}
-	for (u32 index = 0; index < location_count; ++index) {
-		if (!location_occupied[index]) {
-			continue;
-		}
-		rt::location& location = locations[index];
-		if (location.kind != rtd3d12_program_location_kind::vertex_input || location.vertex_input >= vertex_layout.input_count) {
-			continue;
-		}
-		const rt::vertex_input& input = vertex_layout.inputs[location.vertex_input];
+	for (u32 index = 0; index < std::size(locations); ++index) {
+		if (!location_allocated[index] || !input_mappings[index] || input_mappings[index]->vertex_input >= vertex_layout.input_count) continue;
+		const rt::vertex_input& input = vertex_layout.inputs[input_mappings[index]->vertex_input];
 		if (input.attribute_count != attribute_count) {
 			continue;
 		}
@@ -780,7 +776,7 @@ rt::location* rt_program_t::input_location(const rt::vertex_attribute* attribute
 			}
 		}
 		if (matches) {
-			return &location;
+			return &locations[index];
 		}
 	}
 	return nullptr;
@@ -791,14 +787,10 @@ rt::location* rt_program_t::output_location(const char* name) {
 		rtd3d12_fail(rt::error::improper_usage, "program must be finalized before querying fragment outputs");
 		return nullptr;
 	}
-	for (u32 index = 0; index < location_count; ++index) {
-		if (!location_occupied[index]) {
-			continue;
-		}
-		rt::location& location = locations[index];
-		if (location.kind == rtd3d12_program_location_kind::output && ((name && std::strcmp(location.name, name) == 0) || (!name && !location.name[0]))) {
-			return &location;
-		}
+	for (u32 index = 0; index < std::size(locations); ++index) {
+		if (!location_allocated[index] || !output_mappings[index]) continue;
+		const rtd3d12_program_output_mapping& mapping = *output_mappings[index];
+		if ((name && mapping.name == name) || (!name && mapping.name.empty())) return &locations[index];
 	}
 	return nullptr;
 }

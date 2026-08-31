@@ -12,18 +12,6 @@
 /*                                                                                                */
 /*===============================================================================================*/
 
-static void rtvk_location_program_retain(rt_location location) {
-	if (location && location->program) {
-		rtvk_resource_retain(RTVK_RESOURCE_BASE(location->program));
-	}
-}
-
-static void rtvk_location_program_release(rt_location location) {
-	if (location && location->program) {
-		rtvk_resource_release(RTVK_RESOURCE_BASE(location->program));
-	}
-}
-
 rt_command_buffer rtCommandBufferCreate(void) {
 	return rtvk_command_buffer_to_handle(rtvk_command_buffer_create(rtvk_get_current_context()));
 }
@@ -145,7 +133,8 @@ void rtCmdBeginRendering(rt_command_buffer command_buffer, rt_framebuffer frameb
 }
 
 void rtCmdClearColor(rt_command_buffer command_buffer, rt_location location, f32 r, f32 g, f32 b, f32 a) {
-	rtvk_command_buffer_clear_color(rtvk_command_buffer_from_handle(command_buffer), location ? location->address : 0, r, g, b, a);
+	struct rtvk_program_output_mapping* mapping = rtvk_program_output_mapping(rtvk_location_program(location), location);
+	rtvk_command_buffer_clear_color(rtvk_command_buffer_from_handle(command_buffer), mapping ? mapping->attachment : 0, r, g, b, a);
 }
 
 void rtCmdClearDepth(rt_command_buffer command_buffer, f32 depth) {
@@ -194,6 +183,14 @@ void rtCmdBindTexture(rt_command_buffer command_buffer, rt_location location, rt
 		rtvk_command_buffer_from_handle(command_buffer),
 		location,
 		rtvk_texture_view_from_handle(texture_view)
+	);
+}
+
+void rtCmdBindSampler(rt_command_buffer command_buffer, rt_location location, rt_sampler sampler) {
+	rtvk_command_buffer_bind_sampler(
+		rtvk_command_buffer_from_handle(command_buffer),
+		location,
+		rtvk_sampler_from_handle(sampler)
 	);
 }
 
@@ -281,10 +278,15 @@ usize rtvk_command_payload_size(rtvk_command_opcode opcode) {
 		return 0;
 	case RTVK_COMMAND_USE_PROGRAM:
 		return sizeof(struct rtvk_ir_program);
+	case RTVK_COMMAND_UNIFORM_DATA:
+	case RTVK_COMMAND_STORAGE_DATA:
+		return sizeof(struct rtvk_ir_program_data);
 	case RTVK_COMMAND_BIND_BUFFER:
 		return sizeof(struct rtvk_ir_buffer);
 	case RTVK_COMMAND_BIND_TEXTURE:
 		return sizeof(struct rtvk_ir_texture);
+	case RTVK_COMMAND_BIND_SAMPLER:
+		return sizeof(struct rtvk_ir_sampler);
 	case RTVK_COMMAND_VERTEX_BUFFER:
 		return sizeof(struct rtvk_ir_vertex_buffer);
 	case RTVK_COMMAND_INDEX_BUFFER:
@@ -396,22 +398,28 @@ void rtvk_command_buffer_release_resources(struct rtvk_command_buffer* command_b
 		case RTVK_COMMAND_USE_PROGRAM:
 			rtvk_release_resource(((struct rtvk_ir_program*)payload)->program);
 			break;
+		case RTVK_COMMAND_UNIFORM_DATA:
+		case RTVK_COMMAND_STORAGE_DATA: {
+			struct rtvk_ir_program_data* command = payload;
+			free(command->bytes);
+			break;
+		}
 		case RTVK_COMMAND_BIND_BUFFER: {
 			struct rtvk_ir_buffer* command = payload;
-			rtvk_location_program_release(command->location);
 			rtvk_release_resource(command->buffer);
 			break;
 		}
 		case RTVK_COMMAND_BIND_TEXTURE: {
 			struct rtvk_ir_texture* command = payload;
-			rtvk_location_program_release(command->location);
 			rtvk_release_resource(command->view);
 			rtvk_release_resource(command->image);
 			break;
 		}
+		case RTVK_COMMAND_BIND_SAMPLER:
+			rtvk_release_resource(((struct rtvk_ir_sampler*)payload)->sampler);
+			break;
 		case RTVK_COMMAND_VERTEX_BUFFER: {
 			struct rtvk_ir_vertex_buffer* command = payload;
-			rtvk_location_program_release(command->location);
 			rtvk_release_resource(command->buffer);
 			break;
 		}
@@ -764,6 +772,14 @@ void rtvk_command_buffer_begin_rendering(struct rtvk_command_buffer* command_buf
 	command_buffer->rendering = true;
 }
 
+void rtCmdUniformData(rt_command_buffer command_buffer, rt_location location, const u08* data, usize size) {
+	rtvk_command_buffer_program_data(rtvk_command_buffer_from_handle(command_buffer), location, data, size, RTVK_DATA_UNIFORM, RTVK_COMMAND_UNIFORM_DATA);
+}
+
+void rtCmdStorageData(rt_command_buffer command_buffer, rt_location location, const u08* data, usize size) {
+	rtvk_command_buffer_program_data(rtvk_command_buffer_from_handle(command_buffer), location, data, size, RTVK_DATA_STORAGE, RTVK_COMMAND_STORAGE_DATA);
+}
+
 void rtvk_command_buffer_clear_color(struct rtvk_command_buffer* command_buffer, u32 index, f32 r, f32 g, f32 b, f32 a) {
 	struct rtvk_ir_clear_color* command = rtvk_command_append(command_buffer, RTVK_COMMAND_CLEAR_COLOR);
 	if (!command) {
@@ -839,8 +855,7 @@ void rtvk_command_buffer_bind_buffer(struct rtvk_command_buffer* command_buffer,
 	if (!command) {
 		return;
 	}
-	*command = (struct rtvk_ir_buffer){ location, rtvk_buffer_active_node(buffer), offset, size };
-	rtvk_location_program_retain(command->location);
+	*command = (struct rtvk_ir_buffer){ location ? location->address : 0, rtvk_buffer_active_node(buffer), offset, size };
 	rtvk_retain_resource(command->buffer);
 }
 
@@ -849,10 +864,17 @@ void rtvk_command_buffer_bind_texture(struct rtvk_command_buffer* command_buffer
 	if (!command) {
 		return;
 	}
-	*command = (struct rtvk_ir_texture){ location, view, view ? view->image : NULL, view ? view->vk_image_view : VK_NULL_HANDLE, view ? view->vk_sampler : VK_NULL_HANDLE };
-	rtvk_location_program_retain(command->location);
+	*command = (struct rtvk_ir_texture){ location ? location->address : 0, view, view ? view->image : NULL, view ? view->vk_image_view : VK_NULL_HANDLE };
 	rtvk_retain_resource(command->view);
 	rtvk_retain_resource(command->image);
+}
+
+void rtvk_command_buffer_bind_sampler(struct rtvk_command_buffer* command_buffer, rt_location location, struct rtvk_sampler* sampler) {
+	struct rtvk_ir_sampler* command = rtvk_command_append(command_buffer, RTVK_COMMAND_BIND_SAMPLER);
+	if (!command) return;
+	struct rtvk_sampler* node = rtvk_sampler_active_node(sampler);
+	*command = (struct rtvk_ir_sampler){ location ? location->address : 0, node, node ? node->vk_sampler : VK_NULL_HANDLE };
+	rtvk_retain_resource(command->sampler);
 }
 
 void rtvk_command_buffer_vertex_buffer(struct rtvk_command_buffer* command_buffer, rt_location location, struct rtvk_buffer* buffer, rt_buffer_range range) {
@@ -860,8 +882,7 @@ void rtvk_command_buffer_vertex_buffer(struct rtvk_command_buffer* command_buffe
 	if (!command) {
 		return;
 	}
-	*command = (struct rtvk_ir_vertex_buffer){ location, rtvk_buffer_active_node(buffer), range };
-	rtvk_location_program_retain(command->location);
+	*command = (struct rtvk_ir_vertex_buffer){ location ? location->address : 0, rtvk_buffer_active_node(buffer), range };
 	rtvk_retain_resource(command->buffer);
 }
 
@@ -935,16 +956,28 @@ void rtvk_command_buffer_finish(struct rtvk_command_buffer* command_buffer) {
 /*===============================================================================================*/
 
 struct rtvk_bound_descriptor {
-	rt_location location;
+	u08 address;
 	struct rtvk_buffer* buffer;
+	VkBuffer vk_buffer;
 	struct rtvk_ir_texture texture;
+	struct rtvk_ir_sampler sampler;
 	usize offset;
+	usize size;
+};
+
+struct rtvk_program_data_block {
+	struct rtvk_program* program;
+	rtvk_program_data_kind kind;
+	u32 binding;
+	struct rtvk_lowered_staging_buffer* buffer;
+	u08* bytes;
 	usize size;
 };
 
 struct rtvk_lower_state {
 	struct rtvk_bound_descriptor* bound_descriptors;
 	struct rtvk_buffer** vertex_buffers;
+	struct rtvk_program_data_block* program_data_blocks;
 	VkDeviceSize* vertex_offsets;
 	const struct rtvk_framebuffer* framebuffer;
 	struct rtvk_program* program;
@@ -952,6 +985,8 @@ struct rtvk_lower_state {
 	usize descriptor_count;
 	usize descriptor_capacity;
 	usize vertex_buffer_capacity;
+	usize program_data_count;
+	usize program_data_capacity;
 	usize index_offset;
 	u32 render_width;
 	u32 render_height;
@@ -984,11 +1019,11 @@ void rtvk_lower_reserve_descriptors(struct rtvk_lower_state* state, usize count)
 
 struct rtvk_bound_descriptor* rtvk_lower_find_descriptor(
 	struct rtvk_lower_state* state,
-	rt_location location
+	u08 address
 ) {
 	for (usize index = 0; index < state->descriptor_count; index++) {
 		struct rtvk_bound_descriptor* descriptor = &state->bound_descriptors[index];
-		if (descriptor->location == location) {
+		if (descriptor->address == address) {
 			return descriptor;
 		}
 	}
@@ -997,9 +1032,9 @@ struct rtvk_bound_descriptor* rtvk_lower_find_descriptor(
 
 struct rtvk_bound_descriptor* rtvk_lower_add_descriptor(
 	struct rtvk_lower_state* state,
-	rt_location location
+	u08 address
 ) {
-	struct rtvk_bound_descriptor* descriptor = rtvk_lower_find_descriptor(state, location);
+	struct rtvk_bound_descriptor* descriptor = rtvk_lower_find_descriptor(state, address);
 	if (descriptor) {
 		return descriptor;
 	}
@@ -1010,7 +1045,7 @@ struct rtvk_bound_descriptor* rtvk_lower_add_descriptor(
 	}
 
 	descriptor = &state->bound_descriptors[state->descriptor_count++];
-	*descriptor = (struct rtvk_bound_descriptor){ .location = location };
+	*descriptor = (struct rtvk_bound_descriptor){ .address = address };
 	return descriptor;
 }
 
@@ -1041,6 +1076,37 @@ void rtvk_lower_state_finish(struct rtvk_lower_state* state) {
 	free(state->bound_descriptors);
 	free(state->vertex_buffers);
 	free(state->vertex_offsets);
+	for (usize index = 0; index < state->program_data_count; index++) {
+		free(state->program_data_blocks[index].bytes);
+	}
+	free(state->program_data_blocks);
+}
+
+struct rtvk_bound_descriptor* rtvk_lower_find_program_descriptor(struct rtvk_lower_state* state, const struct rtvk_program_descriptor_mapping* mapping) {
+	for (usize index = 0; index < state->descriptor_count; index++) {
+		struct rtvk_bound_descriptor* descriptor = &state->bound_descriptors[index];
+		if (!state->program->descriptor_mapping_occupied[descriptor->address]) {
+			continue;
+		}
+		const struct rtvk_program_descriptor_mapping* candidate = &state->program->descriptor_mappings[descriptor->address];
+		if (candidate->binding == mapping->binding && rtvk_program_descriptor_type(candidate->kind) == rtvk_program_descriptor_type(mapping->kind)) {
+			return descriptor;
+		}
+	}
+	return NULL;
+}
+
+void rtvk_lower_reserve_program_data(struct rtvk_lower_state* state, usize count) {
+	if (state->program_data_capacity >= count) {
+		return;
+	}
+	struct rtvk_program_data_block* blocks = realloc(state->program_data_blocks, count * sizeof(*blocks));
+	if (!blocks) {
+		rtvk_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate %zu bytes for program data state", count * sizeof(*blocks));
+		return;
+	}
+	state->program_data_blocks = blocks;
+	state->program_data_capacity = count;
 }
 
 void rtvk_lowered_command_buffer_add_resource_job(struct rtvk_lowered_command_buffer* lowered, struct rtvk_resource_base* resource) {
@@ -1075,7 +1141,7 @@ void rtvk_lowered_command_buffer_release_resource_jobs(struct rtvk_lowered_comma
 	}
 }
 
-struct rtvk_lowered_staging_buffer* rtvk_lowered_command_buffer_create_staging_buffer(struct rtvk_context* ctx, struct rtvk_lowered_command_buffer* lowered, usize size) {
+struct rtvk_lowered_staging_buffer* rtvk_lowered_command_buffer_create_host_buffer(struct rtvk_context* ctx, struct rtvk_lowered_command_buffer* lowered, usize size, VkBufferUsageFlags usage) {
 	struct rtvk_lowered_staging_buffer* staging = calloc(1, sizeof(*staging));
 	if (!staging) {
 		rtvk_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate %zu bytes for recorded buffer staging metadata", sizeof(*staging));
@@ -1084,7 +1150,7 @@ struct rtvk_lowered_staging_buffer* rtvk_lowered_command_buffer_create_staging_b
 
 	VkBufferCreateInfo buffer_info = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
 	buffer_info.size = size ? size : 1;
-	buffer_info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+	buffer_info.usage = usage;
 	buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 	VmaAllocationCreateInfo allocation_info = { 0 };
 	allocation_info.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
@@ -1176,6 +1242,27 @@ static VkExtent3D rtvk_framebuffer_extent(const struct rtvk_framebuffer* framebu
 	return (VkExtent3D){ 0 };
 }
 
+void rtvk_command_buffer_program_data(struct rtvk_command_buffer* command_buffer, rt_location location, const u08* data, usize size, rtvk_program_data_kind expected_kind, rtvk_command_opcode opcode) {
+	struct rtvk_program* program = rtvk_location_program(location);
+	const struct rtvk_program_data_mapping* mapping = rtvk_program_data_mapping(program, location);
+	if (!command_buffer || !command_buffer->recording || !mapping || mapping->kind != expected_kind || !data || size != mapping->byte_size) {
+		rtvk_throwf(RT_IMPROPER_USAGE, "program data write does not match its reflected location");
+		return;
+	}
+	u08* bytes = malloc(size);
+	if (!bytes) {
+		rtvk_throwf(RT_OUT_OF_HOST_MEMORY, "failed to copy program data into the command buffer");
+		return;
+	}
+	memcpy(bytes, data, size);
+	struct rtvk_ir_program_data* command = rtvk_command_append(command_buffer, opcode);
+	if (!command) {
+		free(bytes);
+		return;
+	}
+	*command = (struct rtvk_ir_program_data){ location->address, bytes, size };
+}
+
 void rtvk_lower_begin_rendering(VkCommandBuffer command_buffer, const struct rtvk_framebuffer* framebuffer) {
 	VkRenderingAttachmentInfo colors[RTVK_MAX_FRAMEBUFFER_COLOR_ATTACHMENTS] = { 0 };
 	VkExtent3D extent = rtvk_framebuffer_extent(framebuffer);
@@ -1246,8 +1333,8 @@ void rtvk_lower_bind_descriptors(struct rtvk_context* ctx, struct rtvk_lowered_c
 	}
 
 	u32 descriptor_count = 0;
-	for (u32 location_index = 0; location_index < state->program->location_count; location_index++) {
-		if (state->program->locations[location_index].kind != RTVK_LOCATION_VERTEX && state->program->locations[location_index].kind != RTVK_LOCATION_OUTPUT) {
+	for (u32 location_index = 0; location_index < 256; location_index++) {
+		if (rtvk_program_descriptor_is_first(state->program, location_index)) {
 			descriptor_count++;
 		}
 	}
@@ -1264,43 +1351,55 @@ void rtvk_lower_bind_descriptors(struct rtvk_context* ctx, struct rtvk_lowered_c
 	}
 
 	u32 descriptor_index = 0;
-	for (u32 location_index = 0; location_index < state->program->location_count; location_index++) {
-		struct rt_location_t* location = &state->program->locations[location_index];
-		if (location->kind == RTVK_LOCATION_VERTEX || location->kind == RTVK_LOCATION_OUTPUT) {
+	for (u32 location_index = 0; location_index < 256; location_index++) {
+		struct rtvk_program_descriptor_mapping* mapping = &state->program->descriptor_mappings[location_index];
+		if (!rtvk_program_descriptor_is_first(state->program, location_index)) {
 			continue;
 		}
 		writes[descriptor_index] = (VkWriteDescriptorSet){ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
 		writes[descriptor_index].dstSet = descriptor_set;
-		writes[descriptor_index].dstBinding = location->binding;
+		writes[descriptor_index].dstBinding = mapping->binding;
 		writes[descriptor_index].descriptorCount = 1;
-		const struct rtvk_bound_descriptor* descriptor = rtvk_lower_find_descriptor(state, location);
-		if (location->kind == RTVK_LOCATION_TEXTURE) {
+		const struct rtvk_bound_descriptor* descriptor = rtvk_lower_find_program_descriptor(state, mapping);
+		if (mapping->kind == RTVK_DESCRIPTOR_TEXTURE) {
 			const struct rtvk_ir_texture* texture = descriptor ? &descriptor->texture : NULL;
-			if (!texture || !texture->vk_image_view || !texture->vk_sampler) {
+			if (!texture || !texture->vk_image_view) {
 				free(buffer_infos);
 				free(image_infos);
 				free(writes);
-				rtvk_throwf(RT_IMPROPER_USAGE, "program resource %s is not bound to a texture view", location->name);
+				rtvk_throwf(RT_IMPROPER_USAGE, "program resource %s is not bound to a texture view", state->program->location_names[location_index]);
 				return;
 			}
-			image_infos[descriptor_index].sampler = texture ? texture->vk_sampler : VK_NULL_HANDLE;
 			image_infos[descriptor_index].imageView = texture ? texture->vk_image_view : VK_NULL_HANDLE;
+			image_infos[descriptor_index].sampler = texture ? texture->view->vk_sampler : VK_NULL_HANDLE;
 			image_infos[descriptor_index].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 			writes[descriptor_index].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 			writes[descriptor_index].pImageInfo = &image_infos[descriptor_index];
+		} else if (mapping->kind == RTVK_DESCRIPTOR_SAMPLER) {
+			const struct rtvk_ir_sampler* sampler = descriptor ? &descriptor->sampler : NULL;
+			if (!sampler || !sampler->vk_sampler) {
+				free(buffer_infos);
+				free(image_infos);
+				free(writes);
+				rtvk_throwf(RT_IMPROPER_USAGE, "program resource %s is not bound to a sampler", state->program->location_names[location_index]);
+				return;
+			}
+			image_infos[descriptor_index].sampler = sampler->vk_sampler;
+			writes[descriptor_index].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
+			writes[descriptor_index].pImageInfo = &image_infos[descriptor_index];
 		} else {
-			struct rtvk_buffer* buffer = descriptor ? descriptor->buffer : NULL;
+			VkBuffer buffer = descriptor ? descriptor->vk_buffer : VK_NULL_HANDLE;
 			if (!buffer || !descriptor->size) {
 				free(buffer_infos);
 				free(image_infos);
 				free(writes);
-				rtvk_throwf(RT_IMPROPER_USAGE, "program resource %s is not bound to a buffer range", location->name);
+				rtvk_throwf(RT_IMPROPER_USAGE, "program resource %s is not bound to a buffer range", state->program->location_names[location_index]);
 				return;
 			}
-			buffer_infos[descriptor_index].buffer = buffer->vk_buffer;
+			buffer_infos[descriptor_index].buffer = buffer;
 			buffer_infos[descriptor_index].offset = descriptor->offset;
 			buffer_infos[descriptor_index].range = descriptor->size;
-			writes[descriptor_index].descriptorType = location->kind == RTVK_LOCATION_STORAGE_BUFFER ? VK_DESCRIPTOR_TYPE_STORAGE_BUFFER : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+			writes[descriptor_index].descriptorType = rtvk_program_descriptor_type(mapping->kind);
 			writes[descriptor_index].pBufferInfo = &buffer_infos[descriptor_index];
 		}
 		descriptor_index++;
@@ -1358,7 +1457,7 @@ void rtvk_lower_buffer_data(struct rtvk_context* ctx, struct rtvk_lowered_comman
 
 	rtvk_lower_buffer_copy_prior(lowered, command->copy_source, command->buffer);
 
-	struct rtvk_lowered_staging_buffer* staging = rtvk_lowered_command_buffer_create_staging_buffer(ctx, lowered, command->range.size);
+	struct rtvk_lowered_staging_buffer* staging = rtvk_lowered_command_buffer_create_host_buffer(ctx, lowered, command->range.size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
 	if (!staging) {
 		return;
 	}
@@ -1518,7 +1617,7 @@ void rtvk_lower_texture_data(struct rtvk_context* ctx, struct rtvk_lowered_comma
 
 	rtvk_lower_texture_copy_prior(lowered, command->copy_source, command->texture);
 
-	struct rtvk_lowered_staging_buffer* staging = rtvk_lowered_command_buffer_create_staging_buffer(ctx, lowered, command->data_size);
+	struct rtvk_lowered_staging_buffer* staging = rtvk_lowered_command_buffer_create_host_buffer(ctx, lowered, command->data_size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
 	if (!staging) {
 		return;
 	}
@@ -1709,20 +1808,77 @@ void rtvk_lower_use_program(struct rtvk_context* ctx, struct rtvk_lowered_comman
 	rtvk_lower_bind_program(ctx, lowered, state);
 }
 
+void rtvk_lower_program_data(struct rtvk_context* ctx, struct rtvk_lowered_command_buffer* lowered, struct rtvk_lower_state* state, const struct rtvk_ir_program_data* command, rtvk_program_data_kind expected_kind) {
+	if (!state->program || !state->program->data_mapping_occupied[command->address]) {
+		return;
+	}
+	struct rtvk_program_data_mapping* mapping = &state->program->data_mappings[command->address];
+	if (mapping->kind != expected_kind || command->size != mapping->byte_size || mapping->byte_offset > mapping->block_size || command->size > mapping->block_size - mapping->byte_offset) {
+		return;
+	}
+	struct rtvk_program_data_block* block = NULL;
+	for (usize index = 0; index < state->program_data_count; index++) {
+		struct rtvk_program_data_block* candidate = &state->program_data_blocks[index];
+		if (candidate->program == state->program && candidate->kind == mapping->kind && candidate->binding == mapping->binding) {
+			block = candidate;
+			break;
+		}
+	}
+	if (!block) {
+		rtvk_lower_reserve_program_data(state, state->program_data_count + 1);
+		if (rtvk_error() != RT_SUCCESS) {
+			return;
+		}
+		block = &state->program_data_blocks[state->program_data_count++];
+		*block = (struct rtvk_program_data_block){ state->program, mapping->kind, mapping->binding, NULL, NULL, mapping->block_size };
+		block->bytes = calloc(1, mapping->block_size);
+		if (!block->bytes) {
+			rtvk_throwf(RT_OUT_OF_HOST_MEMORY, "failed to allocate %zu bytes for aggregate program data", mapping->block_size);
+			return;
+		}
+	}
+	memcpy(block->bytes + mapping->byte_offset, command->bytes, command->size);
+	const VkBufferUsageFlags usage = mapping->kind == RTVK_DATA_UNIFORM ? VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT : VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+	block->buffer = rtvk_lowered_command_buffer_create_host_buffer(ctx, lowered, mapping->block_size, usage);
+	if (!block->buffer) {
+		return;
+	}
+	VmaAllocationInfo allocation_info;
+	vmaGetAllocationInfo(ctx->vma_allocator, block->buffer->vma_allocation, &allocation_info);
+	memcpy(allocation_info.pMappedData, block->bytes, block->size);
+	vmaFlushAllocation(ctx->vma_allocator, block->buffer->vma_allocation, 0, block->size);
+	struct rtvk_bound_descriptor* descriptor = rtvk_lower_add_descriptor(state, command->address);
+	if (!descriptor) {
+		return;
+	}
+	descriptor->buffer = NULL;
+	descriptor->vk_buffer = block->buffer->vk_buffer;
+	descriptor->texture = (struct rtvk_ir_texture){ 0 };
+	descriptor->sampler = (struct rtvk_ir_sampler){ 0 };
+	descriptor->offset = 0;
+	descriptor->size = block->size;
+	state->descriptors_dirty = true;
+}
+
 void rtvk_lower_bind_buffer(struct rtvk_lowered_command_buffer* lowered, struct rtvk_lower_state* state, const struct rtvk_ir_buffer* command) {
-	struct rt_location_t* location = command->location;
-	if (!location || location->program != state->program || (location->kind != RTVK_LOCATION_BUFFER && location->kind != RTVK_LOCATION_STORAGE_BUFFER)) {
+	if (!state->program || !state->program->descriptor_mapping_occupied[command->address]) {
+		return;
+	}
+	struct rtvk_program_descriptor_mapping* mapping = &state->program->descriptor_mappings[command->address];
+	if (mapping->kind != RTVK_DESCRIPTOR_BUFFER && mapping->kind != RTVK_DESCRIPTOR_STORAGE_BUFFER) {
 		return;
 	}
 	struct rtvk_bound_descriptor* descriptor = rtvk_lower_add_descriptor(
 		state,
-		command->location
+		command->address
 	);
 	if (!descriptor) {
 		return;
 	}
 	descriptor->buffer = command->buffer;
+	descriptor->vk_buffer = command->buffer ? command->buffer->vk_buffer : VK_NULL_HANDLE;
 	descriptor->texture = (struct rtvk_ir_texture){ 0 };
+	descriptor->sampler = (struct rtvk_ir_sampler){ 0 };
 	descriptor->offset = command->offset;
 	descriptor->size = command->size;
 	state->descriptors_dirty = true;
@@ -1730,19 +1886,20 @@ void rtvk_lower_bind_buffer(struct rtvk_lowered_command_buffer* lowered, struct 
 }
 
 void rtvk_lower_bind_texture(struct rtvk_lowered_command_buffer* lowered, struct rtvk_lower_state* state, const struct rtvk_ir_texture* command) {
-	struct rt_location_t* location = command->location;
-	if (!location || location->program != state->program || location->kind != RTVK_LOCATION_TEXTURE) {
+	if (!state->program || !state->program->descriptor_mapping_occupied[command->address] || state->program->descriptor_mappings[command->address].kind != RTVK_DESCRIPTOR_TEXTURE) {
 		return;
 	}
 	struct rtvk_bound_descriptor* descriptor = rtvk_lower_add_descriptor(
 		state,
-		command->location
+		command->address
 	);
 	if (!descriptor) {
 		return;
 	}
 	descriptor->texture = *command;
+	descriptor->sampler = (struct rtvk_ir_sampler){ 0 };
 	descriptor->buffer = NULL;
+	descriptor->vk_buffer = VK_NULL_HANDLE;
 	descriptor->offset = 0;
 	descriptor->size = 0;
 	state->descriptors_dirty = true;
@@ -1750,13 +1907,27 @@ void rtvk_lower_bind_texture(struct rtvk_lowered_command_buffer* lowered, struct
 	rtvk_lowered_command_buffer_add_resource_job(lowered, RTVK_RESOURCE_BASE(command->image));
 }
 
+void rtvk_lower_bind_sampler(struct rtvk_lowered_command_buffer* lowered, struct rtvk_lower_state* state, const struct rtvk_ir_sampler* command) {
+	if (!state->program || !state->program->descriptor_mapping_occupied[command->address] || state->program->descriptor_mappings[command->address].kind != RTVK_DESCRIPTOR_SAMPLER) return;
+	struct rtvk_bound_descriptor* descriptor = rtvk_lower_add_descriptor(state, command->address);
+	if (!descriptor) return;
+	descriptor->sampler = *command;
+	descriptor->texture = (struct rtvk_ir_texture){ 0 };
+	descriptor->buffer = NULL;
+	descriptor->vk_buffer = VK_NULL_HANDLE;
+	descriptor->offset = 0;
+	descriptor->size = 0;
+	state->descriptors_dirty = true;
+	rtvk_lowered_command_buffer_add_resource_job(lowered, RTVK_RESOURCE_BASE(command->sampler));
+}
+
 void rtvk_lower_vertex_buffer(struct rtvk_context* ctx, struct rtvk_lowered_command_buffer* lowered, struct rtvk_lower_state* state, const struct rtvk_ir_vertex_buffer* command) {
 	struct rtvk_buffer* buffer = command->buffer;
-	struct rt_location_t* location = command->location;
-	if (!buffer || !location || location->program != state->program || location->kind != RTVK_LOCATION_VERTEX) {
+	if (!buffer || !state->program || !state->program->input_mapping_occupied[command->address]) {
 		return;
 	}
-	const u32 binding = location->address;
+	struct rtvk_program_input_mapping* mapping = &state->program->input_mappings[command->address];
+	const u32 binding = mapping->binding;
 	rtvk_lower_reserve_vertex_buffers(state, binding + 1);
 	if (rtvk_error() != RT_SUCCESS) {
 		return;
@@ -1889,11 +2060,20 @@ void rtvk_command_buffer_lower_commands(struct rtvk_context* ctx, struct rtvk_co
 		case RTVK_COMMAND_USE_PROGRAM:
 			rtvk_lower_use_program(ctx, lowered, state, payload);
 			break;
+		case RTVK_COMMAND_UNIFORM_DATA:
+			rtvk_lower_program_data(ctx, lowered, state, payload, RTVK_DATA_UNIFORM);
+			break;
+		case RTVK_COMMAND_STORAGE_DATA:
+			rtvk_lower_program_data(ctx, lowered, state, payload, RTVK_DATA_STORAGE);
+			break;
 		case RTVK_COMMAND_BIND_BUFFER:
 			rtvk_lower_bind_buffer(lowered, state, payload);
 			break;
 		case RTVK_COMMAND_BIND_TEXTURE:
 			rtvk_lower_bind_texture(lowered, state, payload);
+			break;
+		case RTVK_COMMAND_BIND_SAMPLER:
+			rtvk_lower_bind_sampler(lowered, state, payload);
 			break;
 		case RTVK_COMMAND_VERTEX_BUFFER:
 			rtvk_lower_vertex_buffer(ctx, lowered, state, payload);
