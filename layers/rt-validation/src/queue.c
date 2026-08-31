@@ -2,7 +2,7 @@
 #include "command_buffer.h"
 #include "logger.h"
 
-#define RTVAL_DROP(message) rtval_printf("[validation] %s, dropping call\n", message)
+#define RTVAL_DROP(message) rtval_fail(message)
 
 /*===============================================================================================*/
 /*                                                                                               */
@@ -44,6 +44,10 @@ RT_API_PUBLIC bool rtTimepointReached(rt_timepoint timepoint) {
 /*===============================================================================================*/
 
 struct rtval_queue* rtval_queue_create(enum rt_queue_capability capability) {
+	if (capability != RT_QUEUE_TRANSFER && capability != RT_QUEUE_COMPUTE && capability != RT_QUEUE_GRAPHICS) {
+		RTVAL_DROP("rtQueueCreate: valid queue capability required");
+		return NULL;
+	}
 	rt_queue backend = rtval_next_rtQueueCreate(capability);
 	if (!backend) {
 		rtval_report_error("rtQueueCreate");
@@ -66,8 +70,9 @@ void rtval_queue_destroy(struct rtval_queue* queue) {
 		return;
 	}
 	rtval_next_rtQueueDestroy(state->backend);
-	rtval_handle_destroy(queue);
-	rtval_report_error("rtQueueDestroy");
+	if (rtval_report_error("rtQueueDestroy")) {
+		rtval_handle_destroy(queue);
+	}
 }
 
 void rtval_queue_wait(struct rtval_queue* queue, rt_timepoint timepoint) {

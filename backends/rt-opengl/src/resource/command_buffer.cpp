@@ -119,6 +119,7 @@ void rtgl_command_buffer_clear_commands(struct rtgl_command_buffer* command_buff
 /*===============================================================================================*/
 
 rt_command_buffer rtCommandBufferCreate(void) {
+	rtgl_begin_errorable_operation();
 	return rtgl_command_buffer_to_handle(rtgl_command_buffer_create(rtgl_get_current_context()));
 }
 
@@ -702,13 +703,14 @@ bool rtgl_command_buffer_append_copy(struct rtgl_command_buffer* command_buffer,
 	return true;
 }
 
-void rtCommandBufferReset(rt_command_buffer command_buffer) { rtgl_command_buffer_reset(rtgl_command_buffer_from_handle(command_buffer)); }
-void rtCommandBufferBegin(rt_command_buffer command_buffer) { rtgl_command_buffer_begin(rtgl_command_buffer_from_handle(command_buffer)); }
-void rtCommandBufferContinue(rt_command_buffer command_buffer) { rtgl_command_buffer_continue(rtgl_command_buffer_from_handle(command_buffer), false); }
-void rtCommandBufferContinueRendering(rt_command_buffer command_buffer) { rtgl_command_buffer_continue(rtgl_command_buffer_from_handle(command_buffer), true); }
-void rtCommandBufferEnd(rt_command_buffer command_buffer) { rtgl_command_buffer_end(rtgl_command_buffer_from_handle(command_buffer)); }
+void rtCommandBufferReset(rt_command_buffer command_buffer) { rtgl_begin_errorable_operation(); rtgl_command_buffer_reset(rtgl_command_buffer_from_handle(command_buffer)); }
+void rtCommandBufferBegin(rt_command_buffer command_buffer) { rtgl_begin_errorable_operation(); rtgl_command_buffer_begin(rtgl_command_buffer_from_handle(command_buffer)); }
+void rtCommandBufferContinue(rt_command_buffer command_buffer) { rtgl_begin_errorable_operation(); rtgl_command_buffer_continue(rtgl_command_buffer_from_handle(command_buffer), false); }
+void rtCommandBufferContinueRendering(rt_command_buffer command_buffer) { rtgl_begin_errorable_operation(); rtgl_command_buffer_continue(rtgl_command_buffer_from_handle(command_buffer), true); }
+void rtCommandBufferEnd(rt_command_buffer command_buffer) { rtgl_begin_errorable_operation(); rtgl_command_buffer_end(rtgl_command_buffer_from_handle(command_buffer)); }
 
 void rtCmdExecute(rt_command_buffer command_buffer, rt_command_buffer secondary) {
+	rtgl_begin_errorable_operation();
 	struct rtgl_command_buffer* parent = rtgl_command_buffer_from_handle(command_buffer);
 	struct rtgl_command_buffer* child = rtgl_command_buffer_from_handle(secondary);
 	if (!parent || !child || parent == child || !parent->recording || !child->executable || !child->continuation || (child->rendering_continuation && !parent->rendering)) {
@@ -722,29 +724,53 @@ void rtCmdExecute(rt_command_buffer command_buffer, rt_command_buffer secondary)
 }
 
 void rtCmdBeginRendering(rt_command_buffer command_buffer, rt_framebuffer framebuffer) {
+	rtgl_begin_errorable_operation();
 	rtgl_command_buffer_begin_rendering(rtgl_command_buffer_from_handle(command_buffer), rtgl_framebuffer_from_handle(framebuffer));
 }
 
 void rtCmdClearColor(rt_command_buffer command_buffer, rt_location location, f32 r, f32 g, f32 b, f32 a) {
+	rtgl_begin_errorable_operation();
 	rtgl_command_buffer_clear_color(rtgl_command_buffer_from_handle(command_buffer), location, r, g, b, a);
 }
 
 void rtCmdClearDepth(rt_command_buffer command_buffer, f32 depth) {
+	rtgl_begin_errorable_operation();
 	rtgl_command_buffer_clear_depth(rtgl_command_buffer_from_handle(command_buffer), depth);
 }
 
 void rtCmdClearStencil(rt_command_buffer command_buffer, usize stencil) {
+	rtgl_begin_errorable_operation();
 	rtgl_command_buffer_clear_stencil(rtgl_command_buffer_from_handle(command_buffer), stencil);
 }
 
-void rtCmdClear(rt_command_buffer command_buffer, enum rt_clear_flag attachments) { rtgl_command_buffer_clear(rtgl_command_buffer_from_handle(command_buffer), attachments); }
+void rtCmdClear(rt_command_buffer command_buffer, enum rt_clear_flag attachments) { rtgl_begin_errorable_operation(); rtgl_command_buffer_clear(rtgl_command_buffer_from_handle(command_buffer), attachments); }
 
 void rtCmdSetViewport(rt_command_buffer command_buffer, usize x, usize y, usize width, usize height, f32 min_depth, f32 max_depth) {
+	rtgl_begin_errorable_operation();
 	rtgl_command_buffer_set_viewport(rtgl_command_buffer_from_handle(command_buffer), x, y, width, height, min_depth, max_depth);
 }
 
 void rtCmdUseProgram(rt_command_buffer command_buffer, rt_program program) {
+	rtgl_begin_errorable_operation();
 	rtgl_command_buffer_use_program(rtgl_command_buffer_from_handle(command_buffer), rtgl_program_from_handle(program));
+}
+
+static void rtgl_command_buffer_bind_sampler(struct rtgl_command_buffer* command_buffer, struct rt_location_t* location, const struct rtgl_sampler* sampler) {
+	if (!command_buffer || !command_buffer->recording || !sampler) return;
+	rtgl_recorded_command* command = rtgl_command_buffer_append(command_buffer);
+	if (!command) return;
+	command->kind = RTGL_RECORDED_COMMAND_BIND_SAMPLER;
+	command->data.bind_sampler.address = location ? location->address : 0;
+	command->data.bind_sampler.mag_filter = sampler->mag_filter;
+	command->data.bind_sampler.min_filter = sampler->min_filter;
+	command->data.bind_sampler.mip_filter = sampler->mip_filter;
+	command->data.bind_sampler.address_u = sampler->address_u;
+	command->data.bind_sampler.address_v = sampler->address_v;
+	command->data.bind_sampler.address_w = sampler->address_w;
+	command->data.bind_sampler.max_anisotropy = sampler->max_anisotropy;
+	command->data.bind_sampler.min_lod = sampler->min_lod;
+	command->data.bind_sampler.max_lod = sampler->max_lod;
+	command->data.bind_sampler.lod_bias = sampler->lod_bias;
 }
 
 void rtgl_command_buffer_program_data(struct rtgl_command_buffer* command_buffer, struct rt_location_t* location, const u08* data, usize size, rtgl_location_kind expected_kind, rtgl_recorded_command_kind command_kind) {
@@ -771,84 +797,109 @@ void rtgl_command_buffer_program_data(struct rtgl_command_buffer* command_buffer
 }
 
 void rtCmdUniformData(rt_command_buffer command_buffer, rt_location location, const u08* data, usize size) {
+	rtgl_begin_errorable_operation();
 	rtgl_command_buffer_program_data(rtgl_command_buffer_from_handle(command_buffer), location, data, size, RTGL_LOCATION_MAPPING_UNIFORM_DATA, RTGL_RECORDED_COMMAND_UNIFORM_DATA);
 }
 
 void rtCmdStorageData(rt_command_buffer command_buffer, rt_location location, const u08* data, usize size) {
+	rtgl_begin_errorable_operation();
 	rtgl_command_buffer_program_data(rtgl_command_buffer_from_handle(command_buffer), location, data, size, RTGL_LOCATION_MAPPING_STORAGE_DATA, RTGL_RECORDED_COMMAND_STORAGE_DATA);
 }
 
 void rtCmdSetScissor(rt_command_buffer command_buffer, usize x, usize y, usize width, usize height) {
+	rtgl_begin_errorable_operation();
 	rtgl_command_buffer_set_scissor(rtgl_command_buffer_from_handle(command_buffer), x, y, width, height);
 }
 
 void rtCmdBindBuffer(rt_command_buffer command_buffer, rt_location location, rt_buffer buffer, rt_buffer_range range) {
+	rtgl_begin_errorable_operation();
 	rtgl_command_buffer_bind_buffer(rtgl_command_buffer_from_handle(command_buffer), location, rtgl_buffer_from_handle(buffer), range);
 }
 
 void rtCmdBindTexture(rt_command_buffer command_buffer, rt_location location, rt_texture_view texture_view) {
+	rtgl_begin_errorable_operation();
 	rtgl_command_buffer_bind_texture(rtgl_command_buffer_from_handle(command_buffer), location, rtgl_texture_view_from_handle(texture_view));
 }
 
+void rtCmdBindSampler(rt_command_buffer command_buffer, rt_location location, rt_sampler sampler) {
+	rtgl_begin_errorable_operation();
+	rtgl_command_buffer_bind_sampler(rtgl_command_buffer_from_handle(command_buffer), location, rtgl_sampler_from_handle(sampler));
+}
+
 void rtCmdVertexBuffer(rt_command_buffer command_buffer, rt_location location, rt_buffer buffer, rt_buffer_range range) {
+	rtgl_begin_errorable_operation();
 	rtgl_command_buffer_vertex_buffer(rtgl_command_buffer_from_handle(command_buffer), location, rtgl_buffer_from_handle(buffer), range);
 }
 
 void rtCmdIndexBuffer(rt_command_buffer command_buffer, rt_buffer buffer, rt_buffer_range range, enum rt_index_format format) {
+	rtgl_begin_errorable_operation();
 	rtgl_command_buffer_index_buffer(rtgl_command_buffer_from_handle(command_buffer), rtgl_buffer_from_handle(buffer), range, format);
 }
 
 void rtCmdDraw(rt_command_buffer command_buffer, usize vertex_count, usize first_vertex) {
+	rtgl_begin_errorable_operation();
 	rtgl_command_buffer_draw(rtgl_command_buffer_from_handle(command_buffer), vertex_count, first_vertex);
 }
 
 void rtCmdDrawInstanced(rt_command_buffer command_buffer, usize vertex_count, usize instance_count, usize first_vertex, usize first_instance) {
+	rtgl_begin_errorable_operation();
 	rtgl_command_buffer_draw_instanced(rtgl_command_buffer_from_handle(command_buffer), vertex_count, instance_count, first_vertex, first_instance);
 }
 
 void rtCmdDrawIndexed(rt_command_buffer command_buffer, usize index_count, usize first_index, usize vertex_offset) {
+	rtgl_begin_errorable_operation();
 	rtgl_command_buffer_draw_indexed(rtgl_command_buffer_from_handle(command_buffer), index_count, first_index, vertex_offset);
 }
 
 void rtCmdDrawIndexedInstanced(rt_command_buffer command_buffer, usize index_count, usize instance_count, usize first_index, usize vertex_offset, usize first_instance) {
+	rtgl_begin_errorable_operation();
 	rtgl_command_buffer_draw_indexed_instanced(rtgl_command_buffer_from_handle(command_buffer), index_count, instance_count, first_index, vertex_offset, first_instance);
 }
 
 void rtCmdEndRendering(rt_command_buffer command_buffer) {
+	rtgl_begin_errorable_operation();
 	rtgl_command_buffer_end_rendering(rtgl_command_buffer_from_handle(command_buffer));
 }
 
 void rtCmdBufferData(rt_command_buffer command_buffer, rt_buffer buffer, rt_buffer_range range, const u08* data) {
+	rtgl_begin_errorable_operation();
 	rtgl_command_buffer_buffer_data(rtgl_command_buffer_from_handle(command_buffer), rtgl_buffer_from_handle(buffer), range, data);
 }
 
 void rtCmdBufferCopy(rt_command_buffer command_buffer, rt_buffer src, rt_buffer_range src_range, rt_buffer dst, rt_buffer_range dst_range) {
+	rtgl_begin_errorable_operation();
 	rtgl_command_buffer_buffer_copy(rtgl_command_buffer_from_handle(command_buffer), rtgl_buffer_from_handle(src), src_range, rtgl_buffer_from_handle(dst), dst_range);
 }
 
 void rtCmdBufferCopyToTexture(rt_command_buffer command_buffer, rt_buffer src, rt_buffer_range src_range, rt_texture dst, rt_texture_range dst_range) {
+	rtgl_begin_errorable_operation();
 	rtgl_command_buffer_buffer_copy_to_texture(rtgl_command_buffer_from_handle(command_buffer), rtgl_buffer_from_handle(src), src_range, rtgl_texture_from_handle(dst), dst_range);
 }
 
 void rtCmdBufferBarrier(rt_command_buffer command_buffer, rt_buffer buffer, rt_buffer_range range, rt_access src, rt_access dst) {
+	rtgl_begin_errorable_operation();
 	(void)buffer;
 	(void)range;
 	rtgl_command_buffer_barrier(rtgl_command_buffer_from_handle(command_buffer), src, dst, RTGL_RECORDED_COMMAND_BUFFER_BARRIER);
 }
 
 void rtCmdTextureData(rt_command_buffer command_buffer, rt_texture texture, rt_texture_range range, const u08* data) {
+	rtgl_begin_errorable_operation();
 	rtgl_command_buffer_texture_data(rtgl_command_buffer_from_handle(command_buffer), rtgl_texture_from_handle(texture), range, data);
 }
 
 void rtCmdTextureCopy(rt_command_buffer command_buffer, rt_texture src, rt_texture_range src_range, rt_texture dst, rt_texture_range dst_range) {
+	rtgl_begin_errorable_operation();
 	rtgl_command_buffer_texture_copy(rtgl_command_buffer_from_handle(command_buffer), rtgl_texture_from_handle(src), src_range, rtgl_texture_from_handle(dst), dst_range);
 }
 
 void rtCmdTextureCopyToBuffer(rt_command_buffer command_buffer, rt_texture src, rt_texture_range src_range, rt_buffer dst, rt_buffer_range dst_range) {
+	rtgl_begin_errorable_operation();
 	rtgl_command_buffer_texture_copy_to_buffer(rtgl_command_buffer_from_handle(command_buffer), rtgl_texture_from_handle(src), src_range, rtgl_buffer_from_handle(dst), dst_range);
 }
 
 void rtCmdTextureBarrier(rt_command_buffer command_buffer, rt_texture texture, rt_texture_range range, rt_access src, rt_access dst) {
+	rtgl_begin_errorable_operation();
 	(void)texture;
 	(void)range;
 	rtgl_command_buffer_barrier(rtgl_command_buffer_from_handle(command_buffer), src, dst, RTGL_RECORDED_COMMAND_TEXTURE_BARRIER);
@@ -1388,6 +1439,24 @@ void rtgl_command_buffer_execute(struct rtgl_context* ctx, struct rtgl_command_b
 #endif
 				sampler_snapshots.push_back(sampler);
 				glBindTextureUnit(mapping->binding, command->data.bind_texture.image->gl_texture);
+				glBindSampler(mapping->binding, sampler);
+			}
+			break;
+		case RTGL_RECORDED_COMMAND_BIND_SAMPLER:
+			if (program && program->location_occupied[command->data.bind_sampler.address]) {
+				struct rtgl_program_mapping* mapping = &program->mappings[command->data.bind_sampler.address];
+				rtgl_bind_uniform_texture(ctx, program, mapping);
+				GLuint sampler = 0;
+				glCreateSamplers(1, &sampler);
+				glSamplerParameteri(sampler, GL_TEXTURE_MAG_FILTER, command->data.bind_sampler.mag_filter == RT_FILTER_NEAREST ? GL_NEAREST : GL_LINEAR);
+				glSamplerParameteri(sampler, GL_TEXTURE_MIN_FILTER, rtgl_snapshot_sampler_filter(command->data.bind_sampler.min_filter, command->data.bind_sampler.mip_filter));
+				glSamplerParameteri(sampler, GL_TEXTURE_WRAP_S, rtgl_snapshot_sampler_address(command->data.bind_sampler.address_u));
+				glSamplerParameteri(sampler, GL_TEXTURE_WRAP_T, rtgl_snapshot_sampler_address(command->data.bind_sampler.address_v));
+				glSamplerParameteri(sampler, GL_TEXTURE_WRAP_R, rtgl_snapshot_sampler_address(command->data.bind_sampler.address_w));
+				glSamplerParameterf(sampler, GL_TEXTURE_MIN_LOD, command->data.bind_sampler.min_lod);
+				glSamplerParameterf(sampler, GL_TEXTURE_MAX_LOD, command->data.bind_sampler.max_lod);
+				glSamplerParameterf(sampler, GL_TEXTURE_LOD_BIAS, command->data.bind_sampler.lod_bias);
+				sampler_snapshots.push_back(sampler);
 				glBindSampler(mapping->binding, sampler);
 			}
 			break;

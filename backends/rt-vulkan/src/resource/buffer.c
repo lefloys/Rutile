@@ -6,6 +6,7 @@
 #include <string.h>
 
 rt_buffer rtBufferCreate(void) {
+	rtvk_begin_errorable_operation();
 	return rtvk_buffer_to_handle(rtvk_buffer_create(rtvk_get_current_context()));
 }
 
@@ -14,18 +15,22 @@ void rtBufferDestroy(rt_buffer buffer) {
 }
 
 void rtBufferResize(rt_buffer buffer, enum rt_memory_type memory_type, usize size) {
+	rtvk_begin_errorable_operation();
 	rtvk_buffer_resize(rtvk_get_current_context(), rtvk_buffer_from_handle(buffer), memory_type, size);
 }
 
 void rtBufferRead(rt_buffer buffer, rt_buffer_range range, u08* data, usize data_size) {
+	rtvk_begin_errorable_operation();
 	rtvk_buffer_read(rtvk_get_current_context(), rtvk_buffer_from_handle(buffer), range, data, data_size);
 }
 
 u08* rtBufferMap(rt_buffer buffer, rt_buffer_range range) {
+	rtvk_begin_errorable_operation();
 	return rtvk_buffer_map(rtvk_get_current_context(), rtvk_buffer_from_handle(buffer), range);
 }
 
 void rtBufferUnmap(rt_buffer buffer) {
+	rtvk_begin_errorable_operation();
 	rtvk_buffer_unmap(rtvk_get_current_context(), rtvk_buffer_from_handle(buffer));
 }
 

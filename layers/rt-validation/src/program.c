@@ -1,7 +1,7 @@
 #include "program.h"
 #include "logger.h"
 
-#define RTVAL_DROP(message) rtval_printf("[validation] %s, dropping call\n", message)
+#define RTVAL_DROP(message) rtval_fail(message)
 
 /*===============================================================================================*/
 /*                                                                                               */
@@ -69,6 +69,7 @@ struct rtval_program* rtval_program_create(void) {
 
 void rtval_program_destroy(struct rtval_program* program) {
 	if (!program) {
+		RTVAL_DROP("rtProgramDestroy: invalid handle");
 		return;
 	}
 	struct rtval_program* state = RTVAL_PAYLOAD(program, struct rtval_program);
@@ -77,7 +78,9 @@ void rtval_program_destroy(struct rtval_program* program) {
 		return;
 	}
 	rtval_next_rtProgramDestroy(state->backend);
-	rtval_handle_destroy(program);
+	if (rtval_report_error("rtProgramDestroy")) {
+		rtval_handle_destroy(program);
+	}
 }
 
 void rtval_program_layout(struct rtval_program* program, const rt_vertex_layout* layout) {
@@ -119,6 +122,10 @@ void rtval_program_raster_state(struct rtval_program* program, enum rt_cull_mode
 		RTVAL_DROP("rtProgramRasterState: null handle");
 		return;
 	}
+	if (cull_mode < RT_CULL_NONE || cull_mode > RT_CULL_BACK || front_face < RT_FRONT_FACE_CCW || front_face > RT_FRONT_FACE_CW || fill_mode < RT_FILL_SOLID || fill_mode > RT_FILL_WIREFRAME) {
+		RTVAL_DROP("rtProgramSetRasterState: valid raster-state enums required");
+		return;
+	}
 
 	rtval_next_rtProgramSetRasterState(state->backend, cull_mode, front_face, fill_mode);
 	rtval_report_error("rtProgramSetRasterState");
@@ -137,6 +144,10 @@ void rtval_program_blend_state(
 	struct rtval_program* state = RTVAL_PAYLOAD(program, struct rtval_program);
 	if (!state) {
 		RTVAL_DROP("rtProgramBlendState: null handle");
+		return;
+	}
+	if (src_color < RT_BLEND_ZERO || src_color > RT_BLEND_ONE_MINUS_DST_ALPHA || dst_color < RT_BLEND_ZERO || dst_color > RT_BLEND_ONE_MINUS_DST_ALPHA || src_alpha < RT_BLEND_ZERO || src_alpha > RT_BLEND_ONE_MINUS_DST_ALPHA || dst_alpha < RT_BLEND_ZERO || dst_alpha > RT_BLEND_ONE_MINUS_DST_ALPHA || color_op < RT_BLEND_OP_ADD || color_op > RT_BLEND_OP_MAX || alpha_op < RT_BLEND_OP_ADD || alpha_op > RT_BLEND_OP_MAX) {
+		RTVAL_DROP("rtProgramSetBlendState: valid blend-state enums required");
 		return;
 	}
 
@@ -184,8 +195,8 @@ rt_location rtval_program_input_location(struct rtval_program* program, const rt
 
 rt_location rtval_program_output_location(struct rtval_program* program, const char* name) {
 	struct rtval_program* state = RTVAL_PAYLOAD(program, struct rtval_program);
-	if (!state || !name) {
-		RTVAL_DROP("rtProgramOutputLocation: program and name required");
+	if (!state) {
+		RTVAL_DROP("rtProgramOutputLocation: valid program required");
 		return RT_NULL_HANDLE;
 	}
 	rt_location location = rtval_next_rtProgramOutputLocation(state->backend, name);

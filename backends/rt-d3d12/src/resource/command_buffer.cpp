@@ -4,6 +4,7 @@
 #include "resource/buffer.hpp"
 #include "resource/framebuffer.hpp"
 #include "resource/program.hpp"
+#include "resource/sampler.hpp"
 #include "resource/texture.hpp"
 
 #include <stdlib.h>
@@ -29,6 +30,7 @@ static void rtd3d12_buffer_node_release(rt_buffer_t* buffer) {
 /*===============================================================================================*/
 
 rt_command_buffer_t* rtCommandBufferCreate(void) {
+	rtd3d12_begin_errorable_operation();
 	return rtd3d12::create_resource<rt_command_buffer_t>(rtd3d12_get_current_context());
 }
 
@@ -37,23 +39,27 @@ void rtCommandBufferDestroy(rt_command_buffer_t* command_buffer) {
 }
 
 void rtCommandBufferReset(rt_command_buffer_t* command_buffer) {
+	rtd3d12_begin_errorable_operation();
 	rtd3d12_command_buffer_reset(command_buffer);
 }
 
 void rtCommandBufferBegin(rt_command_buffer_t* command_buffer) {
+	rtd3d12_begin_errorable_operation();
 	rtd3d12_command_buffer_begin(command_buffer);
 }
 
-void rtCommandBufferContinue(rt_command_buffer_t* command_buffer) { rtd3d12_command_buffer_continue(command_buffer, false); }
-void rtCommandBufferContinueRendering(rt_command_buffer_t* command_buffer) { rtd3d12_command_buffer_continue(command_buffer, true); }
-void rtCommandBufferEnd(rt_command_buffer_t* command_buffer) { rtd3d12_command_buffer_end(command_buffer); }
-void rtCmdExecute(rt_command_buffer_t* command_buffer, rt_command_buffer_t* secondary) { rtd3d12_command_buffer_execute(command_buffer, secondary); }
+void rtCommandBufferContinue(rt_command_buffer_t* command_buffer) { rtd3d12_begin_errorable_operation(); rtd3d12_command_buffer_continue(command_buffer, false); }
+void rtCommandBufferContinueRendering(rt_command_buffer_t* command_buffer) { rtd3d12_begin_errorable_operation(); rtd3d12_command_buffer_continue(command_buffer, true); }
+void rtCommandBufferEnd(rt_command_buffer_t* command_buffer) { rtd3d12_begin_errorable_operation(); rtd3d12_command_buffer_end(command_buffer); }
+void rtCmdExecute(rt_command_buffer_t* command_buffer, rt_command_buffer_t* secondary) { rtd3d12_begin_errorable_operation(); rtd3d12_command_buffer_execute(command_buffer, secondary); }
 
 void rtCmdBeginRendering(rt_command_buffer_t* command_buffer, rt_framebuffer_t* framebuffer) {
+	rtd3d12_begin_errorable_operation();
 	rtd3d12_command_buffer_begin_rendering(command_buffer, framebuffer);
 }
 
 void rtCmdClearColor(rt_command_buffer_t* command_buffer, rt::location* location, f32 r, f32 g, f32 b, f32 a) {
+	rtd3d12_begin_errorable_operation();
 	rt_program_t* program = rtd3d12_location_program(location);
 	const rtd3d12_program_output_mapping* mapping = program && location && program->output_mappings[location->address]
 		? &*program->output_mappings[location->address] : nullptr;
@@ -61,88 +67,114 @@ void rtCmdClearColor(rt_command_buffer_t* command_buffer, rt::location* location
 }
 
 void rtCmdClearDepth(rt_command_buffer_t* command_buffer, f32 depth) {
+	rtd3d12_begin_errorable_operation();
 	rtd3d12_command_buffer_clear_depth(command_buffer, depth);
 }
 
 void rtCmdClearStencil(rt_command_buffer_t* command_buffer, usize stencil) {
+	rtd3d12_begin_errorable_operation();
 	rtd3d12_command_buffer_clear_stencil(command_buffer, static_cast<u32>(stencil));
 }
 
 void rtCmdClear(rt_command_buffer_t* command_buffer, rt::clear attachments) {
+	rtd3d12_begin_errorable_operation();
 	rtd3d12_command_buffer_clear(command_buffer, attachments);
 }
 
 void rtCmdSetViewport(rt_command_buffer_t* command_buffer, usize x, usize y, usize width, usize height, f32 min_depth, f32 max_depth) {
+	rtd3d12_begin_errorable_operation();
 	rtd3d12_command_buffer_set_viewport(command_buffer, x, y, width, height, min_depth, max_depth);
 }
 
 void rtCmdSetScissor(rt_command_buffer_t* command_buffer, usize x, usize y, usize width, usize height) {
+	rtd3d12_begin_errorable_operation();
 	rtd3d12_command_buffer_set_scissor(command_buffer, x, y, width, height);
 }
 
 void rtCmdEndRendering(rt_command_buffer_t* command_buffer) {
+	rtd3d12_begin_errorable_operation();
 	rtd3d12_command_buffer_end_rendering(command_buffer);
 }
 
 void rtCmdUseProgram(rt_command_buffer_t* command_buffer, rt_program_t* program) {
+	rtd3d12_begin_errorable_operation();
 	rtd3d12_command_buffer_use_program(command_buffer, program);
 }
 
 void rtCmdUniformData(rt_command_buffer_t* command_buffer, rt::location* location, const u08* data, usize size) {
+	rtd3d12_begin_errorable_operation();
 	if (command_buffer) command_buffer->uniform_data(location, data, size);
 }
 
 void rtCmdStorageData(rt_command_buffer_t* command_buffer, rt::location* location, const u08* data, usize size) {
+	rtd3d12_begin_errorable_operation();
 	if (command_buffer) command_buffer->storage_data(location, data, size);
 }
 
 void rtCmdBindBuffer(rt_command_buffer_t* command_buffer, rt::location* location, rt_buffer_t* buffer, rt::buffer_range range) {
+	rtd3d12_begin_errorable_operation();
 	rtd3d12_command_buffer_bind_buffer(command_buffer, location, buffer, range.offset, range.size);
 }
 
 void rtCmdBindTexture(rt_command_buffer_t* command_buffer, rt::location* location, rt_texture_view_t* texture_view) {
+	rtd3d12_begin_errorable_operation();
 	rtd3d12_command_buffer_bind_texture(command_buffer, location, texture_view);
 }
 
+void rtCmdBindSampler(rt_command_buffer_t* command_buffer, rt::location* location, rt_sampler_t* sampler) {
+	rtd3d12_begin_errorable_operation();
+	rtd3d12_command_buffer_bind_sampler(command_buffer, location, sampler);
+}
+
 void rtCmdVertexBuffer(rt_command_buffer_t* command_buffer, rt::location* location, rt_buffer_t* buffer, rt::buffer_range range) {
+	rtd3d12_begin_errorable_operation();
 	(void)range.size;
 	rtd3d12_command_buffer_vertex_buffer(command_buffer, location, buffer, range.offset);
 }
 
 void rtCmdIndexBuffer(rt_command_buffer_t* command_buffer, rt_buffer_t* buffer, rt::buffer_range range, rt::index_format format) {
+	rtd3d12_begin_errorable_operation();
 	(void)range.size;
 	rtd3d12_command_buffer_index_buffer(command_buffer, buffer, range.offset, format);
 }
 
 void rtCmdDraw(rt_command_buffer_t* command_buffer, usize vertex_count, usize first_vertex) {
+	rtd3d12_begin_errorable_operation();
 	rtd3d12_command_buffer_draw(command_buffer, vertex_count, first_vertex);
 }
 
 void rtCmdDrawInstanced(rt_command_buffer_t* command_buffer, usize vertex_count, usize instance_count, usize first_vertex, usize first_instance) {
+	rtd3d12_begin_errorable_operation();
 	rtd3d12_command_buffer_draw_instanced(command_buffer, vertex_count, instance_count, first_vertex, first_instance);
 }
 
 void rtCmdDrawIndexed(rt_command_buffer_t* command_buffer, usize index_count, usize first_index, usize vertex_offset) {
+	rtd3d12_begin_errorable_operation();
 	rtd3d12_command_buffer_draw_indexed(command_buffer, index_count, first_index, vertex_offset);
 }
 
 void rtCmdDrawIndexedInstanced(rt_command_buffer_t* command_buffer, usize index_count, usize instance_count, usize first_index, usize vertex_offset, usize first_instance) {
+	rtd3d12_begin_errorable_operation();
 	rtd3d12_command_buffer_draw_indexed_instanced(command_buffer, index_count, instance_count, first_index, vertex_offset, first_instance);
 }
 
 void rtCmdBufferData(rt_command_buffer_t* command_buffer, rt_buffer_t* buffer, rt::buffer_range range, const u08* data) {
+	rtd3d12_begin_errorable_operation();
 	rtd3d12_command_buffer_buffer_data(command_buffer, buffer, range, data);
 }
 
 void rtCmdBufferCopy(rt_command_buffer_t* command_buffer, rt_buffer_t* src, rt::buffer_range src_range, rt_buffer_t* dst, rt::buffer_range dst_range) {
+	rtd3d12_begin_errorable_operation();
 	rtd3d12_command_buffer_buffer_copy(command_buffer, src, src_range, dst, dst_range);
 }
 
 void rtCmdBufferCopyToTexture(rt_command_buffer_t* command_buffer, rt_buffer_t* src, rt::buffer_range src_range, rt_texture_t* dst, rt::texture_range dst_range) {
+	rtd3d12_begin_errorable_operation();
 	rtd3d12_command_buffer_buffer_copy_to_texture(command_buffer, src, src_range, dst, dst_range);
 }
 
 void rtCmdBufferBarrier(rt_command_buffer_t* command_buffer, rt_buffer_t* buffer, rt::buffer_range range, rt::access src, rt::access dst) {
+	rtd3d12_begin_errorable_operation();
 	rtd3d12_command_buffer_buffer_barrier(command_buffer, buffer, range, src, dst);
 }
 
@@ -258,6 +290,9 @@ usize rtd3d12_command_record_size(rtd3d12_command_opcode opcode) {
 		break;
 	case rtd3d12_command_opcode::bind_texture:
 		size += sizeof(rtd3d12_ir_texture);
+		break;
+	case rtd3d12_command_opcode::bind_sampler:
+		size += sizeof(rtd3d12_ir_sampler);
 		break;
 	case rtd3d12_command_opcode::vertex_buffer:
 		size += sizeof(rtd3d12_ir_vertex_buffer);
@@ -375,6 +410,11 @@ void rtd3d12_command_buffer_release_resources(rt_command_buffer_t* command_buffe
 				command->sampler_heap->Release();
 				command->sampler_heap = nullptr;
 			}
+			break;
+		}
+		case rtd3d12_command_opcode::bind_sampler: {
+			rtd3d12_ir_sampler* command = static_cast<rtd3d12_ir_sampler*>(payload);
+			if (command->sampler) command->sampler->release();
 			break;
 		}
 		case rtd3d12_command_opcode::vertex_buffer: {
@@ -543,6 +583,11 @@ static void rtd3d12_command_buffer_retain_payload(rtd3d12_command_opcode opcode,
 		if (command->sampler_heap) {
 			command->sampler_heap->AddRef();
 		}
+		break;
+	}
+	case rtd3d12_command_opcode::bind_sampler: {
+		rtd3d12_ir_sampler* command = static_cast<rtd3d12_ir_sampler*>(payload);
+		if (command->sampler) command->sampler->retain();
 		break;
 	}
 	case rtd3d12_command_opcode::vertex_buffer: {
@@ -743,7 +788,7 @@ void rtd3d12_command_buffer_clear(rt_command_buffer_t* command_buffer, rt::clear
 	if (!command_buffer || !command_buffer->recording || !command_buffer->rendering) {
 		return;
 	}
-	if (attachments & rt::clear::color) {
+	if (static_cast<u32>(attachments & rt::clear::color) != 0) {
 		const u32 count = command_buffer->active_framebuffer ? command_buffer->active_framebuffer->color_texture_count : 0;
 		for (u32 index = 0; index < count; ++index) {
 			rtd3d12_ir_clear_color* c = static_cast<rtd3d12_ir_clear_color*>(rtd3d12_command_append(command_buffer, rtd3d12_command_opcode::clear_color));
@@ -752,13 +797,13 @@ void rtd3d12_command_buffer_clear(rt_command_buffer_t* command_buffer, rt::clear
 			}
 		}
 	}
-	if (attachments & rt::clear::depth) {
+	if (static_cast<u32>(attachments & rt::clear::depth) != 0) {
 		rtd3d12_ir_clear_depth* c = static_cast<rtd3d12_ir_clear_depth*>(rtd3d12_command_append(command_buffer, rtd3d12_command_opcode::clear_depth));
 		if (c) {
 			c->depth = command_buffer->clear_depth_value;
 		}
 	}
-	if (attachments & rt::clear::stencil) {
+	if (static_cast<u32>(attachments & rt::clear::stencil) != 0) {
 		rtd3d12_ir_clear_stencil* c = static_cast<rtd3d12_ir_clear_stencil*>(rtd3d12_command_append(command_buffer, rtd3d12_command_opcode::clear_stencil));
 		if (c) {
 			c->stencil = command_buffer->clear_stencil_value;
@@ -803,7 +848,7 @@ void rtd3d12_command_buffer_bind_buffer(rt_command_buffer_t* command_buffer, rt:
 		return;
 	}
 	rt_buffer_t* node = buffer ? buffer->active : nullptr;
-	*command = { location ? location->address : 0, node, offset, size };
+	*command = { location ? location->address : u08{0}, node, offset, size };
 	rtd3d12_buffer_node_retain(node);
 }
 void rtd3d12_command_buffer_bind_texture(rt_command_buffer_t* command_buffer, rt::location* location, rt_texture_view_t* texture_view) {
@@ -815,7 +860,7 @@ void rtd3d12_command_buffer_bind_texture(rt_command_buffer_t* command_buffer, rt
 	if (!command) {
 		return;
 	}
-	*command = { location ? location->address : 0, texture_view, image, texture_view->d3d_sampler_heap, texture_view->sampler_cpu };
+	*command = { location ? location->address : u08{0}, texture_view, image, texture_view->d3d_sampler_heap, texture_view->sampler_cpu };
 	(texture_view)->retain();
 	if (image) {
 		(image)->retain();
@@ -824,13 +869,21 @@ void rtd3d12_command_buffer_bind_texture(rt_command_buffer_t* command_buffer, rt
 		command->sampler_heap->AddRef();
 	}
 }
+
+void rtd3d12_command_buffer_bind_sampler(rt_command_buffer_t* command_buffer, rt::location* location, rt_sampler_t* sampler) {
+	if (!command_buffer || !command_buffer->recording || !sampler || !rtd3d12_sampler_prepare(sampler)) return;
+	rtd3d12_ir_sampler* command = static_cast<rtd3d12_ir_sampler*>(rtd3d12_command_append(command_buffer, rtd3d12_command_opcode::bind_sampler));
+	if (!command) return;
+	*command = { location ? location->address : u08{0}, sampler, sampler->cpu };
+	sampler->retain();
+}
 void rtd3d12_command_buffer_vertex_buffer(rt_command_buffer_t* command_buffer, rt::location* location, rt_buffer_t* buffer, usize offset) {
 	rtd3d12_ir_vertex_buffer* command = static_cast<rtd3d12_ir_vertex_buffer*>(rtd3d12_command_append(command_buffer, rtd3d12_command_opcode::vertex_buffer));
 	if (!command) {
 		return;
 	}
 	rt_buffer_t* node = buffer ? buffer->active : nullptr;
-	*command = { location ? location->address : 0, node, offset };
+	*command = { location ? location->address : u08{0}, node, offset };
 	rtd3d12_buffer_node_retain(node);
 }
 
@@ -839,7 +892,7 @@ void rt_command_buffer_t::uniform_data(rt::location* location, const u08* data, 
 	const rtd3d12_program_data_mapping* mapping = program && location && program->uniform_data_mappings[location->address]
 		? &*program->uniform_data_mappings[location->address] : nullptr;
 	if (!recording || !mapping || !data || size != mapping->byte_size) {
-		rtd3d12_throwf(rt::error::improper_usage, "program data write does not match its reflected location");
+		rtd3d12_fail(rt::error::improper_usage, "program data write does not match its reflected location");
 		return;
 	}
 	rtd3d12_ir_program_data* command = static_cast<rtd3d12_ir_program_data*>(rtd3d12_command_append(this, rtd3d12_command_opcode::uniform_data));
@@ -861,7 +914,7 @@ void rt_command_buffer_t::storage_data(rt::location* location, const u08* data, 
 	const rtd3d12_program_data_mapping* mapping = program && location && program->storage_data_mappings[location->address]
 		? &*program->storage_data_mappings[location->address] : nullptr;
 	if (!recording || !mapping || !data || size != mapping->byte_size) {
-		rtd3d12_throwf(rt::error::improper_usage, "program data write does not match its reflected location");
+		rtd3d12_fail(rt::error::improper_usage, "program data write does not match its reflected location");
 		return;
 	}
 	rtd3d12_ir_program_data* command = static_cast<rtd3d12_ir_program_data*>(rtd3d12_command_append(this, rtd3d12_command_opcode::storage_data));
@@ -1023,7 +1076,7 @@ static bool rtd3d12_texture_range_valid(rtd3d12_image_base* image, rt::texture_r
 															 ? (rt::texture_aspect::depth | rt::texture_aspect::stencil)
 															 : rt::texture_aspect::depth)
 													  : rt::texture_aspect::color;
-	if (!range.aspects || (range.aspects & ~available)) {
+	if (range.aspects == rt::texture_aspect::none || static_cast<u32>(range.aspects & ~available) != 0) {
 		return false;
 	}
 	const usize layers = (image->type == rt::texture_type::texture_1d_array || image->type == rt::texture_type::texture_2d_array) ? image->layer_count : 1;
@@ -1297,6 +1350,7 @@ static void rtd3d12_lower_remember_texture_binding(rtd3d12_command_lower_state* 
 void rtd3d12_lower_use_program(rtd3d12_context* ctx, rtd3d12_command_lower_state* state, ID3D12GraphicsCommandList* command_list, const rtd3d12_ir_program* command) {
 	state->program = command->program;
 	if (!state->program || !state->framebuffer || !state->color_count || !state->program->prepare(state->color_images[0]->dxgi_format, state->depth_image ? state->depth_image->dxgi_format : DXGI_FORMAT_UNKNOWN)) {
+		state->program = nullptr;
 		return;
 	}
 
@@ -1558,28 +1612,28 @@ static void rtd3d12_lower_texture_revision_copy(ID3D12GraphicsCommandList* comma
 
 static D3D12_RESOURCE_STATES rtd3d12_access_state(rt::access access) {
 	if (access.type == rt::access_type::write) {
-		if (access.stage & rt::stage::color_attachment) {
+		if (static_cast<u32>(access.pipeline_stage & rt::stage::color_attachment) != 0) {
 			return D3D12_RESOURCE_STATE_RENDER_TARGET;
 		}
-		if (access.stage & rt::stage::depth_stencil_attachment) {
+		if (static_cast<u32>(access.pipeline_stage & rt::stage::depth_stencil_attachment) != 0) {
 			return D3D12_RESOURCE_STATE_DEPTH_WRITE;
 		}
-		if (access.stage & rt::stage::transfer) {
+		if (static_cast<u32>(access.pipeline_stage & rt::stage::transfer) != 0) {
 			return D3D12_RESOURCE_STATE_COPY_DEST;
 		}
 		return D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
 	}
-	if (access.stage & rt::stage::transfer) {
+	if (static_cast<u32>(access.pipeline_stage & rt::stage::transfer) != 0) {
 		return D3D12_RESOURCE_STATE_COPY_SOURCE;
 	}
-	if (access.stage & rt::stage::depth_stencil_attachment) {
+	if (static_cast<u32>(access.pipeline_stage & rt::stage::depth_stencil_attachment) != 0) {
 		return D3D12_RESOURCE_STATE_DEPTH_READ;
 	}
 	D3D12_RESOURCE_STATES state = D3D12_RESOURCE_STATE_COMMON;
-	if (access.stage & rt::stage::fragment) {
+	if (static_cast<u32>(access.pipeline_stage & rt::stage::fragment) != 0) {
 		state = static_cast<D3D12_RESOURCE_STATES>(state | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
 	}
-	if (access.stage & (rt::stage::vertex | rt::stage::compute)) {
+	if (static_cast<u32>(access.pipeline_stage & (rt::stage::vertex | rt::stage::compute)) != 0) {
 		state = static_cast<D3D12_RESOURCE_STATES>(state | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 	}
 	return state == D3D12_RESOURCE_STATE_COMMON ? D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE : state;
@@ -1871,6 +1925,18 @@ void rtd3d12_lower_texture_copy_to_buffer(rtd3d12_context* ctx, ID3D12GraphicsCo
 	command_list->ResourceBarrier(1, &staging_barrier);
 }
 
+static void rtd3d12_lower_bind_sampler(rtd3d12_context* ctx, rtd3d12_command_lower_state* state, ID3D12GraphicsCommandList* command_list, const rtd3d12_ir_sampler* command) {
+	if (!command || !command->sampler || !state->program || !state->sampler_heap || !state->program->descriptor_mappings[command->address]) return;
+	const rtd3d12_program_descriptor_mapping& mapping = *state->program->descriptor_mappings[command->address];
+	if (mapping.type != rtd3d12_descriptor_type::texture) return;
+	D3D12_CPU_DESCRIPTOR_HANDLE cpu = state->sampler_heap->GetCPUDescriptorHandleForHeapStart();
+	D3D12_GPU_DESCRIPTOR_HANDLE gpu = state->sampler_heap->GetGPUDescriptorHandleForHeapStart();
+	cpu.ptr += state->sampler_index * state->sampler_step;
+	gpu.ptr += state->sampler_index++ * state->sampler_step;
+	ctx->d3d_device->CopyDescriptorsSimple(1, cpu, command->cpu, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
+	command_list->SetGraphicsRootDescriptorTable(mapping.sampler_root_parameter, gpu);
+}
+
 void rtd3d12_lower_bind_program_data(rtd3d12_context* ctx, rtd3d12_command_lower_state* state, ID3D12GraphicsCommandList* command_list, const rtd3d12_program_data_mapping& mapping, ID3D12Resource* resource, bool storage) {
 	if (!resource || !state->resource_heap) {
 		return;
@@ -1906,7 +1972,7 @@ void rtd3d12_command_buffer_lower(rtd3d12_context* ctx, rt_command_buffer_t* com
 		if (header->opcode == rtd3d12_command_opcode::bind_buffer || header->opcode == rtd3d12_command_opcode::bind_texture || header->opcode == rtd3d12_command_opcode::uniform_data || header->opcode == rtd3d12_command_opcode::storage_data) {
 			resource_bind_count++;
 		}
-		if (header->opcode == rtd3d12_command_opcode::bind_texture) {
+		if (header->opcode == rtd3d12_command_opcode::bind_texture || header->opcode == rtd3d12_command_opcode::bind_sampler) {
 			sampler_bind_count++;
 		}
 		if (header->opcode == rtd3d12_command_opcode::use_program) {
@@ -2060,6 +2126,9 @@ void rtd3d12_command_buffer_lower(rtd3d12_context* ctx, rt_command_buffer_t* com
 		case rtd3d12_command_opcode::bind_texture:
 			rtd3d12_lower_bind_texture(ctx, &state, command_list, static_cast<rtd3d12_ir_texture*>(payload));
 			break;
+		case rtd3d12_command_opcode::bind_sampler:
+			rtd3d12_lower_bind_sampler(ctx, &state, command_list, static_cast<rtd3d12_ir_sampler*>(payload));
+			break;
 		case rtd3d12_command_opcode::vertex_buffer:
 			rtd3d12_lower_vertex_buffer(&state, command_list, static_cast<rtd3d12_ir_vertex_buffer*>(payload));
 			break;
@@ -2067,16 +2136,16 @@ void rtd3d12_command_buffer_lower(rtd3d12_context* ctx, rt_command_buffer_t* com
 			rtd3d12_lower_index_buffer(command_list, static_cast<rtd3d12_ir_index_buffer*>(payload));
 			break;
 		case rtd3d12_command_opcode::draw:
-			rtd3d12_lower_draw(command_list, static_cast<rtd3d12_ir_draw*>(payload));
+			if (state.program && state.program->d3d_pipeline) rtd3d12_lower_draw(command_list, static_cast<rtd3d12_ir_draw*>(payload));
 			break;
 		case rtd3d12_command_opcode::draw_instanced:
-			rtd3d12_lower_draw_instanced(command_list, static_cast<rtd3d12_ir_draw_instanced*>(payload));
+			if (state.program && state.program->d3d_pipeline) rtd3d12_lower_draw_instanced(command_list, static_cast<rtd3d12_ir_draw_instanced*>(payload));
 			break;
 		case rtd3d12_command_opcode::draw_indexed:
-			rtd3d12_lower_draw_indexed(command_list, static_cast<rtd3d12_ir_draw_indexed*>(payload));
+			if (state.program && state.program->d3d_pipeline) rtd3d12_lower_draw_indexed(command_list, static_cast<rtd3d12_ir_draw_indexed*>(payload));
 			break;
 		case rtd3d12_command_opcode::draw_indexed_instanced:
-			rtd3d12_lower_draw_indexed_instanced(command_list, static_cast<rtd3d12_ir_draw_indexed_instanced*>(payload));
+			if (state.program && state.program->d3d_pipeline) rtd3d12_lower_draw_indexed_instanced(command_list, static_cast<rtd3d12_ir_draw_indexed_instanced*>(payload));
 			break;
 		case rtd3d12_command_opcode::buffer_data:
 			rtd3d12_lower_buffer_data(command_list, static_cast<rtd3d12_ir_buffer_data*>(payload));

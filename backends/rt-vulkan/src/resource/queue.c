@@ -15,6 +15,7 @@
 RTVK_DEFINE_HANDLE(queue, rtvk_virtual_queue)
 
 rt_queue rtQueueCreate(enum rt_queue_capability capability) {
+	rtvk_begin_errorable_operation();
 	return rtvk_queue_to_handle(rtvk_virtual_queue_create(rtvk_get_current_context(), capability));
 }
 
@@ -23,6 +24,7 @@ void rtQueueDestroy(rt_queue queue) {
 }
 
 rt_timepoint rtQueueSubmit(rt_queue queue, rt_command_buffer command_buffer) {
+	rtvk_begin_errorable_operation();
 	return rtvk_virtual_queue_submit(
 		rtvk_get_current_context(),
 		rtvk_queue_from_handle(queue),
@@ -31,14 +33,17 @@ rt_timepoint rtQueueSubmit(rt_queue queue, rt_command_buffer command_buffer) {
 }
 
 rt_timepoint rtQueueFlush(rt_queue queue) {
+	rtvk_begin_errorable_operation();
 	return rtvk_virtual_queue_flush(rtvk_get_current_context(), rtvk_queue_from_handle(queue));
 }
 
 void rtQueueWait(rt_queue queue, rt_timepoint timepoint) {
+	rtvk_begin_errorable_operation();
 	rtvk_virtual_queue_wait(rtvk_get_current_context(), rtvk_queue_from_handle(queue), timepoint);
 }
 
 void rtTimepointWait(rt_timepoint timepoint) {
+	rtvk_begin_errorable_operation();
 	rtvk_timepoint_wait_public(rtvk_get_current_context(), timepoint);
 }
 
@@ -313,7 +318,7 @@ struct rtvk_lowered_command_buffer* rtvk_queue_create_lowered_command_buffer(str
 	VkDescriptorPoolSize descriptor_sizes[] = {
 		{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 128 },
 		{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 128 },
-		{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 128 },
+		{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 128 },
 		{ VK_DESCRIPTOR_TYPE_SAMPLER, 128 },
 	};
 	VkDescriptorPoolCreateInfo descriptor_pool_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };

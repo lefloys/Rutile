@@ -9,7 +9,7 @@
 #include "resource/resource.h"
 #include "resource/swapchain.h"
 #include "resource/texture.h"
-#include "rtsl_spirv.h"
+#include "transpiler/transpiler.h"
 
 #include <string.h>
 
@@ -76,9 +76,12 @@ void rtgl_execution_framebuffer_delete(struct rtgl_context* ctx, struct rtgl_fra
 void rtgl_execution_framebuffer_attach_color(struct rtgl_context* ctx, struct rtgl_framebuffer* framebuffer, u32 slot, struct rtgl_texture_view* view) {
 	rtgl_execution_submit_sync(ctx, [framebuffer, slot, view](struct rtgl_context*) {
 		GLuint texture = view && view->image ? view->image->gl_texture : 0;
-		GLenum draw_buffer = GL_COLOR_ATTACHMENT0;
 		glNamedFramebufferTexture(framebuffer->gl_framebuffer, GL_COLOR_ATTACHMENT0 + slot, texture, 0);
-		glNamedFramebufferDrawBuffers(framebuffer->gl_framebuffer, 1, &draw_buffer);
+		GLenum draw_buffers[RTGL_MAX_FRAMEBUFFER_COLOR_ATTACHMENTS];
+		for (u32 index = 0; index < framebuffer->color_texture_count; index++) {
+			draw_buffers[index] = framebuffer->color_views[index] && framebuffer->color_views[index]->image ? GL_COLOR_ATTACHMENT0 + index : GL_NONE;
+		}
+		glNamedFramebufferDrawBuffers(framebuffer->gl_framebuffer, (GLsizei)framebuffer->color_texture_count, draw_buffers);
 		if (texture) {
 			GLenum status = glCheckNamedFramebufferStatus(framebuffer->gl_framebuffer, GL_FRAMEBUFFER);
 			if (status != GL_FRAMEBUFFER_COMPLETE) {
@@ -120,17 +123,22 @@ static GLuint rtgl_execution_compile_spirv_shader(GLenum stage, const char* entr
 	return shader;
 }
 
-static rtgl_location_kind rtgl_location_mapping_kind_from_spirv(rtsl_spirv_resource_kind kind) {
+static rtgl_location_kind rtgl_location_mapping_kind_from_spirv(rt_spirv_location_kind kind) {
 	switch (kind) {
-	case RTSL_SPIRV_UNIFORM_BUFFER:
+	case RT_SPIRV_UNIFORM_DATA:
+		return RTGL_LOCATION_MAPPING_UNIFORM_DATA;
+	case RT_SPIRV_STORAGE_DATA:
+		return RTGL_LOCATION_MAPPING_STORAGE_DATA;
+	case RT_SPIRV_UNIFORM_BUFFER:
 		return RTGL_LOCATION_MAPPING_UNIFORM_BUFFER;
-	case RTSL_SPIRV_STORAGE_BUFFER:
+	case RT_SPIRV_STORAGE_BUFFER:
 		return RTGL_LOCATION_MAPPING_STORAGE_BUFFER;
-	case RTSL_SPIRV_SAMPLED_TEXTURE:
-	case RTSL_SPIRV_SAMPLER:
+	case RT_SPIRV_SAMPLED_TEXTURE:
+	case RT_SPIRV_SAMPLER:
 		return RTGL_LOCATION_MAPPING_TEXTURE;
-	case RTSL_SPIRV_STORAGE_IMAGE:
-		return RTGL_LOCATION_MAPPING_TEXTURE;
+	case RT_SPIRV_STORAGE_TEXTURE:
+	case RT_SPIRV_INPUT_ATTACHMENT:
+		break;
 	}
 	return RTGL_LOCATION_MAPPING_UNIFORM_BUFFER;
 }
@@ -144,14 +152,14 @@ enum rtgl_spirv_decoration {
 	RTGL_SPIRV_DECORATION_LOCATION = 30,
 };
 
-static void rtgl_program_reflect_fragment_outputs(struct rtgl_program* program, const rtsl_spirv_translation* translation) {
-	u64 word_count = 0;
-	const u32* words = rtsl_spirv_stage_words(translation, RTSL_SPIRV_FRAGMENT, &word_count);
+static void rtgl_program_reflect_fragment_outputs(struct rtgl_program* program, const rt_spirv_program* translation) {
+	size_t word_count = 0;
+	const u32* words = rt_spirv_stage_words(translation, RT_SPIRV_FRAGMENT, &word_count);
 	if (!words || word_count < 5) {
 		return;
 	}
 
-	for (u64 word_index = 5; word_index < word_count;) {
+	for (size_t word_index = 5; word_index < word_count;) {
 		const u32 instruction = words[word_index];
 		const u32 instruction_word_count = instruction >> 16;
 		const u32 opcode = instruction & 0xffff;
@@ -171,7 +179,7 @@ static void rtgl_program_reflect_fragment_outputs(struct rtgl_program* program, 
 
 		u32 shader_location = 0;
 		bool shader_location_found = false;
-		for (u64 decoration_index = 5; decoration_index < word_count;) {
+		for (size_t decoration_index = 5; decoration_index < word_count;) {
 			const u32 decoration = words[decoration_index];
 			const u32 decoration_word_count = decoration >> 16;
 			const u32 decoration_opcode = decoration & 0xffff;
@@ -202,12 +210,12 @@ static void rtgl_program_reflect_fragment_outputs(struct rtgl_program* program, 
 	}
 }
 
-static void rtgl_program_reflect_spirv(struct rtgl_program* program, const rtsl_spirv_translation* translation) {
+static void rtgl_program_reflect_spirv(struct rtgl_program* program, const rt_spirv_program* translation) {
 	rtgl_program_clear_locations(program);
-	const u32 resource_count = rtsl_spirv_resource_count(translation);
+	const u32 resource_count = rt_spirv_location_count(translation);
 	for (u32 i = 0; i < resource_count; i++) {
-		rtsl_spirv_resource_info resource = { 0 };
-		if (!rtsl_spirv_resource(translation, i, &resource) || !resource.name || resource.descriptor_set != 0) {
+		rt_spirv_location_info resource = { 0 };
+		if (!rt_spirv_location(translation, i, &resource) || !resource.name || resource.descriptor_set != 0) {
 			continue;
 		}
 		struct rt_location_t* location = rtgl_program_allocate_location(program, false);
@@ -229,27 +237,27 @@ static bool rtgl_execution_program_finalize_spirv(struct rtgl_context* exec_ctx,
 		return false;
 	}
 	char message[2048] = { 0 };
-	rtsl_spirv_translation* translation = NULL;
-	rtsl_spirv_status status = rtsl_spirv_translate(program->entry_point, RT_STAGE_VERTEX | RT_STAGE_FRAGMENT | RT_STAGE_COMPUTE, program->source_size, program->source_bytes, &translation, message, sizeof(message));
-	if (status != RTSL_SPIRV_SUCCESS) {
+	rt_spirv_program* translation = NULL;
+	rt_spirv_status status = rt_spirv_transpile(program->source_bytes, program->source_size, program->entry_point, &translation, message, sizeof(message));
+	if (status != RT_SPIRV_SUCCESS) {
 		rtgl_throwf(RT_SHADER_COMPILATION_FAILED, "OpenGL RTSL to SPIR-V failed: %s", message);
-		return true;
+		return false;
 	}
 
-	u64 vertex_word_count = 0;
-	u64 fragment_word_count = 0;
-	const u32* vertex_words = rtsl_spirv_stage_words(translation, RTSL_SPIRV_VERTEX, &vertex_word_count);
-	const u32* fragment_words = rtsl_spirv_stage_words(translation, RTSL_SPIRV_FRAGMENT, &fragment_word_count);
-	const char* vertex_entry_point = rtsl_spirv_stage_entry_point(translation, RTSL_SPIRV_VERTEX);
-	const char* fragment_entry_point = rtsl_spirv_stage_entry_point(translation, RTSL_SPIRV_FRAGMENT);
+	size_t vertex_word_count = 0;
+	size_t fragment_word_count = 0;
+	const u32* vertex_words = rt_spirv_stage_words(translation, RT_SPIRV_VERTEX, &vertex_word_count);
+	const u32* fragment_words = rt_spirv_stage_words(translation, RT_SPIRV_FRAGMENT, &fragment_word_count);
+	const char* vertex_entry_point = rt_spirv_stage_entry_point(translation, RT_SPIRV_VERTEX);
+	const char* fragment_entry_point = rt_spirv_stage_entry_point(translation, RT_SPIRV_FRAGMENT);
 	GLuint vertex = rtgl_execution_compile_spirv_shader(GL_VERTEX_SHADER, vertex_entry_point, vertex_words, vertex_word_count);
 	GLuint fragment = vertex ? rtgl_execution_compile_spirv_shader(GL_FRAGMENT_SHADER, fragment_entry_point, fragment_words, fragment_word_count) : 0;
 	if (!vertex || !fragment) {
 		if (vertex) {
 			glDeleteShader(vertex);
 		}
-		rtsl_spirv_translation_destroy(translation);
-		return true;
+		rt_spirv_program_destroy(translation);
+		return false;
 	}
 
 	GLuint gl_program = glCreateProgram();
@@ -266,8 +274,8 @@ static bool rtgl_execution_program_finalize_spirv(struct rtgl_context* exec_ctx,
 		glGetProgramInfoLog(gl_program, sizeof(log), NULL, log);
 		rtgl_throwf(RT_SHADER_LINK_FAILED, "OpenGL SPIR-V shader link failed: %s", log);
 		glDeleteProgram(gl_program);
-		rtsl_spirv_translation_destroy(translation);
-		return true;
+		rt_spirv_program_destroy(translation);
+		return false;
 	}
 
 	if (program->gl_program) {
@@ -275,7 +283,7 @@ static bool rtgl_execution_program_finalize_spirv(struct rtgl_context* exec_ctx,
 	}
 	program->gl_program = gl_program;
 	rtgl_program_reflect_spirv(program, translation);
-	rtsl_spirv_translation_destroy(translation);
+	rt_spirv_program_destroy(translation);
 	return true;
 }
 

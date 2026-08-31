@@ -9,6 +9,7 @@
 /*===============================================================================================*/
 
 rt_framebuffer rtFramebufferCreate(void) {
+	rtvk_begin_errorable_operation();
 	return rtvk_framebuffer_to_handle(rtvk_framebuffer_create(rtvk_get_current_context()));
 }
 
@@ -20,11 +21,13 @@ void rtFramebufferDestroy(rt_framebuffer framebuffer) {
 }
 
 rt_texture_view rtFramebufferColorView(rt_framebuffer framebuffer, rt_location location) {
+	rtvk_begin_errorable_operation();
 	struct rtvk_program_output_mapping* mapping = rtvk_program_output_mapping(rtvk_location_program(location), location);
 	return rtvk_texture_view_to_handle(rtvk_framebuffer_color_view(rtvk_framebuffer_from_handle(framebuffer), mapping ? mapping->attachment : 0));
 }
 
 void rtFramebufferSetColorView(rt_framebuffer framebuffer, rt_texture_view view, rt_location location) {
+	rtvk_begin_errorable_operation();
 	struct rtvk_program_output_mapping* mapping = rtvk_program_output_mapping(rtvk_location_program(location), location);
 	rtvk_framebuffer_set_color_view(
 		rtvk_get_current_context(),
@@ -35,6 +38,7 @@ void rtFramebufferSetColorView(rt_framebuffer framebuffer, rt_texture_view view,
 }
 
 void rtFramebufferSetDepthView(rt_framebuffer framebuffer, rt_texture_view view) {
+	rtvk_begin_errorable_operation();
 	rtvk_framebuffer_set_depth_view(
 		rtvk_get_current_context(),
 		rtvk_framebuffer_from_handle(framebuffer),
@@ -43,6 +47,7 @@ void rtFramebufferSetDepthView(rt_framebuffer framebuffer, rt_texture_view view)
 }
 
 void rtFramebufferSetStencilView(rt_framebuffer framebuffer, rt_texture_view view) {
+	rtvk_begin_errorable_operation();
 	rtvk_framebuffer_set_stencil_view(
 		rtvk_get_current_context(),
 		rtvk_framebuffer_from_handle(framebuffer),

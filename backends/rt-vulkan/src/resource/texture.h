@@ -59,6 +59,7 @@ struct rtvk_texture_write {
 
 struct rtvk_texture_view {
 	struct rtvk_resource_base base;
+	struct rtvk_texture* texture;
 	struct rtvk_image_base* image;
 	VkImageView vk_image_view;
 	VkSampler vk_sampler;
@@ -79,6 +80,7 @@ RTVK_DECLARE_NEW_RESOURCE(texture_view)
 struct rtvk_texture_view* rtvk_texture_view_create_for_texture(struct rtvk_context* ctx, struct rtvk_texture* texture);
 void rtvk_texture_view_bind(struct rtvk_context* ctx, struct rtvk_texture_view* view, struct rtvk_texture* texture);
 void rtvk_texture_view_bind_image(struct rtvk_context* ctx, struct rtvk_texture_view* view, struct rtvk_image_base* image);
+VkImageView rtvk_image_view_create(struct rtvk_context* ctx, const struct rtvk_image_base* image);
 void rtvk_texture_resize(struct rtvk_context* ctx, struct rtvk_texture* texture, enum rt_texture_type type, enum rt_format format, rt_extent_3d extent, usize mip_count);
 struct rtvk_texture* rtvk_texture_active_node(struct rtvk_texture* texture);
 struct rtvk_texture* rtvk_texture_node_create(struct rtvk_context* ctx);

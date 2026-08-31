@@ -12,6 +12,7 @@ struct rt_program_t;
 struct rtd3d12_image_base;
 struct rt_texture_t;
 struct rt_texture_view_t;
+struct rt_sampler_t;
 
 RTD3D12_API rt_command_buffer_t* rtCommandBufferCreate(void);
 RTD3D12_API void rtCommandBufferDestroy(rt_command_buffer_t* command_buffer);
@@ -35,6 +36,7 @@ RTD3D12_API void rtCmdUniformData(rt_command_buffer_t* command_buffer, rt::locat
 RTD3D12_API void rtCmdStorageData(rt_command_buffer_t* command_buffer, rt::location* location, const u08* data, usize size);
 RTD3D12_API void rtCmdBindBuffer(rt_command_buffer_t* command_buffer, rt::location* location, rt_buffer_t* buffer, rt::buffer_range range);
 RTD3D12_API void rtCmdBindTexture(rt_command_buffer_t* command_buffer, rt::location* location, rt_texture_view_t* texture_view);
+RTD3D12_API void rtCmdBindSampler(rt_command_buffer_t* command_buffer, rt::location* location, rt_sampler_t* sampler);
 RTD3D12_API void rtCmdVertexBuffer(rt_command_buffer_t* command_buffer, rt::location* location, rt_buffer_t* buffer, rt::buffer_range range);
 RTD3D12_API void rtCmdIndexBuffer(rt_command_buffer_t* command_buffer, rt_buffer_t* buffer, rt::buffer_range range, rt::index_format format);
 RTD3D12_API void rtCmdDraw(rt_command_buffer_t* command_buffer, usize vertex_count, usize first_vertex);
@@ -63,6 +65,7 @@ enum class rtd3d12_command_opcode : u08 {
 	storage_data,
 	bind_buffer,
 	bind_texture,
+	bind_sampler,
 	vertex_buffer,
 	index_buffer,
 	draw,
@@ -268,6 +271,11 @@ struct rtd3d12_command_lower_state {
 	ID3D12Resource* uniform_resources[256];
 	ID3D12Resource* storage_resources[256];
 };
+struct rtd3d12_ir_sampler {
+	u08 address;
+	rt_sampler_t* sampler;
+	D3D12_CPU_DESCRIPTOR_HANDLE cpu;
+};
 
 void rtd3d12_command_buffer_reset(rt_command_buffer_t* command_buffer);
 void rtd3d12_command_buffer_release_resources(rt_command_buffer_t* command_buffer);
@@ -286,6 +294,7 @@ void rtd3d12_command_buffer_end_rendering(rt_command_buffer_t* command_buffer);
 void rtd3d12_command_buffer_use_program(rt_command_buffer_t* command_buffer, rt_program_t* program);
 void rtd3d12_command_buffer_bind_buffer(rt_command_buffer_t* command_buffer, rt::location* location, rt_buffer_t* buffer, usize offset, usize size);
 void rtd3d12_command_buffer_bind_texture(rt_command_buffer_t* command_buffer, rt::location* location, rt_texture_view_t* texture_view);
+void rtd3d12_command_buffer_bind_sampler(rt_command_buffer_t* command_buffer, rt::location* location, rt_sampler_t* sampler);
 void rtd3d12_command_buffer_vertex_buffer(rt_command_buffer_t* command_buffer, rt::location* location, rt_buffer_t* buffer, usize offset);
 void rtd3d12_command_buffer_index_buffer(rt_command_buffer_t* command_buffer, rt_buffer_t* buffer, usize offset, rt::index_format format);
 void rtd3d12_command_buffer_draw(rt_command_buffer_t* command_buffer, usize count, usize first);

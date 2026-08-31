@@ -20,26 +20,46 @@ RT_API_PUBLIC void rtSetOutput(rt_output output, void* user_data) { rtval_rtSetO
 /*===============================================================================================*/
 
 void rtval_rtInit(const char* const* features, usize feature_count) {
+	if (feature_count && !features) {
+		rtval_fail("rtInit: feature array required when feature_count is non-zero");
+		return;
+	}
+	for (usize i = 0; i < feature_count; i++) {
+		if (!features[i] || !features[i][0]) {
+			rtval_fail("rtInit: feature names must be non-empty");
+			return;
+		}
+	}
 	rtval_next_rtInit(features, feature_count);
 	rtval_report_error("rtInit");
 }
 
 void rtval_rtExit(void) {
-	rtval_handle_report_leaks();
+	bool leaked_handles = rtval_handle_report_leaks();
 	rtval_handle_reset_registry();
 	rtval_next_rtExit();
 	rtval_report_error("rtExit");
+	if (leaked_handles) {
+		rtval_fail("rtExit: application-created resources must be destroyed before exit");
+	}
 }
 
 enum rt_error rtval_rtError(void) {
+	if (rtval_local_error() != RT_SUCCESS) {
+		return rtval_local_error();
+	}
 	return rtval_next_rtError();
 }
 
 const char* rtval_rtErrorMessage(void) {
+	if (rtval_local_error() != RT_SUCCESS) {
+		return rtval_local_error_message();
+	}
 	return rtval_next_rtErrorMessage();
 }
 
 void rtval_rtClearError(void) {
+	rtval_clear_local_error();
 	rtval_next_rtClearError();
 }
 

@@ -41,6 +41,7 @@ void rtd3d12_texture_set_subresource_state(rtd3d12_image_base* image, usize mip,
 /*===============================================================================================*/
 
 rt_texture_t* rtTextureCreate(void) {
+	rtd3d12_begin_errorable_operation();
 	struct rt_texture_t* texture = rtd3d12::create_resource<rt_texture_t>(rtd3d12_get_current_context());
 	return texture;
 }
@@ -50,14 +51,17 @@ void rtTextureDestroy(rt_texture_t* texture) {
 }
 
 void rtTextureResize(rt_texture_t* texture, rt::texture_type type, rt::format format, rt::extent_3d extent, usize mip_count) {
+	rtd3d12_begin_errorable_operation();
 	rtd3d12_texture_resize(rtd3d12_get_current_context(), texture, type, format, extent, mip_count);
 }
 
 rt_texture_view_t* rtTextureViewCreate(void) {
+	rtd3d12_begin_errorable_operation();
 	return rtd3d12::create_resource<rt_texture_view_t>(rtd3d12_get_current_context());
 }
 
 void rtTextureViewSetTexture(rt_texture_view_t* texture_view, rt_texture_t* texture) {
+	rtd3d12_begin_errorable_operation();
 	rtd3d12_texture_view_bind(
 		rtd3d12_get_current_context(),
 		texture_view,
@@ -70,18 +74,22 @@ void rtTextureViewDestroy(rt_texture_view_t* texture_view) {
 }
 
 void rtTextureViewSetFilter(rt_texture_view_t* texture_view, rt::filter mag_filter, rt::filter min_filter, rt::mip_filter mip_filter) {
+	rtd3d12_begin_errorable_operation();
 	rtd3d12_texture_view_filter(texture_view, mag_filter, min_filter, mip_filter);
 }
 
 void rtTextureViewSetAddress(rt_texture_view_t* texture_view, rt::address_mode address_u, rt::address_mode address_v, rt::address_mode address_w) {
+	rtd3d12_begin_errorable_operation();
 	rtd3d12_texture_view_address(texture_view, address_u, address_v, address_w);
 }
 
 void rtTextureViewSetAnisotropy(rt_texture_view_t* texture_view, usize max_anisotropy) {
+	rtd3d12_begin_errorable_operation();
 	rtd3d12_texture_view_anisotropy(texture_view, static_cast<u32>(max_anisotropy));
 }
 
 void rtTextureViewSetLod(rt_texture_view_t* texture_view, f32 min_lod, f32 max_lod, f32 lod_bias) {
+	rtd3d12_begin_errorable_operation();
 	rtd3d12_texture_view_lod(texture_view, min_lod, max_lod, lod_bias);
 }
 
@@ -144,22 +152,27 @@ static D3D12_SAMPLER_DESC rtd3d12_sampler_desc(struct rt_texture_view_t* view) {
 }
 
 void rtCmdTextureCopy(rt_command_buffer_t* command_buffer, rt_texture_t* src_texture, rt::texture_range src_range, rt_texture_t* dst_texture, rt::texture_range dst_range) {
+	rtd3d12_begin_errorable_operation();
 	rtd3d12_command_buffer_texture_copy(command_buffer, src_texture, src_range, dst_texture, dst_range);
 }
 
 void rtCmdTextureData(rt_command_buffer_t* command_buffer, rt_texture_t* texture, rt::texture_range range, const u08* data) {
+	rtd3d12_begin_errorable_operation();
 	rtd3d12_command_buffer_texture_data(command_buffer, texture, range, data);
 }
 
 void rtCmdTextureCopyToBuffer(rt_command_buffer_t* command_buffer, rt_texture_t* src, rt::texture_range src_range, rt_buffer_t* dst, rt::buffer_range dst_range) {
+	rtd3d12_begin_errorable_operation();
 	rtd3d12_command_buffer_texture_copy_to_buffer(command_buffer, src, src_range, dst, dst_range);
 }
 
 void rtCmdTextureBarrier(rt_command_buffer_t* command_buffer, rt_texture_t* texture, rt::texture_range range, rt::access src, rt::access dst) {
+	rtd3d12_begin_errorable_operation();
 	rtd3d12_command_buffer_texture_barrier(command_buffer, texture, range, src, dst);
 }
 
 rt::extent_3d rtTextureViewExtent(rt_texture_view_t* texture_view) {
+	rtd3d12_begin_errorable_operation();
 	rt::extent_3d extent = { 0, 0, 0 };
 	struct rt_texture_view_t* view = texture_view;
 	rtd3d12_texture_view_refresh(rtd3d12_get_current_context(), view);
@@ -174,6 +187,7 @@ rt::extent_3d rtTextureViewExtent(rt_texture_view_t* texture_view) {
 }
 
 void rtTextureViewRead(rt_texture_view_t* texture_view, rt::texture_range range, u08* data, usize data_size) {
+	rtd3d12_begin_errorable_operation();
 	rtd3d12_context* ctx = rtd3d12_get_current_context();
 	rt_texture_view_t* view = texture_view;
 	if (!rtd3d12_texture_view_refresh(ctx, view) || !rtd3d12_texture_view_read_direct(ctx, view, range, data, data_size)) {

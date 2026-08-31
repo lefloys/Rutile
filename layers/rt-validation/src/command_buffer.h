@@ -31,6 +31,7 @@ void rtval_command_buffer_uniform_data(struct rtval_command_buffer* command_buff
 void rtval_command_buffer_storage_data(struct rtval_command_buffer* command_buffer, rt_location location, const u08* data, usize size);
 void rtval_command_buffer_bind_buffer(struct rtval_command_buffer* command_buffer, rt_location location, struct rtval_buffer* buffer, rt_buffer_range range);
 void rtval_command_buffer_bind_texture(struct rtval_command_buffer* command_buffer, rt_location location, struct rtval_texture_view* texture_view);
+void rtval_command_buffer_bind_sampler(struct rtval_command_buffer* command_buffer, rt_location location, struct rtval_sampler* sampler);
 void rtval_command_buffer_vertex_buffer(struct rtval_command_buffer* command_buffer, rt_location location, struct rtval_buffer* buffer, rt_buffer_range range);
 void rtval_command_buffer_index_buffer(struct rtval_command_buffer* command_buffer, struct rtval_buffer* buffer, rt_buffer_range range, enum rt_index_format format);
 void rtval_command_buffer_draw(struct rtval_command_buffer* command_buffer, usize vertex_count, usize first_vertex);

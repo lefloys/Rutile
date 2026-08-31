@@ -13,6 +13,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <iostream>
+#include <string>
 #include <vector>
 
 constexpr const char* Layers[] = { "rt-validation-layer" };
@@ -128,7 +129,8 @@ void update_camera(GLFWwindow* window, Camera* camera, f32 dt) {
 
 int main(int argc, char** argv) {
 	const ExampleOptions options = parse_cli(argc, argv);
-	if (rtLoad("rt-vulkan", Layers, 0) != RT_SUCCESS) {
+	const auto layers = selected_layers(options, Layers);
+	if (rtLoad(options.backend.c_str(), layers.data(), layers.size()) != RT_SUCCESS) {
 		std::cerr << "rtLoad failed\n";
 		return 1;
 	}
@@ -140,7 +142,8 @@ int main(int argc, char** argv) {
 	glfwInit();
 
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-	GLFWwindow* window = glfwCreateWindow(1280, 720, "Rutile 05 Voxel Renderer", nullptr, nullptr);
+	const std::string window_title = "Rutile 05 Voxel Renderer - " + options.backend;
+	GLFWwindow* window = glfwCreateWindow(1280, 720, window_title.c_str(), nullptr, nullptr);
 
 	glfwSetFramebufferSizeCallback(window, framebuffer_resized);
 	glfwSetCursorPosCallback(window, cursor_moved);

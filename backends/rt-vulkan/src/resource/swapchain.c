@@ -27,6 +27,7 @@ const u32 rtvk_swapchain_present_mode_preferences_count = (u32)(sizeof(rtvk_swap
 /*===============================================================================================*/
 
 rt_swapchain rtSwapchainCreate(void) {
+	rtvk_begin_errorable_operation();
 	return rtvk_swapchain_to_handle(rtvk_swapchain_create(rtvk_get_current_context()));
 }
 
@@ -35,6 +36,7 @@ void rtSwapchainDestroy(rt_swapchain swapchain) {
 }
 
 void rtSwapchainResize(rt_swapchain swapchain, u32 width, u32 height) {
+	rtvk_begin_errorable_operation();
 	rtvk_swapchain_resize(
 		rtvk_get_current_context(),
 		rtvk_swapchain_from_handle(swapchain),
@@ -44,6 +46,7 @@ void rtSwapchainResize(rt_swapchain swapchain, u32 width, u32 height) {
 }
 
 rt_swapchain_acquire_result rtSwapchainAcquire(rt_swapchain swapchain) {
+	rtvk_begin_errorable_operation();
 	return rtvk_swapchain_acquire(
 		rtvk_get_current_context(),
 		rtvk_swapchain_from_handle(swapchain)
@@ -51,6 +54,7 @@ rt_swapchain_acquire_result rtSwapchainAcquire(rt_swapchain swapchain) {
 }
 
 void rtSwapchainPresent(rt_swapchain swapchain, rt_timepoint rendered) {
+	rtvk_begin_errorable_operation();
 	rtvk_swapchain_present(
 		rtvk_get_current_context(),
 		rtvk_swapchain_from_handle(swapchain),
@@ -59,6 +63,7 @@ void rtSwapchainPresent(rt_swapchain swapchain, rt_timepoint rendered) {
 }
 
 void rtSwapchainBindGLFW(rt_swapchain swapchain, struct GLFWwindow* window) {
+	rtvk_begin_errorable_operation();
 	rtvk_swapchain_bind_glfw(
 		rtvk_get_current_context(),
 		rtvk_swapchain_from_handle(swapchain),
@@ -253,14 +258,28 @@ static void rtvk_swapchain_finish_sync(struct rtvk_swapchain* swapchain) {
 }
 
 static void rtvk_swapchain_wait_frame(struct rtvk_context* ctx, struct rtvk_swapchain_generation* generation, u32 frame_index) {
+	bool reused = false;
 	if (generation->acquire_wait[frame_index].value) {
 		rtvk_timepoint_wait(ctx, generation->acquire_wait[frame_index]);
 		generation->acquire_wait[frame_index] = (rt_timepoint){ 0 };
+		reused = true;
 	}
 
 	if (generation->present_done[frame_index].value) {
 		rtvk_timepoint_wait(ctx, generation->present_done[frame_index]);
 		generation->present_done[frame_index] = (rt_timepoint){ 0 };
+		reused = true;
+	}
+
+	/* A timeline signal from the render submission does not prove that
+	 * vkQueuePresentKHR has consumed its binary wait semaphore. Before reusing
+	 * this frame slot's acquire semaphore, wait for the presentation queue so
+	 * Vulkan cannot observe an unfinished wait on that semaphore. */
+	if (reused && generation->present_queue) {
+		VkResult result = vkQueueWaitIdle(generation->present_queue->vk_queue);
+		if (result != VK_SUCCESS) {
+			rtvk_throwf(rtvk_error_from_vk(result), "vkQueueWaitIdle before swapchain acquire returned %s", rtvk_vk_result_name(result));
+		}
 	}
 }
 

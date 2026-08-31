@@ -48,6 +48,7 @@ static bool rtd3d12_glfw_resolve() {
 }
 
 RTD3D12_API bool rtInit_GLFW(void) {
+	rtd3d12_begin_errorable_operation();
 	rtd3d12_glfw_resolve();
 	return rtError() == rt::error::success;
 }

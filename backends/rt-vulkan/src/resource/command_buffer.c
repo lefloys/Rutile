@@ -13,6 +13,7 @@
 /*===============================================================================================*/
 
 rt_command_buffer rtCommandBufferCreate(void) {
+	rtvk_begin_errorable_operation();
 	return rtvk_command_buffer_to_handle(rtvk_command_buffer_create(rtvk_get_current_context()));
 }
 
@@ -21,26 +22,32 @@ void rtCommandBufferDestroy(rt_command_buffer command_buffer) {
 }
 
 void rtCommandBufferReset(rt_command_buffer command_buffer) {
+	rtvk_begin_errorable_operation();
 	rtvk_command_buffer_reset(rtvk_command_buffer_from_handle(command_buffer));
 }
 
 void rtCommandBufferBegin(rt_command_buffer command_buffer) {
+	rtvk_begin_errorable_operation();
 	rtvk_command_buffer_begin(rtvk_command_buffer_from_handle(command_buffer));
 }
 
 void rtCommandBufferContinue(rt_command_buffer command_buffer) {
+	rtvk_begin_errorable_operation();
 	rtvk_command_buffer_continue(rtvk_command_buffer_from_handle(command_buffer));
 }
 
 void rtCommandBufferContinueRendering(rt_command_buffer command_buffer) {
+	rtvk_begin_errorable_operation();
 	rtvk_command_buffer_continue_rendering(rtvk_command_buffer_from_handle(command_buffer));
 }
 
 void rtCommandBufferEnd(rt_command_buffer command_buffer) {
+	rtvk_begin_errorable_operation();
 	rtvk_command_buffer_end(rtvk_command_buffer_from_handle(command_buffer));
 }
 
 void rtCmdExecute(rt_command_buffer command_buffer, rt_command_buffer secondary) {
+	rtvk_begin_errorable_operation();
 	rtvk_command_buffer_execute(
 		rtvk_command_buffer_from_handle(command_buffer),
 		rtvk_command_buffer_from_handle(secondary)
@@ -48,6 +55,7 @@ void rtCmdExecute(rt_command_buffer command_buffer, rt_command_buffer secondary)
 }
 
 void rtCmdBufferData(rt_command_buffer command_buffer, rt_buffer buffer, rt_buffer_range range, const u08* data) {
+	rtvk_begin_errorable_operation();
 	rtvk_command_buffer_buffer_data(
 		rtvk_command_buffer_from_handle(command_buffer),
 		rtvk_buffer_from_handle(buffer),
@@ -57,6 +65,7 @@ void rtCmdBufferData(rt_command_buffer command_buffer, rt_buffer buffer, rt_buff
 }
 
 void rtCmdBufferCopy(rt_command_buffer command_buffer, rt_buffer src, rt_buffer_range src_range, rt_buffer dst, rt_buffer_range dst_range) {
+	rtvk_begin_errorable_operation();
 	rtvk_command_buffer_buffer_copy(
 		rtvk_command_buffer_from_handle(command_buffer),
 		rtvk_buffer_from_handle(src),
@@ -67,6 +76,7 @@ void rtCmdBufferCopy(rt_command_buffer command_buffer, rt_buffer src, rt_buffer_
 }
 
 void rtCmdBufferCopyToTexture(rt_command_buffer command_buffer, rt_buffer src, rt_buffer_range src_range, rt_texture dst, rt_texture_range dst_range) {
+	rtvk_begin_errorable_operation();
 	rtvk_command_buffer_buffer_copy_to_texture(
 		rtvk_command_buffer_from_handle(command_buffer),
 		rtvk_buffer_from_handle(src),
@@ -77,6 +87,7 @@ void rtCmdBufferCopyToTexture(rt_command_buffer command_buffer, rt_buffer src, r
 }
 
 void rtCmdBufferBarrier(rt_command_buffer command_buffer, rt_buffer buffer, rt_buffer_range range, rt_access src, rt_access dst) {
+	rtvk_begin_errorable_operation();
 	rtvk_command_buffer_buffer_barrier(
 		rtvk_command_buffer_from_handle(command_buffer),
 		rtvk_buffer_from_handle(buffer),
@@ -87,6 +98,7 @@ void rtCmdBufferBarrier(rt_command_buffer command_buffer, rt_buffer buffer, rt_b
 }
 
 void rtCmdTextureCopy(rt_command_buffer command_buffer, rt_texture src, rt_texture_range src_range, rt_texture dst, rt_texture_range dst_range) {
+	rtvk_begin_errorable_operation();
 	rtvk_command_buffer_texture_copy(
 		rtvk_command_buffer_from_handle(command_buffer),
 		rtvk_texture_from_handle(src),
@@ -97,6 +109,7 @@ void rtCmdTextureCopy(rt_command_buffer command_buffer, rt_texture src, rt_textu
 }
 
 void rtCmdTextureData(rt_command_buffer command_buffer, rt_texture texture, rt_texture_range range, const u08* data) {
+	rtvk_begin_errorable_operation();
 	rtvk_command_buffer_texture_data(
 		rtvk_command_buffer_from_handle(command_buffer),
 		rtvk_texture_from_handle(texture),
@@ -106,6 +119,7 @@ void rtCmdTextureData(rt_command_buffer command_buffer, rt_texture texture, rt_t
 }
 
 void rtCmdTextureCopyToBuffer(rt_command_buffer command_buffer, rt_texture src, rt_texture_range src_range, rt_buffer dst, rt_buffer_range dst_range) {
+	rtvk_begin_errorable_operation();
 	rtvk_command_buffer_texture_copy_to_buffer(
 		rtvk_command_buffer_from_handle(command_buffer),
 		rtvk_texture_from_handle(src),
@@ -116,6 +130,7 @@ void rtCmdTextureCopyToBuffer(rt_command_buffer command_buffer, rt_texture src, 
 }
 
 void rtCmdTextureBarrier(rt_command_buffer command_buffer, rt_texture texture, rt_texture_range range, rt_access src, rt_access dst) {
+	rtvk_begin_errorable_operation();
 	rtvk_command_buffer_texture_barrier(
 		rtvk_command_buffer_from_handle(command_buffer),
 		rtvk_texture_from_handle(texture),
@@ -126,6 +141,7 @@ void rtCmdTextureBarrier(rt_command_buffer command_buffer, rt_texture texture, r
 }
 
 void rtCmdBeginRendering(rt_command_buffer command_buffer, rt_framebuffer framebuffer) {
+	rtvk_begin_errorable_operation();
 	rtvk_command_buffer_begin_rendering(
 		rtvk_command_buffer_from_handle(command_buffer),
 		rtvk_framebuffer_from_handle(framebuffer)
@@ -133,35 +149,43 @@ void rtCmdBeginRendering(rt_command_buffer command_buffer, rt_framebuffer frameb
 }
 
 void rtCmdClearColor(rt_command_buffer command_buffer, rt_location location, f32 r, f32 g, f32 b, f32 a) {
+	rtvk_begin_errorable_operation();
 	struct rtvk_program_output_mapping* mapping = rtvk_program_output_mapping(rtvk_location_program(location), location);
 	rtvk_command_buffer_clear_color(rtvk_command_buffer_from_handle(command_buffer), mapping ? mapping->attachment : 0, r, g, b, a);
 }
 
 void rtCmdClearDepth(rt_command_buffer command_buffer, f32 depth) {
+	rtvk_begin_errorable_operation();
 	rtvk_command_buffer_clear_depth(rtvk_command_buffer_from_handle(command_buffer), depth);
 }
 
 void rtCmdClearStencil(rt_command_buffer command_buffer, usize stencil) {
+	rtvk_begin_errorable_operation();
 	rtvk_command_buffer_clear_stencil(rtvk_command_buffer_from_handle(command_buffer), stencil);
 }
 
 void rtCmdClear(rt_command_buffer command_buffer, enum rt_clear_flag attachments) {
+	rtvk_begin_errorable_operation();
 	rtvk_command_buffer_clear(rtvk_command_buffer_from_handle(command_buffer), attachments);
 }
 
 void rtCmdSetViewport(rt_command_buffer command_buffer, usize x, usize y, usize width, usize height, f32 min_depth, f32 max_depth) {
+	rtvk_begin_errorable_operation();
 	rtvk_command_buffer_set_viewport(rtvk_command_buffer_from_handle(command_buffer), x, y, width, height, min_depth, max_depth);
 }
 
 void rtCmdSetScissor(rt_command_buffer command_buffer, usize x, usize y, usize width, usize height) {
+	rtvk_begin_errorable_operation();
 	rtvk_command_buffer_set_scissor(rtvk_command_buffer_from_handle(command_buffer), x, y, width, height);
 }
 
 void rtCmdEndRendering(rt_command_buffer command_buffer) {
+	rtvk_begin_errorable_operation();
 	rtvk_command_buffer_end_rendering(rtvk_command_buffer_from_handle(command_buffer));
 }
 
 void rtCmdUseProgram(rt_command_buffer command_buffer, rt_program program) {
+	rtvk_begin_errorable_operation();
 	rtvk_command_buffer_use_program(
 		rtvk_command_buffer_from_handle(command_buffer),
 		rtvk_program_from_handle(program)
@@ -169,6 +193,7 @@ void rtCmdUseProgram(rt_command_buffer command_buffer, rt_program program) {
 }
 
 void rtCmdBindBuffer(rt_command_buffer command_buffer, rt_location location, rt_buffer buffer, rt_buffer_range range) {
+	rtvk_begin_errorable_operation();
 	rtvk_command_buffer_bind_buffer(
 		rtvk_command_buffer_from_handle(command_buffer),
 		location,
@@ -179,6 +204,7 @@ void rtCmdBindBuffer(rt_command_buffer command_buffer, rt_location location, rt_
 }
 
 void rtCmdBindTexture(rt_command_buffer command_buffer, rt_location location, rt_texture_view texture_view) {
+	rtvk_begin_errorable_operation();
 	rtvk_command_buffer_bind_texture(
 		rtvk_command_buffer_from_handle(command_buffer),
 		location,
@@ -187,6 +213,7 @@ void rtCmdBindTexture(rt_command_buffer command_buffer, rt_location location, rt
 }
 
 void rtCmdBindSampler(rt_command_buffer command_buffer, rt_location location, rt_sampler sampler) {
+	rtvk_begin_errorable_operation();
 	rtvk_command_buffer_bind_sampler(
 		rtvk_command_buffer_from_handle(command_buffer),
 		location,
@@ -195,6 +222,7 @@ void rtCmdBindSampler(rt_command_buffer command_buffer, rt_location location, rt
 }
 
 void rtCmdVertexBuffer(rt_command_buffer command_buffer, rt_location location, rt_buffer buffer, rt_buffer_range range) {
+	rtvk_begin_errorable_operation();
 	rtvk_command_buffer_vertex_buffer(
 		rtvk_command_buffer_from_handle(command_buffer),
 		location,
@@ -204,14 +232,17 @@ void rtCmdVertexBuffer(rt_command_buffer command_buffer, rt_location location, r
 }
 
 void rtCmdIndexBuffer(rt_command_buffer command_buffer, rt_buffer buffer, rt_buffer_range range, enum rt_index_format format) {
+	rtvk_begin_errorable_operation();
 	rtvk_command_buffer_index_buffer(rtvk_command_buffer_from_handle(command_buffer), rtvk_buffer_from_handle(buffer), range, format);
 }
 
 void rtCmdDraw(rt_command_buffer command_buffer, usize vertex_count, usize first_vertex) {
+	rtvk_begin_errorable_operation();
 	rtvk_command_buffer_draw(rtvk_command_buffer_from_handle(command_buffer), vertex_count, first_vertex);
 }
 
 void rtCmdDrawInstanced(rt_command_buffer command_buffer, usize vertex_count, usize instance_count, usize first_vertex, usize first_instance) {
+	rtvk_begin_errorable_operation();
 	rtvk_command_buffer_draw_instanced(
 		rtvk_command_buffer_from_handle(command_buffer),
 		vertex_count,
@@ -222,10 +253,12 @@ void rtCmdDrawInstanced(rt_command_buffer command_buffer, usize vertex_count, us
 }
 
 void rtCmdDrawIndexed(rt_command_buffer command_buffer, usize index_count, usize first_index, usize vertex_offset) {
+	rtvk_begin_errorable_operation();
 	rtvk_command_buffer_draw_indexed(rtvk_command_buffer_from_handle(command_buffer), index_count, first_index, vertex_offset);
 }
 
 void rtCmdDrawIndexedInstanced(rt_command_buffer command_buffer, usize index_count, usize instance_count, usize first_index, usize vertex_offset, usize first_instance) {
+	rtvk_begin_errorable_operation();
 	rtvk_command_buffer_draw_indexed_instanced(
 		rtvk_command_buffer_from_handle(command_buffer),
 		index_count,
@@ -411,6 +444,9 @@ void rtvk_command_buffer_release_resources(struct rtvk_command_buffer* command_b
 		}
 		case RTVK_COMMAND_BIND_TEXTURE: {
 			struct rtvk_ir_texture* command = payload;
+			if (command->owns_image_view) {
+				vkDestroyImageView(command_buffer->base.ctx->vk_device, command->vk_image_view, VK_ALLOCATOR);
+			}
 			rtvk_release_resource(command->view);
 			rtvk_release_resource(command->image);
 			break;
@@ -773,10 +809,12 @@ void rtvk_command_buffer_begin_rendering(struct rtvk_command_buffer* command_buf
 }
 
 void rtCmdUniformData(rt_command_buffer command_buffer, rt_location location, const u08* data, usize size) {
+	rtvk_begin_errorable_operation();
 	rtvk_command_buffer_program_data(rtvk_command_buffer_from_handle(command_buffer), location, data, size, RTVK_DATA_UNIFORM, RTVK_COMMAND_UNIFORM_DATA);
 }
 
 void rtCmdStorageData(rt_command_buffer command_buffer, rt_location location, const u08* data, usize size) {
+	rtvk_begin_errorable_operation();
 	rtvk_command_buffer_program_data(rtvk_command_buffer_from_handle(command_buffer), location, data, size, RTVK_DATA_STORAGE, RTVK_COMMAND_STORAGE_DATA);
 }
 
@@ -864,7 +902,17 @@ void rtvk_command_buffer_bind_texture(struct rtvk_command_buffer* command_buffer
 	if (!command) {
 		return;
 	}
-	*command = (struct rtvk_ir_texture){ location ? location->address : 0, view, view ? view->image : NULL, view ? view->vk_image_view : VK_NULL_HANDLE };
+	struct rtvk_image_base* image = view && view->texture
+		? &view->texture->active->base
+		: view ? view->image : NULL;
+	VkImageView image_view = image ? rtvk_image_view_create(rtvk_get_current_context(), image) : VK_NULL_HANDLE;
+	*command = (struct rtvk_ir_texture){
+		.address = location ? location->address : 0,
+		.view = view,
+		.image = image,
+		.vk_image_view = image_view,
+		.owns_image_view = image_view != VK_NULL_HANDLE,
+	};
 	rtvk_retain_resource(command->view);
 	rtvk_retain_resource(command->image);
 }
@@ -1206,6 +1254,34 @@ VkAccessFlags rtvk_access_mask(rt_access access) {
 	return 0;
 }
 
+bool rtvk_lowered_command_buffer_add_image_view(struct rtvk_lowered_command_buffer* lowered, VkImageView image_view) {
+	struct rtvk_lowered_image_view* entry = malloc(sizeof(*entry));
+	if (!entry) {
+		rtvk_throwf(RT_OUT_OF_HOST_MEMORY, "failed to retain a bound image view until submission completes");
+		return false;
+	}
+	entry->vk_image_view = image_view;
+	entry->next = lowered->image_views;
+	lowered->image_views = entry;
+	return true;
+}
+
+VkImageLayout rtvk_access_image_layout(rt_access access, VkImageLayout current_layout) {
+	if (access.stage & RT_STAGE_TRANSFER) {
+		return access.type == RT_ACCESS_READ ? VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL : VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+	}
+	if (access.stage & (RT_STAGE_VERTEX | RT_STAGE_FRAGMENT | RT_STAGE_COMPUTE)) {
+		return VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	}
+	if (access.stage & RT_STAGE_COLOR_ATTACHMENT) {
+		return VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+	}
+	if (access.stage & RT_STAGE_DEPTH_STENCIL_ATTACHMENT) {
+		return VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+	}
+	return current_layout;
+}
+
 void rtvk_lowered_command_buffer_end(struct rtvk_lowered_command_buffer* lowered) {
 	VkResult result = vkEndCommandBuffer(lowered->vk_command_buffer);
 	if (result != VK_SUCCESS) {
@@ -1370,8 +1446,10 @@ void rtvk_lower_bind_descriptors(struct rtvk_context* ctx, struct rtvk_lowered_c
 				rtvk_throwf(RT_IMPROPER_USAGE, "program resource %s is not bound to a texture view", state->program->location_names[location_index]);
 				return;
 			}
-			image_infos[descriptor_index].imageView = texture ? texture->vk_image_view : VK_NULL_HANDLE;
-			image_infos[descriptor_index].sampler = texture ? texture->view->vk_sampler : VK_NULL_HANDLE;
+			image_infos[descriptor_index].imageView = texture->vk_image_view;
+			image_infos[descriptor_index].sampler = descriptor->sampler.vk_sampler
+				? descriptor->sampler.vk_sampler
+				: texture->view->vk_sampler;
 			image_infos[descriptor_index].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 			writes[descriptor_index].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 			writes[descriptor_index].pImageInfo = &image_infos[descriptor_index];
@@ -1684,7 +1762,7 @@ void rtvk_lower_texture_barrier(struct rtvk_lowered_command_buffer* lowered, con
 	barrier.srcAccessMask = rtvk_access_mask(command->src);
 	barrier.dstAccessMask = rtvk_access_mask(command->dst);
 	barrier.oldLayout = command->texture->base.vk_layout;
-	barrier.newLayout = command->texture->base.vk_layout;
+	barrier.newLayout = rtvk_access_image_layout(command->dst, barrier.oldLayout);
 	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 	barrier.image = command->texture->base.vk_image;
@@ -1705,6 +1783,7 @@ void rtvk_lower_texture_barrier(struct rtvk_lowered_command_buffer* lowered, con
 		1,
 		&barrier
 	);
+	command->texture->base.vk_layout = barrier.newLayout;
 	rtvk_lowered_command_buffer_add_resource_job(lowered, RTVK_RESOURCE_BASE(command->texture));
 }
 
@@ -1861,13 +1940,12 @@ void rtvk_lower_program_data(struct rtvk_context* ctx, struct rtvk_lowered_comma
 }
 
 void rtvk_lower_bind_buffer(struct rtvk_lowered_command_buffer* lowered, struct rtvk_lower_state* state, const struct rtvk_ir_buffer* command) {
-	if (!state->program || !state->program->descriptor_mapping_occupied[command->address]) {
+	if (!command->buffer) {
 		return;
 	}
-	struct rtvk_program_descriptor_mapping* mapping = &state->program->descriptor_mappings[command->address];
-	if (mapping->kind != RTVK_DESCRIPTOR_BUFFER && mapping->kind != RTVK_DESCRIPTOR_STORAGE_BUFFER) {
-		return;
-	}
+	/* Rutile allows primary command buffers to bind resources before executing a
+	 * rendering continuation that selects the program. Keep the binding by its
+	 * location and validate its descriptor kind once that program is active. */
 	struct rtvk_bound_descriptor* descriptor = rtvk_lower_add_descriptor(
 		state,
 		command->address
@@ -1885,8 +1963,8 @@ void rtvk_lower_bind_buffer(struct rtvk_lowered_command_buffer* lowered, struct 
 	rtvk_lowered_command_buffer_add_resource_job(lowered, RTVK_RESOURCE_BASE(command->buffer));
 }
 
-void rtvk_lower_bind_texture(struct rtvk_lowered_command_buffer* lowered, struct rtvk_lower_state* state, const struct rtvk_ir_texture* command) {
-	if (!state->program || !state->program->descriptor_mapping_occupied[command->address] || state->program->descriptor_mappings[command->address].kind != RTVK_DESCRIPTOR_TEXTURE) {
+void rtvk_lower_bind_texture(struct rtvk_lowered_command_buffer* lowered, struct rtvk_lower_state* state, struct rtvk_ir_texture* command) {
+	if (!command->view || !command->image || !command->vk_image_view) {
 		return;
 	}
 	struct rtvk_bound_descriptor* descriptor = rtvk_lower_add_descriptor(
@@ -1896,8 +1974,11 @@ void rtvk_lower_bind_texture(struct rtvk_lowered_command_buffer* lowered, struct
 	if (!descriptor) {
 		return;
 	}
+	if (command->owns_image_view && !rtvk_lowered_command_buffer_add_image_view(lowered, command->vk_image_view)) {
+		return;
+	}
+	command->owns_image_view = false;
 	descriptor->texture = *command;
-	descriptor->sampler = (struct rtvk_ir_sampler){ 0 };
 	descriptor->buffer = NULL;
 	descriptor->vk_buffer = VK_NULL_HANDLE;
 	descriptor->offset = 0;
@@ -1908,11 +1989,10 @@ void rtvk_lower_bind_texture(struct rtvk_lowered_command_buffer* lowered, struct
 }
 
 void rtvk_lower_bind_sampler(struct rtvk_lowered_command_buffer* lowered, struct rtvk_lower_state* state, const struct rtvk_ir_sampler* command) {
-	if (!state->program || !state->program->descriptor_mapping_occupied[command->address] || state->program->descriptor_mappings[command->address].kind != RTVK_DESCRIPTOR_SAMPLER) return;
+	if (!command->sampler || !command->vk_sampler) return;
 	struct rtvk_bound_descriptor* descriptor = rtvk_lower_add_descriptor(state, command->address);
 	if (!descriptor) return;
 	descriptor->sampler = *command;
-	descriptor->texture = (struct rtvk_ir_texture){ 0 };
 	descriptor->buffer = NULL;
 	descriptor->vk_buffer = VK_NULL_HANDLE;
 	descriptor->offset = 0;
@@ -2135,6 +2215,12 @@ void rtvk_lowered_command_buffer_destroy(struct rtvk_context* ctx, struct rtvk_l
 		lowered->staging_buffers = staging->next;
 		vmaDestroyBuffer(ctx->vma_allocator, staging->vk_buffer, staging->vma_allocation);
 		free(staging);
+	}
+	while (lowered->image_views) {
+		struct rtvk_lowered_image_view* image_view = lowered->image_views;
+		lowered->image_views = image_view->next;
+		vkDestroyImageView(ctx->vk_device, image_view->vk_image_view, VK_ALLOCATOR);
+		free(image_view);
 	}
 	vkDestroyDescriptorPool(ctx->vk_device, lowered->vk_descriptor_pool, VK_ALLOCATOR);
 	vkDestroyCommandPool(ctx->vk_device, lowered->vk_command_pool, VK_ALLOCATOR);

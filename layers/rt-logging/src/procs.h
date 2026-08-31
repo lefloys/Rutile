@@ -10,7 +10,7 @@
 #endif
 
 void rtlog_printf(const char* format, ...);
-void rtlog_error(const char* name);
+void rtlog_set_output(rt_output output, void* user_data);
 
 #define RTLOG_DECLARE_NEXT(return_type, name, parameters, arguments) extern return_type (*next_##name) parameters;
 RT_CORE_PROCEDURES(RTLOG_DECLARE_NEXT)

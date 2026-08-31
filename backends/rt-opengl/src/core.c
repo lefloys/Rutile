@@ -10,7 +10,7 @@
 RTGL_API void rtInit(const char* const* features, usize feature_count) {
 	rtgl_context_flags flags;
 
-	rtClearError();
+	rtgl_begin_errorable_operation();
 	if (current_context) {
 		rtgl_throwf(RT_ALREADY_INITIALIZED, "rtInit called while rt-opengl is already initialized");
 		return;
@@ -45,16 +45,10 @@ RTGL_API void rtExit(void) {
 	current_context = NULL;
 }
 
-RTGL_API const char* rtGetName(void) {
-	return "rt-opengl";
+RTGL_API u64 rtVersion(void) {
+	return RT_HEADER_VERSION;
 }
 
-RTGL_API enum rt_format_usage rtQueryFormatCapabilities(enum rt_format format) {
-	if (format == RT_RGBA8_UNORM) {
-		return RT_FORMAT_USAGE_SAMPLED |
-			   RT_FORMAT_USAGE_COLOR_ATTACHMENT |
-			   RT_FORMAT_USAGE_TRANSFER_SRC |
-			   RT_FORMAT_USAGE_TRANSFER_DST;
-	}
-	return RT_FORMAT_USAGE_NONE;
+RTGL_API const char* rtGetName(void) {
+	return "rt-opengl";
 }

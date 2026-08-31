@@ -1,7 +1,7 @@
 #include "buffer.h"
 #include "logger.h"
 
-#define RTVAL_DROP(message) rtval_printf("[validation] %s, dropping call\n", message)
+#define RTVAL_DROP(message) rtval_fail(message)
 #define RTVAL_RESOLVE(handle, call_name, ret)                                  \
 	struct rtval_buffer* state = RTVAL_PAYLOAD((handle), struct rtval_buffer); \
 	if (!state) {                                                              \
@@ -60,6 +60,7 @@ struct rtval_buffer* rtval_buffer_create(void) {
 
 void rtval_buffer_destroy(struct rtval_buffer* buffer) {
 	if (!buffer) {
+		RTVAL_DROP("rtBufferDestroy: invalid handle");
 		return;
 	}
 	struct rtval_buffer* state = RTVAL_PAYLOAD(buffer, struct rtval_buffer);
@@ -68,7 +69,9 @@ void rtval_buffer_destroy(struct rtval_buffer* buffer) {
 		return;
 	}
 	rtval_next_rtBufferDestroy(state->backend);
-	rtval_handle_destroy(buffer);
+	if (rtval_report_error("rtBufferDestroy")) {
+		rtval_handle_destroy(buffer);
+	}
 }
 
 void rtval_buffer_resize(struct rtval_buffer* buffer, enum rt_memory_type memory_type, usize size) {
@@ -79,6 +82,10 @@ void rtval_buffer_resize(struct rtval_buffer* buffer, enum rt_memory_type memory
 	}
 	rtval_next_rtBufferResize(state->backend, memory_type, size);
 	rtval_report_error("rtBufferResize");
+	if (rtval_next_rtError() == RT_SUCCESS) {
+		state->memory_type = memory_type;
+		state->size = size;
+	}
 }
 
 void rtval_buffer_read(struct rtval_buffer* buffer, rt_buffer_range range, u08* data, usize data_size) {
@@ -93,15 +100,37 @@ void rtval_buffer_read(struct rtval_buffer* buffer, rt_buffer_range range, u08* 
 
 u08* rtval_buffer_map(struct rtval_buffer* buffer, rt_buffer_range range) {
 	RTVAL_RESOLVE(buffer, "rtBufferMap", NULL);
+	if (state->memory_type != RT_HOST_MEMORY) {
+		RTVAL_DROP("rtBufferMap: host-memory buffer required");
+		return NULL;
+	}
+	if (state->mapped) {
+		RTVAL_DROP("rtBufferMap: buffer is already mapped");
+		return NULL;
+	}
+	if (range.offset > state->size || range.size > state->size - range.offset) {
+		RTVAL_DROP("rtBufferMap: range must be within the buffer");
+		return NULL;
+	}
 	u08* data = rtval_next_rtBufferMap(state->backend, range);
 	rtval_report_error("rtBufferMap");
+	if (data && rtval_next_rtError() == RT_SUCCESS) {
+		state->mapped = true;
+	}
 	return data;
 }
 
 void rtval_buffer_unmap(struct rtval_buffer* buffer) {
 	RTVAL_RESOLVE(buffer, "rtBufferUnmap", );
+	if (!state->mapped) {
+		RTVAL_DROP("rtBufferUnmap: buffer is not mapped");
+		return;
+	}
 	rtval_next_rtBufferUnmap(state->backend);
 	rtval_report_error("rtBufferUnmap");
+	if (rtval_next_rtError() == RT_SUCCESS) {
+		state->mapped = false;
+	}
 }
 
 #undef RTVAL_RESOLVE

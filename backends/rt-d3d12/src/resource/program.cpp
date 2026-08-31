@@ -1,6 +1,7 @@
 #include "program.hpp"
 #include "context.hpp"
 #include "error.hpp"
+#include "transpiler/hlsl.hpp"
 
 #include <cassert>
 #include <cstddef>
@@ -9,7 +10,8 @@
 #include <dxcapi.h>
 #include <iterator>
 #include <optional>
-#include <rtsl/hlsl.hpp>
+#include <rtsl/IR/Verifier.hpp>
+#include <rtsl/Serialization/Artifact.hpp>
 #include <span>
 #include <string>
 #include <string_view>
@@ -19,6 +21,7 @@
 /*===============================================================================================*/
 
 rt_program_t* rtProgramCreate() {
+	rtd3d12_begin_errorable_operation();
 	return rtd3d12::create_resource<rt_program_t>(rtd3d12_get_current_context());
 }
 
@@ -29,34 +32,42 @@ void rtProgramDestroy(rt_program_t* program) {
 }
 
 void rtProgramSetLayout(rt_program_t* program, const rt::vertex_layout* layout) {
+	rtd3d12_begin_errorable_operation();
 	program->layout(layout);
 }
 
 void rtProgramSource(rt_program_t* program, const char* entry_point, const u08* data, usize size) {
+	rtd3d12_begin_errorable_operation();
 	program->source(entry_point, data, size);
 }
 
 void rtProgramSetRasterState(rt_program_t* program, rt::cull_mode cull_mode, rt::front_face front_face, rt::fill_mode fill_mode) {
+	rtd3d12_begin_errorable_operation();
 	program->raster_state(cull_mode, front_face, fill_mode);
 }
 
 void rtProgramSetBlendState(rt_program_t* program, bool enabled, rt::blend_factor src_color, rt::blend_factor dst_color, rt::blend_op color_op, rt::blend_factor src_alpha, rt::blend_factor dst_alpha, rt::blend_op alpha_op) {
+	rtd3d12_begin_errorable_operation();
 	program->blend_state(enabled, src_color, dst_color, color_op, src_alpha, dst_alpha, alpha_op);
 }
 
 void rtProgramFinalize(rt_program_t* program) {
+	rtd3d12_begin_errorable_operation();
 	program->finalize();
 }
 
 rt::location* rtProgramUniformLocation(rt_program_t* program, const char* name) {
+	rtd3d12_begin_errorable_operation();
 	return program->uniform_location(name);
 }
 
 rt::location* rtProgramInputLocation(rt_program_t* program, const rt::vertex_attribute* attributes, usize attribute_count) {
+	rtd3d12_begin_errorable_operation();
 	return program->input_location(attributes, attribute_count);
 }
 
 rt::location* rtProgramOutputLocation(rt_program_t* program, const char* name) {
+	rtd3d12_begin_errorable_operation();
 	return program->output_location(name);
 }
 
@@ -119,7 +130,7 @@ void rt_program_t::destroy_root_signature() {
 rt_program_t::~rt_program_t() {
 	destroy_root_signature();
 	entry_point.clear();
-	rtsl_program.reset();
+	rtsl_artifact.reset();
 	shaders.clear();
 }
 
@@ -148,43 +159,37 @@ rt::location* rt_program_t::allocate_location(bool zero_address) {
 		++location_count;
 		return &locations[address];
 	}
-	rtd3d12_fail(rt::error::shader_link_failed, zero_address ? "program location zero is already mapped" : "program has no free nonzero locations");
+	if (zero_address) {
+		rtd3d12_fail(rt::error::shader_link_failed, "program location zero is already mapped");
+	} else {
+		rtd3d12_fail(rt::error::shader_link_failed, "program has no free nonzero locations");
+	}
 	return nullptr;
 }
 
-static D3D12_SHADER_VISIBILITY rtd3d12_shader_visibility(rtsl::StageMask stages) {
-	if (stages == rtsl::StageMask::vertex) {
-		return D3D12_SHADER_VISIBILITY_VERTEX;
-	}
-	if (stages == rtsl::StageMask::fragment) {
-		return D3D12_SHADER_VISIBILITY_PIXEL;
-	}
-	return D3D12_SHADER_VISIBILITY_ALL;
-}
-
-static std::optional<u32> rtd3d12_type_byte_size(const rtsl::Program& program, rtsl::ir::Id type_id) {
-	const rtsl::ir::Type* type = program.find_type(type_id);
+static std::optional<u32> rtd3d12_type_byte_size(const rtsl::ir::Module& module, rtsl::ir::TypeId type_id) {
+	const rtsl::ir::Type* type = module.findType(type_id);
 	if (!type) {
 		return std::nullopt;
 	}
 	switch (type->kind) {
-	case rtsl::ir::TypeKind::boolean:
-	case rtsl::ir::TypeKind::signed_integer:
-	case rtsl::ir::TypeKind::unsigned_integer:
-	case rtsl::ir::TypeKind::floating:
+	case rtsl::ir::TypeKind::type_boolean:
+	case rtsl::ir::TypeKind::type_signed_integer:
+	case rtsl::ir::TypeKind::type_unsigned_integer:
+	case rtsl::ir::TypeKind::type_floating:
 		return type->bit_width / 8u;
-	case rtsl::ir::TypeKind::vector: {
-		const std::optional<u32> element = rtd3d12_type_byte_size(program, type->element_type);
+	case rtsl::ir::TypeKind::type_vector: {
+		const std::optional<u32> element = rtd3d12_type_byte_size(module, type->element_type);
 		return element ? std::optional<u32>{ *element * type->element_count } : std::nullopt;
 	}
-	case rtsl::ir::TypeKind::matrix: {
-		const std::optional<u32> column = rtd3d12_type_byte_size(program, type->element_type);
+	case rtsl::ir::TypeKind::type_matrix: {
+		const std::optional<u32> column = rtd3d12_type_byte_size(module, type->element_type);
 		return column ? std::optional<u32>{ *column * type->element_count } : std::nullopt;
 	}
-	case rtsl::ir::TypeKind::structure: {
+	case rtsl::ir::TypeKind::type_structure: {
 		u32 size = 0;
-		for (rtsl::ir::Id member : type->members) {
-			const std::optional<u32> member_size = rtd3d12_type_byte_size(program, member);
+		for (const rtsl::ir::StructMember& member : type->members) {
+			const std::optional<u32> member_size = rtd3d12_type_byte_size(module, member.type);
 			if (!member_size) {
 				return std::nullopt;
 			}
@@ -197,38 +202,30 @@ static std::optional<u32> rtd3d12_type_byte_size(const rtsl::Program& program, r
 	}
 }
 
-static std::optional<u32> rtd3d12_storage_buffer_stride(const rtsl::Program& program, const rtsl::Resource& resource) {
-	const rtsl::ir::Type* block = program.find_type(resource.value_type);
-	const rtsl::ir::Type* array = block && block->kind == rtsl::ir::TypeKind::structure && block->members.size() == 1
-									  ? program.find_type(block->members.front())
-									  : nullptr;
-	if (!array || array->kind != rtsl::ir::TypeKind::runtime_array) {
-		return std::nullopt;
-	}
-	return rtd3d12_type_byte_size(program, array->element_type);
-}
-
 static bool rtd3d12_program_create_root_signature(rtd3d12_context* ctx, rt_program_t* program) {
+	const rtsl::ir::Module& module = program->rtsl_artifact->module;
 	std::vector<D3D12_DESCRIPTOR_RANGE> ranges;
 	std::vector<D3D12_ROOT_PARAMETER> parameters;
-	ranges.reserve(program->rtsl_program->resources().size() * 2);
-	parameters.reserve(program->rtsl_program->resources().size() * 2);
+	ranges.reserve(module.resources.size() * 2 + module.uniforms.size() + 1);
+	parameters.reserve(module.resources.size() * 2 + module.uniforms.size() + 1);
 	program->clear_mappings();
 
-	for (const rtsl::Resource& resource : program->rtsl_program->resources()) {
+	for (const rtsl::ir::Resource& resource : module.resources) {
 		rtd3d12_program_descriptor_mapping mapping = {};
-		mapping.name = resource.name;
-		mapping.binding = resource.descriptor.binding;
-		const D3D12_SHADER_VISIBILITY visibility = rtd3d12_shader_visibility(resource.stages);
+		const rtsl::ir::Symbol* symbol = module.findSymbol(resource.symbol);
+		mapping.name = symbol ? std::string(module.strings.get(symbol->fully_qualified_name)) : std::string{};
+		mapping.binding = resource.binding ? resource.binding->binding : 0;
+		const u32 space = resource.binding ? resource.binding->set : 0;
+		const D3D12_SHADER_VISIBILITY visibility = D3D12_SHADER_VISIBILITY_ALL;
 
-		if (resource.kind == rtsl::ResourceKind::uniform_buffer) {
+		if (resource.kind == rtsl::ir::ResourceKind::resource_uniform_buffer) {
 			mapping.type = rtd3d12_descriptor_type::constant_buffer;
 			mapping.root_parameter = static_cast<u32>(parameters.size());
 			D3D12_DESCRIPTOR_RANGE range = {};
 			range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
 			range.NumDescriptors = 1;
-			range.BaseShaderRegister = resource.descriptor.binding;
-			range.RegisterSpace = resource.descriptor.set;
+			range.BaseShaderRegister = mapping.binding;
+			range.RegisterSpace = space;
 			range.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 			ranges.push_back(range);
 			D3D12_ROOT_PARAMETER parameter = {};
@@ -237,15 +234,15 @@ static bool rtd3d12_program_create_root_signature(rtd3d12_context* ctx, rt_progr
 			parameter.DescriptorTable.pDescriptorRanges = &ranges.back();
 			parameter.ShaderVisibility = visibility;
 			parameters.push_back(parameter);
-		} else if (resource.kind == rtsl::ResourceKind::sampled_texture || resource.kind == rtsl::ResourceKind::sampler) {
+		} else if (resource.kind == rtsl::ir::ResourceKind::resource_sampled_texture || resource.kind == rtsl::ir::ResourceKind::resource_sampler) {
 			mapping.type = rtd3d12_descriptor_type::texture;
 			mapping.root_parameter = static_cast<u32>(parameters.size());
 			for (const D3D12_DESCRIPTOR_RANGE_TYPE range_type : { D3D12_DESCRIPTOR_RANGE_TYPE_SRV, D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER }) {
 				D3D12_DESCRIPTOR_RANGE range = {};
 				range.RangeType = range_type;
 				range.NumDescriptors = 1;
-				range.BaseShaderRegister = resource.descriptor.binding;
-				range.RegisterSpace = resource.descriptor.set;
+				range.BaseShaderRegister = mapping.binding;
+				range.RegisterSpace = space;
 				range.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 				ranges.push_back(range);
 
@@ -257,20 +254,15 @@ static bool rtd3d12_program_create_root_signature(rtd3d12_context* ctx, rt_progr
 				parameters.push_back(parameter);
 			}
 			mapping.sampler_root_parameter = mapping.root_parameter + 1;
-		} else if (resource.kind == rtsl::ResourceKind::storage_buffer) {
-			const std::optional<u32> stride = rtd3d12_storage_buffer_stride(*program->rtsl_program, resource);
-			if (!stride || *stride == 0) {
-				rtd3d12_fail(rt::error::unsupported_feature, "DirectX 12 cannot reflect RTSL storage buffer '{}'", resource.name.c_str());
-				return false;
-			}
+		} else if (resource.kind == rtsl::ir::ResourceKind::resource_storage_buffer) {
 			mapping.type = rtd3d12_descriptor_type::storage_buffer;
-			mapping.storage_stride = *stride;
+			mapping.storage_stride = 16;
 			mapping.root_parameter = static_cast<u32>(parameters.size());
 			D3D12_DESCRIPTOR_RANGE range = {};
 			range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
 			range.NumDescriptors = 1;
-			range.BaseShaderRegister = resource.descriptor.binding;
-			range.RegisterSpace = resource.descriptor.set;
+			range.BaseShaderRegister = mapping.binding;
+			range.RegisterSpace = space;
 			range.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 			ranges.push_back(range);
 
@@ -281,9 +273,46 @@ static bool rtd3d12_program_create_root_signature(rtd3d12_context* ctx, rt_progr
 			parameter.ShaderVisibility = visibility;
 			parameters.push_back(parameter);
 		} else {
-			rtd3d12_fail(rt::error::unsupported_feature, "DirectX 12 does not support RTSL resource '{}' yet", resource.name.c_str());
+			rtd3d12_fail(rt::error::unsupported_feature, "DirectX 12 does not support RTIR resource '{}' yet", mapping.name.c_str());
 			return false;
 		}
+		rt::location* location = program->allocate_location();
+		if (!location) return false;
+		program->descriptor_mappings[location->address] = std::move(mapping);
+	}
+	// RTSL plain uniforms are independently bindable Rutile constant buffers.
+	// Keep their register assignment in sync with the HLSL emitter.
+	u32 uniform_binding = 0;
+	for (const rtsl::ir::Resource& resource : module.resources) {
+		if (resource.binding && resource.binding->set == 0)
+			uniform_binding = (std::max)(uniform_binding, resource.binding->binding + 1);
+	}
+	for (const rtsl::ir::Uniform& uniform : module.uniforms) {
+		const rtsl::ir::Symbol* symbol = module.findSymbol(uniform.symbol);
+		const std::optional<u32> byte_size = uniform.size ? uniform.size : rtd3d12_type_byte_size(module, uniform.type);
+		if (!symbol || !byte_size || !*byte_size) {
+			rtd3d12_fail(rt::error::shader_link_failed, "cannot reflect RTSL uniform into a D3D12 constant buffer");
+			return false;
+		}
+		const rtsl::ir::Binding binding = uniform.binding.value_or(rtsl::ir::Binding{.set = 0, .binding = uniform_binding++});
+		rtd3d12_program_descriptor_mapping mapping = {};
+		mapping.name = std::string(module.strings.get(symbol->fully_qualified_name));
+		mapping.type = rtd3d12_descriptor_type::constant_buffer;
+		mapping.binding = binding.binding;
+		mapping.root_parameter = static_cast<u32>(parameters.size());
+		D3D12_DESCRIPTOR_RANGE range = {};
+		range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
+		range.NumDescriptors = 1;
+		range.BaseShaderRegister = binding.binding;
+		range.RegisterSpace = binding.set;
+		range.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+		ranges.push_back(range);
+		D3D12_ROOT_PARAMETER parameter = {};
+		parameter.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+		parameter.DescriptorTable.NumDescriptorRanges = 1;
+		parameter.DescriptorTable.pDescriptorRanges = &ranges.back();
+		parameter.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+		parameters.push_back(parameter);
 		rt::location* location = program->allocate_location();
 		if (!location) return false;
 		program->descriptor_mappings[location->address] = std::move(mapping);
@@ -292,20 +321,6 @@ static bool rtd3d12_program_create_root_signature(rtd3d12_context* ctx, rt_progr
 		rt::location* location = program->allocate_location();
 		if (!location) return false;
 		program->input_mappings[location->address] = rtd3d12_program_input_mapping{.vertex_input = index};
-	}
-	const rtsl::EntryPoint* fragment = program->rtsl_program->entry(rtsl::Stage::fragment);
-	if (fragment && fragment->output) {
-		for (const rtsl::InterfaceElement& element : fragment->output->elements) {
-			if (!element.location) {
-				continue;
-			}
-			rt::location* location = program->allocate_location(element.name.empty());
-			if (!location) return false;
-			program->output_mappings[location->address] = rtd3d12_program_output_mapping{
-				.name = element.name,
-				.binding = *element.location,
-			};
-		}
 	}
 
 	D3D12_ROOT_SIGNATURE_DESC desc = {};
@@ -434,11 +449,6 @@ bool rt_program_t::prepare(
 
 	std::vector<D3D12_INPUT_ELEMENT_DESC> elements;
 	elements.reserve(RTD3D12_MAX_VERTEX_ATTRIBUTES);
-	const rtsl::EntryPoint* vertex = rtsl_program->entry(rtsl::Stage::vertex);
-	if (vertex_layout.input_count && (!vertex || !vertex->input)) {
-		rtd3d12_fail(rt::error::shader_link_failed, "RTSL vertex entry does not match the configured vertex layout");
-		return false;
-	}
 	for (usize input_index = 0; input_index < vertex_layout.input_count; ++input_index) {
 		const rt::vertex_input& input = vertex_layout.inputs[input_index];
 		for (usize attribute_index = 0; attribute_index < input.attribute_count; ++attribute_index) {
@@ -448,20 +458,9 @@ bool rt_program_t::prepare(
 				rtd3d12_fail(rt::error::unsupported_feature, "unsupported vertex attribute format");
 				return false;
 			}
-			auto reflected = vertex->input->elements.end();
-			for (auto candidate = vertex->input->elements.begin(); candidate != vertex->input->elements.end(); ++candidate) {
-				if (candidate->name == attribute.name) {
-					reflected = candidate;
-					break;
-				}
-			}
-			if (reflected == vertex->input->elements.end() || !reflected->location) {
-				rtd3d12_fail(rt::error::shader_link_failed, "vertex attribute '{}' is not declared by the RTSL entry", attribute.name);
-				return false;
-			}
 			elements.push_back(D3D12_INPUT_ELEMENT_DESC{
 				.SemanticName = "TEXCOORD",
-				.SemanticIndex = static_cast<UINT>(*reflected->location),
+				.SemanticIndex = static_cast<UINT>(attribute_index),
 				.Format = format,
 				.InputSlot = static_cast<UINT>(input_index),
 				.AlignedByteOffset = static_cast<UINT>(attribute.offset),
@@ -475,10 +474,16 @@ bool rt_program_t::prepare(
 	desc.pRootSignature = d3d_root_signature;
 	for (const rtd3d12_program_shader& shader : shaders) {
 		const D3D12_SHADER_BYTECODE bytecode = { shader.bytecode.data(), shader.bytecode.size() };
-		if (shader.stage == rtsl::Stage::vertex) {
+		if (shader.stage == rtsl::ir::Stage::stage_vertex) {
 			desc.VS = bytecode;
-		} else if (shader.stage == rtsl::Stage::fragment) {
+		} else if (shader.stage == rtsl::ir::Stage::stage_fragment) {
 			desc.PS = bytecode;
+		} else if (shader.stage == rtsl::ir::Stage::stage_tessellation_control) {
+			desc.HS = bytecode;
+		} else if (shader.stage == rtsl::ir::Stage::stage_tessellation_evaluation) {
+			desc.DS = bytecode;
+		} else if (shader.stage == rtsl::ir::Stage::stage_geometry) {
+			desc.GS = bytecode;
 		}
 	}
 	desc.BlendState.AlphaToCoverageEnable = FALSE;
@@ -563,15 +568,17 @@ void rt_program_t::source(const char* entry_point, const void* data, usize size)
 		rtd3d12_fail(rt::error::improper_usage, "program source data is empty");
 		return;
 	}
-	auto loaded = rtsl::load_program(std::span<const std::byte>{ static_cast<const std::byte*>(data), size });
-	if (!loaded) {
-		rtd3d12_fail(rt::error::shader_link_failed, "invalid RTSLP source: {}", loaded.error().message.c_str());
+	rtsl::ArtifactReader reader;
+	auto loaded = reader.read(std::span<const std::byte>{ static_cast<const std::byte*>(data), size });
+	if (!loaded || !loaded.artifact || loaded.artifact->kind != rtsl::ArtifactKind::artifact_program) {
+		const char* message = loaded.error ? loaded.error->message.c_str() : "artifact is not a linked RTSL program";
+		rtd3d12_fail(rt::error::shader_link_failed, "invalid RTSL program source: {}", message);
 		return;
 	}
 	destroy_root_signature();
 	this->entry_point = entry_point;
 	clear_mappings();
-	rtsl_program.emplace(std::move(*loaded));
+	rtsl_artifact.emplace(std::move(*loaded.artifact));
 	shaders.clear();
 }
 
@@ -610,7 +617,6 @@ namespace rtd3d12_program_detail {
 bool compile_hlsl(std::string_view source, std::string_view entry_point, const wchar_t* profile, std::vector<std::byte>& bytecode) {
 	IDxcCompiler3* compiler = nullptr;
 	IDxcResult* result = nullptr;
-	IDxcBlobUtf8* errors = nullptr;
 	IDxcBlob* object = nullptr;
 
 	HRESULT status = DxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(&compiler));
@@ -624,47 +630,16 @@ bool compile_hlsl(std::string_view source, std::string_view entry_point, const w
 		const wchar_t* arguments[] = { L"-E", wide_entry_point.c_str(), L"-T", profile, L"-HV", L"2021", L"-Ges" };
 		status = compiler->Compile(&buffer, arguments, static_cast<UINT32>(std::size(arguments)), nullptr, IID_PPV_ARGS(&result));
 	}
-	HRESULT compile_status = status;
-	if (SUCCEEDED(status)) {
-		result->GetStatus(&compile_status);
-		result->GetOutput(DXC_OUT_ERRORS, IID_PPV_ARGS(&errors), nullptr);
-	}
-	if (FAILED(status) || FAILED(compile_status)) {
-		const char* message = errors && errors->GetStringLength() ? errors->GetStringPointer() : "DXC failed without diagnostics";
-		rtd3d12_fail(rt::error::shader_link_failed, "{}", message);
-		if (object) {
-			object->Release();
-			object = nullptr;
-		}
-		if (errors) {
-			errors->Release();
-			errors = nullptr;
-		}
-		if (result) {
-			result->Release();
-			result = nullptr;
-		}
-		if (compiler) {
-			compiler->Release();
-			compiler = nullptr;
-		}
+	if (FAILED(status) || !result) {
+		rtd3d12_fail(rt::error::shader_link_failed, "DXC could not compile the generated HLSL");
+		if (compiler) compiler->Release();
 		return false;
 	}
 	status = result->GetOutput(DXC_OUT_OBJECT, IID_PPV_ARGS(&object), nullptr);
 	if (FAILED(status) || !object) {
-		rtd3d12_fail(rt::error::shader_link_failed, "DXC did not produce shader bytecode");
-		if (errors) {
-			errors->Release();
-			errors = nullptr;
-		}
-		if (result) {
-			result->Release();
-			result = nullptr;
-		}
-		if (compiler) {
-			compiler->Release();
-			compiler = nullptr;
-		}
+		rtd3d12_fail(rt::error::shader_link_failed, "DXC rejected the generated HLSL");
+		if (result) result->Release();
+		if (compiler) compiler->Release();
 		return false;
 	}
 	const auto* begin = static_cast<const std::byte*>(object->GetBufferPointer());
@@ -672,10 +647,6 @@ bool compile_hlsl(std::string_view source, std::string_view entry_point, const w
 	if (object) {
 		object->Release();
 		object = nullptr;
-	}
-	if (errors) {
-		errors->Release();
-		errors = nullptr;
 	}
 	if (result) {
 		result->Release();
@@ -691,27 +662,32 @@ bool compile_hlsl(std::string_view source, std::string_view entry_point, const w
 }
 
 void rt_program_t::finalize() {
-	if (!rtsl_program) {
-		rtd3d12_fail(rt::error::shader_link_failed, "program finalize requires an RTSLP source set via rtProgramSource");
+	if (!rtsl_artifact) {
+		rtd3d12_fail(rt::error::shader_link_failed, "program finalize requires an RTSL artifact source set via rtProgramSource");
 		return;
 	}
 	static constexpr struct {
-		rtsl::Stage stage;
+		rtsl::ir::Stage stage;
 		const wchar_t* profile;
 	} stage_configs[] = {
-		{ rtsl::Stage::vertex, L"vs_6_0" },
-		{ rtsl::Stage::fragment, L"ps_6_0" },
+		{ rtsl::ir::Stage::stage_vertex, L"vs_6_0" },
+		{ rtsl::ir::Stage::stage_tessellation_control, L"hs_6_0" },
+		{ rtsl::ir::Stage::stage_tessellation_evaluation, L"ds_6_0" },
+		{ rtsl::ir::Stage::stage_geometry, L"gs_6_0" },
+		{ rtsl::ir::Stage::stage_fragment, L"ps_6_0" },
 	};
 
 	std::vector<rtd3d12_program_shader> shaders;
 	for (const auto& config : stage_configs) {
-		const rtsl::EntryPoint* entry = rtsl_program->entry(config.stage);
-		if (!entry || entry->name != entry_point) {
+		const rtsl::ir::EntryPoint* entry = nullptr;
+		for (const rtsl::ir::EntryPoint& candidate : rtsl_artifact->module.entry_points)
+			if (candidate.stage == config.stage && rtsl_artifact->module.strings.get(candidate.source_name) == entry_point) { entry = &candidate; break; }
+		if (!entry) {
 			continue;
 		}
-		auto translation = rtsl::hlsl::transpile(*rtsl_program, config.stage);
+		rtd3d12::hlsl::Error error;
+		auto translation = rtd3d12::hlsl::transpile(rtsl_artifact->module, *entry, error);
 		if (!translation) {
-			const rtsl::hlsl::Error& error = translation.error();
 			rtd3d12_fail(rt::error::shader_link_failed, "RTSL to HLSL failed in {}: {}", error.context.c_str(), error.message.c_str());
 			return;
 		}

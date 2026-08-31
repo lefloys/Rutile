@@ -28,6 +28,7 @@ void rtgl_set_output(rt_output output, void* user_data);
 enum rt_error rtgl_error();
 const char* rtgl_error_message();
 void rtgl_clear_error();
+void rtgl_begin_errorable_operation();
 
 RTGL_EXTERN_C_EXIT
 #endif /* RTGL_ERROR_H */

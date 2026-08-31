@@ -6,6 +6,7 @@ if(NOT WIN32)
 endif()
 
 find_package(Threads REQUIRED)
+find_package(SPIRV-Tools CONFIG REQUIRED)
 
 add_library(rt-opengl SHARED)
 
@@ -41,6 +42,8 @@ target_sources(rt-opengl PRIVATE
     "src/resource/queue.h"
     "src/resource/resource.c"
     "src/resource/resource.h"
+    "src/resource/sampler.c"
+    "src/resource/sampler.h"
     "src/resource/swapchain.c"
     "src/resource/swapchain.h"
     "src/resource/texture.c"
@@ -48,6 +51,8 @@ target_sources(rt-opengl PRIVATE
     "src/rutile.h"
     "src/system/atomic.h"
     "src/system/sync.h"
+    "src/transpiler/transpiler.cpp"
+    "src/transpiler/transpiler.h"
 )
 
 if(WIN32)
@@ -69,6 +74,8 @@ target_link_libraries(rt-opengl PRIVATE
     gdi32
     user32
     Threads::Threads
+    RTSL::rtsl
+    SPIRV-Tools-static
 )
 
 set_target_properties(rt-opengl PROPERTIES

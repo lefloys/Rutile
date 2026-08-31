@@ -16,6 +16,7 @@ RTD3D12_API void rtClearError();
 
 void rtd3d12_write(std::string_view message);
 void rtd3d12_set_error(rt::error error, std::string message);
+void rtd3d12_begin_errorable_operation();
 
 template <typename... Args>
 void rtd3d12_print(std::format_string<Args...> format, Args&&... args) {

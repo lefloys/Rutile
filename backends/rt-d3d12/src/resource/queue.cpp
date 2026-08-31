@@ -11,6 +11,7 @@
 /*===============================================================================================*/
 
 rt_queue_t* rtQueueCreate(rt::queue_capability capability) {
+	rtd3d12_begin_errorable_operation();
 	return rt_queue_t::create(rtd3d12_get_current_context(), capability);
 }
 
@@ -19,6 +20,7 @@ void rtQueueDestroy(rt_queue_t* queue) {
 }
 
 rt::timepoint rtQueueSubmit(rt_queue_t* queue, rt_command_buffer_t* command_buffer) {
+	rtd3d12_begin_errorable_operation();
 	return rtd3d12_queue_submit(rtd3d12_get_current_context(), queue, command_buffer);
 }
 
@@ -31,6 +33,7 @@ void rtQueueWait(rt_queue_t* queue, rt::timepoint timepoint) {
 }
 
 void rtTimepointWait(rt::timepoint timepoint) {
+	rtd3d12_begin_errorable_operation();
 	rtd3d12_wait_for_timepoint(rtd3d12_get_current_context(), timepoint);
 }
 
@@ -146,8 +149,8 @@ struct rt_queue_t* rtd3d12_context_queue(struct rtd3d12_context* ctx, rt::queue_
 	}
 	ctx->queue_lock.lock();
 	for (u32 i = 0; i < 256; i++) {
-		if (ctx->timepoint_queues[i]->capability == capability) {
-			rt_queue_t* queue = ctx->timepoint_queues[i];
+		rt_queue_t* queue = ctx->timepoint_queues[i];
+		if (queue && queue->capability == capability) {
 			ctx->queue_lock.unlock();
 			return queue;
 		}

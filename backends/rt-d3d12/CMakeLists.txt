@@ -30,6 +30,8 @@ target_sources(rt-d3d12 PRIVATE
     "src/resource/queue.hpp"
     "src/resource/resource.cpp"
     "src/resource/resource.hpp"
+    "src/resource/sampler.cpp"
+    "src/resource/sampler.hpp"
     "src/resource/swapchain.cpp"
     "src/resource/swapchain.hpp"
     "src/resource/texture.cpp"
@@ -37,6 +39,8 @@ target_sources(rt-d3d12 PRIVATE
     "src/rutile.hpp"
     "src/sync.cpp"
     "src/sync.hpp"
+    "src/transpiler/hlsl.cpp"
+    "src/transpiler/hlsl.hpp"
 )
 
 target_compile_features(rt-d3d12 PRIVATE cxx_std_23)
@@ -45,6 +49,7 @@ target_compile_definitions(rt-d3d12 PRIVATE
 )
 target_include_directories(rt-d3d12 PRIVATE "src")
 target_link_libraries(rt-d3d12 PRIVATE
+    RTSL::rtsl
     d3d12
     dxgi
     dxguid

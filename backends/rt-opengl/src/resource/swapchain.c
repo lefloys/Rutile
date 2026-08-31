@@ -13,6 +13,7 @@
 /*===============================================================================================*/
 
 rt_swapchain rtSwapchainCreate(void) {
+	rtgl_begin_errorable_operation();
 	return rtgl_swapchain_to_handle(rtgl_swapchain_create(rtgl_get_current_context()));
 }
 
@@ -21,18 +22,22 @@ void rtSwapchainDestroy(rt_swapchain swapchain) {
 }
 
 void rtSwapchainResize(rt_swapchain swapchain, u32 width, u32 height) {
+	rtgl_begin_errorable_operation();
 	rtgl_swapchain_resize(rtgl_get_current_context(), rtgl_swapchain_from_handle(swapchain), width, height);
 }
 
 rt_swapchain_acquire_result rtSwapchainAcquire(rt_swapchain swapchain) {
+	rtgl_begin_errorable_operation();
 	return rtgl_swapchain_acquire(rtgl_get_current_context(), rtgl_swapchain_from_handle(swapchain));
 }
 
 void rtSwapchainPresent(rt_swapchain swapchain, rt_timepoint rendered) {
+	rtgl_begin_errorable_operation();
 	rtgl_swapchain_present(rtgl_get_current_context(), rtgl_swapchain_from_handle(swapchain), rendered);
 }
 
 void rtSwapchainBindGLFW(rt_swapchain swapchain, GLFWwindow* window) {
+	rtgl_begin_errorable_operation();
 	int width = 0;
 	int height = 0;
 

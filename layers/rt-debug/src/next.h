@@ -1,0 +1,104 @@
+#ifndef RTDBG_NEXT_H
+#define RTDBG_NEXT_H
+
+#include "procs.h"
+
+struct rtdbg_procs {
+	void (*rtInit)(const char* const* features, usize feature_count);
+	void (*rtExit)(void);
+	u64 (*rtVersion)(void);
+	void (*rtSetOutput)(rt_output output, void* user_data);
+	enum rt_error (*rtError)(void);
+	const char* (*rtErrorMessage)(void);
+	void (*rtClearError)(void);
+	const char* (*rtGetName)(void);
+	rt_command_buffer (*rtCommandBufferCreate)(void);
+	void (*rtCommandBufferDestroy)(rt_command_buffer command_buffer);
+	void (*rtCommandBufferReset)(rt_command_buffer command_buffer);
+	void (*rtCommandBufferBegin)(rt_command_buffer command_buffer);
+	void (*rtCommandBufferContinue)(rt_command_buffer command_buffer);
+	void (*rtCommandBufferContinueRendering)(rt_command_buffer command_buffer);
+	void (*rtCommandBufferEnd)(rt_command_buffer command_buffer);
+	void (*rtCmdExecute)(rt_command_buffer command_buffer, rt_command_buffer secondary);
+	void (*rtCmdBeginRendering)(rt_command_buffer command_buffer, rt_framebuffer framebuffer);
+	void (*rtCmdClearColor)(rt_command_buffer command_buffer, rt_location location, f32 r, f32 g, f32 b, f32 a);
+	void (*rtCmdClearDepth)(rt_command_buffer command_buffer, f32 depth);
+	void (*rtCmdClearStencil)(rt_command_buffer command_buffer, usize stencil);
+	void (*rtCmdClear)(rt_command_buffer command_buffer, enum rt_clear_flag attachments);
+	void (*rtCmdSetViewport)(rt_command_buffer command_buffer, usize x, usize y, usize width, usize height, f32 min_depth, f32 max_depth);
+	void (*rtCmdSetScissor)(rt_command_buffer command_buffer, usize x, usize y, usize width, usize height);
+	void (*rtCmdEndRendering)(rt_command_buffer command_buffer);
+	void (*rtCmdDraw)(rt_command_buffer command_buffer, usize vertex_count, usize first_vertex);
+	void (*rtCmdDrawInstanced)(rt_command_buffer command_buffer, usize vertex_count, usize instance_count, usize first_vertex, usize first_instance);
+	void (*rtCmdDrawIndexed)(rt_command_buffer command_buffer, usize index_count, usize first_index, usize vertex_offset);
+	void (*rtCmdDrawIndexedInstanced)(rt_command_buffer command_buffer, usize index_count, usize instance_count, usize first_index, usize vertex_offset, usize first_instance);
+	rt_queue (*rtQueueCreate)(enum rt_queue_capability capability);
+	void (*rtQueueDestroy)(rt_queue queue);
+	void (*rtQueueWait)(rt_queue queue, rt_timepoint timepoint);
+	rt_timepoint (*rtQueueSubmit)(rt_queue queue, rt_command_buffer command_buffer);
+	rt_timepoint (*rtQueueFlush)(rt_queue queue);
+	void (*rtTimepointWait)(rt_timepoint timepoint);
+	bool (*rtTimepointReached)(rt_timepoint timepoint);
+	rt_framebuffer (*rtFramebufferCreate)(void);
+	void (*rtFramebufferDestroy)(rt_framebuffer framebuffer);
+	rt_texture_view (*rtFramebufferColorView)(rt_framebuffer framebuffer, rt_location location);
+	void (*rtFramebufferSetColorView)(rt_framebuffer framebuffer, rt_texture_view view, rt_location location);
+	void (*rtFramebufferSetDepthView)(rt_framebuffer framebuffer, rt_texture_view view);
+	void (*rtFramebufferSetStencilView)(rt_framebuffer framebuffer, rt_texture_view view);
+	void (*rtCmdUseProgram)(rt_command_buffer command_buffer, rt_program program);
+	rt_program (*rtProgramCreate)(void);
+	void (*rtProgramDestroy)(rt_program program);
+	void (*rtProgramSetLayout)(rt_program program, const rt_vertex_layout* layout);
+	void (*rtProgramSource)(rt_program program, const char* entry_point, const u08* bytes, usize byte_size);
+	void (*rtProgramSetRasterState)(rt_program program, enum rt_cull_mode cull_mode, enum rt_front_face front_face, enum rt_fill_mode fill_mode);
+	void (*rtProgramSetBlendState)(rt_program program, bool enabled, enum rt_blend_factor src_color, enum rt_blend_factor dst_color, enum rt_blend_op color_op, enum rt_blend_factor src_alpha, enum rt_blend_factor dst_alpha, enum rt_blend_op alpha_op);
+	void (*rtProgramFinalize)(rt_program program);
+	rt_location (*rtProgramUniformLocation)(rt_program program, const char* name);
+	rt_location (*rtProgramInputLocation)(rt_program program, const rt_vertex_attribute* attributes, usize attribute_count);
+	rt_location (*rtProgramOutputLocation)(rt_program program, const char* name);
+	void (*rtCmdUniformData)(rt_command_buffer command_buffer, rt_location location, const u08* data, usize size);
+	void (*rtCmdStorageData)(rt_command_buffer command_buffer, rt_location location, const u08* data, usize size);
+	void (*rtCmdBindBuffer)(rt_command_buffer command_buffer, rt_location location, rt_buffer buffer, rt_buffer_range range);
+	void (*rtCmdVertexBuffer)(rt_command_buffer command_buffer, rt_location location, rt_buffer buffer, rt_buffer_range range);
+	void (*rtCmdIndexBuffer)(rt_command_buffer command_buffer, rt_buffer buffer, rt_buffer_range range, enum rt_index_format format);
+	rt_buffer (*rtBufferCreate)(void);
+	void (*rtBufferDestroy)(rt_buffer buffer);
+	void (*rtBufferResize)(rt_buffer buffer, enum rt_memory_type memory_type, usize size);
+	void (*rtBufferRead)(rt_buffer buffer, rt_buffer_range range, u08 * data, usize data_size);
+	u08* (*rtBufferMap)(rt_buffer buffer, rt_buffer_range range);
+	void (*rtBufferUnmap)(rt_buffer buffer);
+	void (*rtCmdBufferData)(rt_command_buffer command_buffer, rt_buffer buffer, rt_buffer_range range, const u08* data);
+	void (*rtCmdBufferCopy)(rt_command_buffer command_buffer, rt_buffer src, rt_buffer_range src_range, rt_buffer dst, rt_buffer_range dst_range);
+	void (*rtCmdBufferCopyToTexture)(rt_command_buffer command_buffer, rt_buffer src, rt_buffer_range src_range, rt_texture dst, rt_texture_range dst_range);
+	void (*rtCmdBufferBarrier)(rt_command_buffer command_buffer, rt_buffer buffer, rt_buffer_range range, rt_access src, rt_access dst);
+	void (*rtCmdBindTexture)(rt_command_buffer command_buffer, rt_location location, rt_texture_view texture_view);
+	void (*rtCmdBindSampler)(rt_command_buffer command_buffer, rt_location location, rt_sampler sampler);
+	rt_texture (*rtTextureCreate)(void);
+	void (*rtTextureDestroy)(rt_texture texture);
+	void (*rtTextureResize)(rt_texture texture, enum rt_texture_type type, enum rt_format format, rt_extent_3d extent, usize mip_count);
+	void (*rtCmdTextureCopy)(rt_command_buffer command_buffer, rt_texture src, rt_texture_range src_range, rt_texture dst, rt_texture_range dst_range);
+	void (*rtCmdTextureData)(rt_command_buffer command_buffer, rt_texture texture, rt_texture_range range, const u08* data);
+	void (*rtCmdTextureCopyToBuffer)(rt_command_buffer command_buffer, rt_texture src, rt_texture_range src_range, rt_buffer dst, rt_buffer_range dst_range);
+	void (*rtCmdTextureBarrier)(rt_command_buffer command_buffer, rt_texture texture, rt_texture_range range, rt_access src, rt_access dst);
+	rt_texture_view (*rtTextureViewCreate)(void);
+	void (*rtTextureViewDestroy)(rt_texture_view texture_view);
+	rt_extent_3d (*rtTextureViewExtent)(rt_texture_view texture_view);
+	void (*rtTextureViewSetTexture)(rt_texture_view texture_view, rt_texture texture);
+	void (*rtTextureViewRead)(rt_texture_view texture_view, rt_texture_range range, u08 * data, usize data_size);
+	rt_sampler (*rtSamplerCreate)(void);
+	void (*rtSamplerDestroy)(rt_sampler sampler);
+	void (*rtSamplerSetFilter)(rt_sampler sampler, enum rt_filter mag_filter, enum rt_filter min_filter, enum rt_mip_filter mip_filter);
+	void (*rtSamplerSetAddress)(rt_sampler sampler, enum rt_address_mode address_u, enum rt_address_mode address_v, enum rt_address_mode address_w);
+	void (*rtSamplerSetAnisotropy)(rt_sampler sampler, usize max_anisotropy);
+	void (*rtSamplerSetLod)(rt_sampler sampler, f32 min_lod, f32 max_lod, f32 lod_bias);
+	rt_swapchain (*rtSwapchainCreate)(void);
+	void (*rtSwapchainDestroy)(rt_swapchain swapchain);
+	void (*rtSwapchainResize)(rt_swapchain swapchain, u32 width, u32 height);
+	rt_swapchain_acquire_result (*rtSwapchainAcquire)(rt_swapchain swapchain);
+	void (*rtSwapchainPresent)(rt_swapchain swapchain, rt_timepoint rendered);
+	void (*rtSwapchainBindGLFW)(rt_swapchain swapchain, struct GLFWwindow * window);
+};
+
+extern struct rtdbg_procs rtdbg_procs;
+
+#endif

@@ -83,6 +83,10 @@ void rtgl_set_output(rt_output output, void* user_data) {
 }
 
 void rtgl_clear_error(void) {
+	rtgl_begin_errorable_operation();
+}
+
+void rtgl_begin_errorable_operation(void) {
 	rtgl_error_status = RT_SUCCESS;
 	rtgl_error_text[0] = '\0';
 }

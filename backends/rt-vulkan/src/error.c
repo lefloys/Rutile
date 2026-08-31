@@ -214,6 +214,10 @@ const char* rtErrorMessage(void) {
 }
 
 void rtClearError(void) {
+	rtvk_begin_errorable_operation();
+}
+
+void rtvk_begin_errorable_operation(void) {
 	rtvk_error_status = RT_SUCCESS;
 	rtvk_error_text[0] = '\0';
 }

@@ -10,6 +10,7 @@
 /*===============================================================================================*/
 
 rt_framebuffer rtFramebufferCreate(void) {
+	rtgl_begin_errorable_operation();
 	return rtgl_framebuffer_to_handle(rtgl_framebuffer_create(rtgl_get_current_context()));
 }
 

@@ -4,6 +4,7 @@
 #include "error.h"
 
 rt_sampler rtSamplerCreate(void) {
+	rtvk_begin_errorable_operation();
 	struct rtvk_context* ctx = rtvk_get_current_context();
 	struct rtvk_sampler* sampler = rtvk_sampler_create(ctx);
 	if (sampler && !sampler->active) {
@@ -18,6 +19,7 @@ void rtSamplerDestroy(rt_sampler sampler) {
 }
 
 void rtSamplerSetFilter(rt_sampler handle, enum rt_filter mag_filter, enum rt_filter min_filter, enum rt_mip_filter mip_filter) {
+	rtvk_begin_errorable_operation();
 	struct rtvk_sampler* sampler = rtvk_sampler_from_handle(handle);
 	if (!sampler || (mag_filter != RT_FILTER_NEAREST && mag_filter != RT_FILTER_LINEAR) || (min_filter != RT_FILTER_NEAREST && min_filter != RT_FILTER_LINEAR) || mip_filter < RT_MIP_FILTER_NONE || mip_filter > RT_MIP_FILTER_LINEAR) {
 		rtvk_throwf(RT_IMPROPER_USAGE, "rtSamplerSetFilter received an invalid sampler or filter");
@@ -37,6 +39,7 @@ void rtSamplerSetFilter(rt_sampler handle, enum rt_filter mag_filter, enum rt_fi
 }
 
 void rtSamplerSetAddress(rt_sampler handle, enum rt_address_mode address_u, enum rt_address_mode address_v, enum rt_address_mode address_w) {
+	rtvk_begin_errorable_operation();
 	struct rtvk_sampler* sampler = rtvk_sampler_from_handle(handle);
 	if (!sampler || address_u < RT_ADDRESS_CLAMP || address_u > RT_ADDRESS_MIRROR || address_v < RT_ADDRESS_CLAMP || address_v > RT_ADDRESS_MIRROR || address_w < RT_ADDRESS_CLAMP || address_w > RT_ADDRESS_MIRROR) {
 		rtvk_throwf(RT_IMPROPER_USAGE, "rtSamplerSetAddress received an invalid sampler or address mode");
@@ -56,6 +59,7 @@ void rtSamplerSetAddress(rt_sampler handle, enum rt_address_mode address_u, enum
 }
 
 void rtSamplerSetAnisotropy(rt_sampler handle, usize max_anisotropy) {
+	rtvk_begin_errorable_operation();
 	struct rtvk_sampler* sampler = rtvk_sampler_from_handle(handle);
 	if (!sampler || !max_anisotropy) {
 		rtvk_throwf(RT_IMPROPER_USAGE, "rtSamplerSetAnisotropy requires a sampler and a nonzero maximum");
@@ -67,6 +71,7 @@ void rtSamplerSetAnisotropy(rt_sampler handle, usize max_anisotropy) {
 }
 
 void rtSamplerSetLod(rt_sampler handle, f32 min_lod, f32 max_lod, f32 lod_bias) {
+	rtvk_begin_errorable_operation();
 	struct rtvk_sampler* sampler = rtvk_sampler_from_handle(handle);
 	if (!sampler || min_lod > max_lod) {
 		rtvk_throwf(RT_IMPROPER_USAGE, "rtSamplerSetLod requires a sampler and an ordered LOD range");

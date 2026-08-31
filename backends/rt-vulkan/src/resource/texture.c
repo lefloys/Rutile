@@ -20,6 +20,7 @@ static VkPipelineStageFlags rtvk_texture_layout_stage(VkImageLayout layout);
 /*===============================================================================================*/
 
 rt_texture rtTextureCreate(void) {
+	rtvk_begin_errorable_operation();
 	struct rtvk_texture* texture = rtvk_texture_create(rtvk_get_current_context());
 	return rtvk_texture_to_handle(texture);
 }
@@ -32,6 +33,7 @@ void rtTextureDestroy(rt_texture texture) {
 }
 
 void rtTextureResize(rt_texture texture, enum rt_texture_type type, enum rt_format format, rt_extent_3d extent, usize mip_count) {
+	rtvk_begin_errorable_operation();
 	rtvk_texture_resize(
 		rtvk_get_current_context(),
 		rtvk_texture_from_handle(texture),
@@ -43,10 +45,12 @@ void rtTextureResize(rt_texture texture, enum rt_texture_type type, enum rt_form
 }
 
 rt_texture_view rtTextureViewCreate(void) {
+	rtvk_begin_errorable_operation();
 	return rtvk_texture_view_to_handle(rtvk_texture_view_create(rtvk_get_current_context()));
 }
 
 void rtTextureViewSetTexture(rt_texture_view texture_view, rt_texture texture) {
+	rtvk_begin_errorable_operation();
 	rtvk_texture_view_bind(
 		rtvk_get_current_context(),
 		rtvk_texture_view_from_handle(texture_view),
@@ -62,6 +66,7 @@ void rtTextureViewDestroy(rt_texture_view texture_view) {
 }
 
 void rtTextureViewSetFilter(rt_texture_view texture_view, enum rt_filter mag_filter, enum rt_filter min_filter, enum rt_mip_filter mip_filter) {
+	rtvk_begin_errorable_operation();
 	rtvk_texture_view_filter(
 		rtvk_texture_view_from_handle(texture_view),
 		mag_filter,
@@ -71,6 +76,7 @@ void rtTextureViewSetFilter(rt_texture_view texture_view, enum rt_filter mag_fil
 }
 
 void rtTextureViewSetAddress(rt_texture_view texture_view, enum rt_address_mode address_u, enum rt_address_mode address_v, enum rt_address_mode address_w) {
+	rtvk_begin_errorable_operation();
 	rtvk_texture_view_address(
 		rtvk_texture_view_from_handle(texture_view),
 		address_u,
@@ -80,6 +86,7 @@ void rtTextureViewSetAddress(rt_texture_view texture_view, enum rt_address_mode 
 }
 
 void rtTextureViewSetAnisotropy(rt_texture_view texture_view, usize max_anisotropy) {
+	rtvk_begin_errorable_operation();
 	rtvk_texture_view_anisotropy(
 		rtvk_texture_view_from_handle(texture_view),
 		max_anisotropy
@@ -87,6 +94,7 @@ void rtTextureViewSetAnisotropy(rt_texture_view texture_view, usize max_anisotro
 }
 
 void rtTextureViewSetLod(rt_texture_view texture_view, f32 min_lod, f32 max_lod, f32 lod_bias) {
+	rtvk_begin_errorable_operation();
 	rtvk_texture_view_lod(
 		rtvk_texture_view_from_handle(texture_view),
 		min_lod,
@@ -150,6 +158,7 @@ rt_extent_3d rtTextureViewExtent(rt_texture_view texture_view) {
 }
 
 void rtTextureViewRead(rt_texture_view texture_view, rt_texture_range range, u08* data, usize data_size) {
+	rtvk_begin_errorable_operation();
 	struct rtvk_context* ctx = rtvk_get_current_context();
 	struct rtvk_texture_view* view = rtvk_texture_view_from_handle(texture_view);
 	if (!ctx || !view || !view->image || !data || !range.mip_count || !range.layer_count || !range.extent.width || !range.extent.height || !range.extent.depth) {
@@ -961,19 +970,14 @@ void rtvk_texture_view_finish(struct rtvk_texture_view* view) {
 		rtvk_resource_release(RTVK_RESOURCE_BASE(view->image));
 		view->image = NULL;
 	}
+	if (view->texture) {
+		rtvk_resource_release(RTVK_RESOURCE_BASE(view->texture));
+		view->texture = NULL;
+	}
 }
 
-void rtvk_texture_view_bind_image(struct rtvk_context* ctx, struct rtvk_texture_view* view, struct rtvk_image_base* image) {
-	assert(view);
-	assert(image);
-
-	assert(image->vk_image);
-
-	if (view->vk_image_view || view->image) {
-		rtvk_texture_view_finish(view);
-		rtvk_init_resource_base(ctx, RTVK_RESOURCE_BASE(view), view, rtvk_texture_view_finalize_resource);
-	}
-
+VkImageView rtvk_image_view_create(struct rtvk_context* ctx, const struct rtvk_image_base* image) {
+	assert(image && image->vk_image);
 	VkImageViewCreateInfo view_info = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
 	u32 layer_count = 1;
 	if ((image->type == RT_TEXTURE_1D_ARRAY || image->type == RT_TEXTURE_2D_ARRAY) && image->depth) {
@@ -1013,9 +1017,26 @@ void rtvk_texture_view_bind_image(struct rtvk_context* ctx, struct rtvk_texture_
 	view_info.subresourceRange.baseArrayLayer = 0;
 	view_info.subresourceRange.layerCount = layer_count;
 
-	VkResult result = vkCreateImageView(ctx->vk_device, &view_info, VK_ALLOCATOR, &view->vk_image_view);
+	VkImageView image_view = VK_NULL_HANDLE;
+	VkResult result = vkCreateImageView(ctx->vk_device, &view_info, VK_ALLOCATOR, &image_view);
 	if (result != VK_SUCCESS) {
 		rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
+		return VK_NULL_HANDLE;
+	}
+	return image_view;
+}
+
+void rtvk_texture_view_bind_image(struct rtvk_context* ctx, struct rtvk_texture_view* view, struct rtvk_image_base* image) {
+	assert(view);
+	assert(image);
+
+	if (view->vk_image_view || view->image || view->texture) {
+		rtvk_texture_view_finish(view);
+		rtvk_init_resource_base(ctx, RTVK_RESOURCE_BASE(view), view, rtvk_texture_view_finalize_resource);
+	}
+
+	view->vk_image_view = rtvk_image_view_create(ctx, image);
+	if (!view->vk_image_view) {
 		return;
 	}
 
@@ -1029,6 +1050,10 @@ void rtvk_texture_view_bind(struct rtvk_context* ctx, struct rtvk_texture_view* 
 	assert(texture->active);
 	assert(texture->active->base.vk_image);
 	rtvk_texture_view_bind_image(ctx, view, &texture->active->base);
+	if (view->vk_image_view) {
+		rtvk_resource_retain(RTVK_RESOURCE_BASE(texture));
+		view->texture = texture;
+	}
 }
 
 struct rtvk_texture_view* rtvk_texture_view_create_for_texture(struct rtvk_context* ctx, struct rtvk_texture* texture) {
@@ -1039,7 +1064,7 @@ struct rtvk_texture_view* rtvk_texture_view_create_for_texture(struct rtvk_conte
 	if (!view) {
 		return NULL;
 	}
-	rtvk_texture_view_bind_image(ctx, view, &texture->active->base);
+	rtvk_texture_view_bind(ctx, view, texture);
 	if (rtvk_error() != RT_SUCCESS) {
 		rtvk_texture_view_destroy(ctx, view);
 		return NULL;

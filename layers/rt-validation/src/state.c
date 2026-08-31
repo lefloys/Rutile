@@ -50,6 +50,8 @@ static const char* rtval_handle_type_name(rtval_handle_type t) {
 		return "queue";
 	case RTVAL_HANDLE_TYPE_SWAPCHAIN:
 		return "swapchain";
+	case RTVAL_HANDLE_TYPE_SAMPLER:
+		return "sampler";
 	default:
 		return "unknown";
 	}
@@ -59,6 +61,7 @@ static rtval_handle_slot* rtval_handle_slots = NULL;
 static usize rtval_handle_capacity = 0; /* power of two */
 static usize rtval_handle_count = 0;	/* live entries (excludes tombstones) */
 static usize rtval_handle_used = 0;		/* live + tombstones */
+static void* rtval_retired_keys = NULL;
 
 static usize rtval_hash_pointer(void* h) {
 	uintptr_t p = (uintptr_t)h;
@@ -122,7 +125,8 @@ void* rtval_handle_create(rtval_handle_type type) {
 	if (!rtval_handle_capacity) {
 		return NULL;
 	}
-	void* key = malloc(1);
+	/* Keep tokens allocated until rtExit so a stale handle cannot become live again. */
+	void* key = malloc(sizeof(void*));
 	if (!key) {
 		return NULL;
 	}
@@ -162,7 +166,7 @@ static rtval_handle_slot* rtval_find_handle_slot_by_payload(void* payload, rtval
 	return NULL;
 }
 
-void rtval_handle_report_leaks(void) {
+bool rtval_handle_report_leaks(void) {
 	u32 counts[RTVAL_HANDLE_TYPE_COUNT] = { 0 };
 	for (usize i = 0; i < rtval_handle_capacity; i++) {
 		void* k = rtval_handle_slots[i].key;
@@ -186,7 +190,7 @@ void rtval_handle_report_leaks(void) {
 		rtval_printf("[validation]   %s: %u\n", rtval_handle_type_name((rtval_handle_type)t), counts[t]);
 	}
 	if (!any) {
-		return;
+		return false;
 	}
 	for (usize i = 0; i < rtval_handle_capacity; i++) {
 		void* k = rtval_handle_slots[i].key;
@@ -195,6 +199,7 @@ void rtval_handle_report_leaks(void) {
 		}
 		rtval_printf("[validation]     live %s handle=%p\n", rtval_handle_type_name(rtval_handle_slots[i].type), k);
 	}
+	return true;
 }
 
 void* rtval_handle_payload(void* key) {
@@ -209,6 +214,22 @@ void* rtval_handle_payload(void* key) {
 		return NULL;
 	}
 	return slot->payload;
+}
+
+void* rtval_handle_find_by_backend(rtval_handle_type type, void* backend) {
+	if (!backend) {
+		return NULL;
+	}
+	for (usize i = 0; i < rtval_handle_capacity; i++) {
+		rtval_handle_slot* slot = &rtval_handle_slots[i];
+		if (slot->key == RTVAL_HANDLE_EMPTY || slot->key == RTVAL_HANDLE_TOMBSTONE || slot->type != type) {
+			continue;
+		}
+		if (*(void**)slot->payload == backend) {
+			return slot->key;
+		}
+	}
+	return NULL;
 }
 
 bool rtval_handle_is_live(void* key) {
@@ -227,7 +248,8 @@ void rtval_handle_destroy(void* key) {
 		}
 	}
 	if (slot->key) {
-		free(slot->key);
+		*(void**)slot->key = rtval_retired_keys;
+		rtval_retired_keys = slot->key;
 		free(slot->payload);
 		slot->payload = NULL;
 		slot->key = RTVAL_HANDLE_TOMBSTONE;
@@ -245,6 +267,11 @@ void rtval_handle_reset_registry(void) {
 		free(rtval_handle_slots[i].payload);
 	}
 	free(rtval_handle_slots);
+	while (rtval_retired_keys) {
+		void* key = rtval_retired_keys;
+		rtval_retired_keys = *(void**)key;
+		free(key);
+	}
 	rtval_handle_slots = NULL;
 	rtval_handle_capacity = 0;
 	rtval_handle_count = 0;

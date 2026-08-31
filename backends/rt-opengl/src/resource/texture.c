@@ -13,6 +13,7 @@
 /*===============================================================================================*/
 
 rt_texture rtTextureCreate(void) {
+	rtgl_begin_errorable_operation();
 	return rtgl_texture_to_handle(rtgl_texture_create(rtgl_get_current_context()));
 }
 
@@ -21,10 +22,12 @@ void rtTextureDestroy(rt_texture texture) {
 }
 
 rt_texture_view rtTextureViewCreate(void) {
+	rtgl_begin_errorable_operation();
 	return rtgl_texture_view_to_handle(rtgl_texture_view_create(rtgl_get_current_context()));
 }
 
 void rtTextureResize(rt_texture texture, enum rt_texture_type type, enum rt_format format, rt_extent_3d extent, usize mip_count) {
+	rtgl_begin_errorable_operation();
 	struct rtgl_texture* internal = rtgl_texture_from_handle(texture);
 	if (!internal || !extent.width || !extent.height || !extent.depth || !mip_count) {
 		return;
@@ -33,6 +36,7 @@ void rtTextureResize(rt_texture texture, enum rt_texture_type type, enum rt_form
 }
 
 void rtTextureViewSetTexture(rt_texture_view texture_view, rt_texture texture) {
+	rtgl_begin_errorable_operation();
 	rtgl_texture_view_bind(rtgl_get_current_context(), rtgl_texture_view_from_handle(texture_view), rtgl_texture_from_handle(texture));
 }
 
@@ -41,22 +45,27 @@ void rtTextureViewDestroy(rt_texture_view texture_view) {
 }
 
 void rtTextureViewSetFilter(rt_texture_view texture_view, enum rt_filter mag_filter, enum rt_filter min_filter, enum rt_mip_filter mip_filter) {
+	rtgl_begin_errorable_operation();
 	rtgl_texture_view_filter(rtgl_get_current_context(), rtgl_texture_view_from_handle(texture_view), mag_filter, min_filter, mip_filter);
 }
 
 void rtTextureViewSetAddress(rt_texture_view texture_view, enum rt_address_mode address_u, enum rt_address_mode address_v, enum rt_address_mode address_w) {
+	rtgl_begin_errorable_operation();
 	rtgl_texture_view_address(rtgl_get_current_context(), rtgl_texture_view_from_handle(texture_view), address_u, address_v, address_w);
 }
 
 void rtTextureViewSetAnisotropy(rt_texture_view texture_view, usize max_anisotropy) {
+	rtgl_begin_errorable_operation();
 	rtgl_texture_view_anisotropy(rtgl_get_current_context(), rtgl_texture_view_from_handle(texture_view), (u32)max_anisotropy);
 }
 
 void rtTextureViewSetLod(rt_texture_view texture_view, f32 min_lod, f32 max_lod, f32 lod_bias) {
+	rtgl_begin_errorable_operation();
 	rtgl_texture_view_lod(rtgl_get_current_context(), rtgl_texture_view_from_handle(texture_view), min_lod, max_lod, lod_bias);
 }
 
 rt_extent_3d rtTextureViewExtent(rt_texture_view texture_view) {
+	rtgl_begin_errorable_operation();
 	return rtgl_texture_view_extent(rtgl_get_current_context(), rtgl_texture_view_from_handle(texture_view));
 }
 
@@ -417,6 +426,7 @@ void rtgl_texture_view_init(struct rtgl_context* ctx, struct rtgl_texture_view* 
 }
 
 void rtTextureViewRead(rt_texture_view texture_view, rt_texture_range range, u08* data, usize data_size) {
+	rtgl_begin_errorable_operation();
 	struct rtgl_texture_view* view = rtgl_texture_view_from_handle(texture_view);
 	if (!rtgl_texture_view_valid(view) || !data || !range.extent.width || !range.extent.height || !range.extent.depth || !range.mip_count || !range.layer_count) {
 		return;

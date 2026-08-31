@@ -16,6 +16,7 @@
 /*                                                                                               */
 /*===============================================================================================*/
 rt_queue rtQueueCreate(enum rt_queue_capability capability) {
+	rtgl_begin_errorable_operation();
 	return rtgl_queue_to_handle(rtgl_queue_create_virtual(rtgl_get_current_context(), capability));
 }
 
@@ -32,6 +33,7 @@ void rtQueueDestroy(rt_queue queue) {
 }
 
 rt_timepoint rtQueueSubmit(rt_queue queue, rt_command_buffer command_buffer) {
+	rtgl_begin_errorable_operation();
 	struct rtgl_queue* internal = rtgl_queue_from_handle(queue);
 	if (!internal) {
 		return (rt_timepoint){ 0 };
@@ -50,6 +52,7 @@ rt_timepoint rtQueueSubmit(rt_queue queue, rt_command_buffer command_buffer) {
 }
 
 void rtQueueWait(rt_queue queue, rt_timepoint timepoint) {
+	rtgl_begin_errorable_operation();
 	struct rtgl_queue* internal = rtgl_queue_from_handle(queue);
 	if (!internal) {
 		return;
@@ -85,6 +88,7 @@ rt_timepoint rtQueueFlush(rt_queue queue) {
 }
 
 void rtTimepointWait(rt_timepoint timepoint) {
+	rtgl_begin_errorable_operation();
 	rtgl_timepoint_wait(rtgl_get_current_context(), timepoint);
 }
 

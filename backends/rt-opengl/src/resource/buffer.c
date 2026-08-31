@@ -13,6 +13,7 @@
 /*                                                                                               */
 /*===============================================================================================*/
 rt_buffer rtBufferCreate(void) {
+	rtgl_begin_errorable_operation();
 	return rtgl_buffer_to_handle(rtgl_buffer_create(rtgl_get_current_context()));
 }
 
@@ -21,10 +22,12 @@ void rtBufferDestroy(rt_buffer buffer) {
 }
 
 void rtBufferResize(rt_buffer buffer, enum rt_memory_type memory_type, usize size) {
+	rtgl_begin_errorable_operation();
 	rtgl_buffer_resize(rtgl_get_current_context(), rtgl_buffer_from_handle(buffer), memory_type, size);
 }
 
 void rtBufferRead(rt_buffer buffer, rt_buffer_range range, u08* data, usize data_size) {
+	rtgl_begin_errorable_operation();
 	if (data_size < range.size) {
 		rtgl_throwf(RT_IMPROPER_USAGE, "buffer read destination is too small");
 		return;
@@ -33,10 +36,12 @@ void rtBufferRead(rt_buffer buffer, rt_buffer_range range, u08* data, usize data
 }
 
 u08* rtBufferMap(rt_buffer buffer, rt_buffer_range range) {
+	rtgl_begin_errorable_operation();
 	return rtgl_buffer_map(rtgl_get_current_context(), rtgl_buffer_from_handle(buffer), range);
 }
 
 void rtBufferUnmap(rt_buffer buffer) {
+	rtgl_begin_errorable_operation();
 	rtgl_buffer_unmap(rtgl_get_current_context(), rtgl_buffer_from_handle(buffer));
 }
 

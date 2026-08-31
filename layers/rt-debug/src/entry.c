@@ -1,0 +1,5 @@
+#include "procs.h"
+
+RT_API_PUBLIC const char* rtLayerGetName(void) {
+	return "rt-debug";
+}

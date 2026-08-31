@@ -8,6 +8,7 @@
 /*===============================================================================================*/
 
 rt_framebuffer_t* rtFramebufferCreate(void) {
+	rtd3d12_begin_errorable_operation();
 	return rtd3d12::create_resource<rt_framebuffer_t>(rtd3d12_get_current_context());
 }
 
@@ -16,6 +17,7 @@ void rtFramebufferDestroy(rt_framebuffer_t* framebuffer) {
 }
 
 rt_texture_view_t* rtFramebufferColorView(rt_framebuffer_t* framebuffer, rt::location* location) {
+	rtd3d12_begin_errorable_operation();
 	rt_program_t* program = rtd3d12_location_program(location);
 	const rtd3d12_program_output_mapping* mapping = program && location && program->output_mappings[location->address]
 		? &*program->output_mappings[location->address] : nullptr;
@@ -24,6 +26,7 @@ rt_texture_view_t* rtFramebufferColorView(rt_framebuffer_t* framebuffer, rt::loc
 }
 
 void rtFramebufferSetColorView(rt_framebuffer_t* framebuffer, rt_texture_view_t* view, rt::location* location) {
+	rtd3d12_begin_errorable_operation();
 	rt_program_t* program = rtd3d12_location_program(location);
 	const rtd3d12_program_output_mapping* mapping = program && location && program->output_mappings[location->address]
 		? &*program->output_mappings[location->address] : nullptr;
@@ -36,6 +39,7 @@ void rtFramebufferSetColorView(rt_framebuffer_t* framebuffer, rt_texture_view_t*
 }
 
 void rtFramebufferSetDepthView(rt_framebuffer_t* framebuffer, rt_texture_view_t* view) {
+	rtd3d12_begin_errorable_operation();
 	rtd3d12_framebuffer_set_depth_view(
 		rtd3d12_get_current_context(),
 		framebuffer,
@@ -44,6 +48,7 @@ void rtFramebufferSetDepthView(rt_framebuffer_t* framebuffer, rt_texture_view_t*
 }
 
 void rtFramebufferSetStencilView(rt_framebuffer_t* framebuffer, rt_texture_view_t* view) {
+	rtd3d12_begin_errorable_operation();
 	rtd3d12_framebuffer_set_stencil_view(
 		rtd3d12_get_current_context(),
 		framebuffer,

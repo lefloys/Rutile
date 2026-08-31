@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <bit>
+#include <charconv>
 #include <cstring>
 #include <new>
 #include <span>
@@ -133,11 +134,19 @@ public:
 
 	std::vector<std::uint32_t> build() {
 		instruction(17, {1});
+		if (entry.stage == rtsl::ir::Stage::stage_tessellation_control ||
+			entry.stage == rtsl::ir::Stage::stage_tessellation_evaluation)
+			instruction(17, {3});
+		if (entry.stage == rtsl::ir::Stage::stage_geometry) instruction(17, {2});
 		instruction(14, {0, 1});
 		const rtsl::ir::Function* stage_function = module.findFunction(entry.function);
 		if (!stage_function) throw std::runtime_error("entry point references an unknown RTIR function");
 		declareFunctions();
 		buildInterfaces(*stage_function);
+		declarePatchInterfaces(*stage_function);
+		if (entry.stage == rtsl::ir::Stage::stage_tessellation_control) declareTessellationOuterLevels();
+		if (entry.stage == rtsl::ir::Stage::stage_tessellation_control) declareInvocationId();
+		if (entry.stage == rtsl::ir::Stage::stage_tessellation_evaluation) declareTessellationCoordinates();
 		declareResources();
 		declareUniforms();
 		declareStorageObjects();
@@ -146,7 +155,7 @@ public:
 		emitEntryPoint(wrapper_function, interface_ids);
 		emitExecutionModes(wrapper_function);
 		for (const rtsl::ir::Function& function : module.functions)
-			if (!function.declaration) emitFunction(function);
+			if (!function.declaration && !belongsToAnotherEntry(function)) emitFunction(function);
 		emitWrapper(*stage_function, wrapper_type);
 		std::vector<std::uint32_t> result{0x07230203, 0x00010300, 0, next_id, 0};
 		for (const std::vector<std::uint32_t>* section : {&preamble, &entry_points, &execution_modes, &debug, &annotations, &types_constants, &functions}) result.insert(result.end(), section->begin(), section->end());
@@ -211,6 +220,15 @@ private:
 		return result;
 	}
 
+	std::uint32_t typeArray(std::uint32_t element, std::uint32_t count) {
+		const std::uint64_t key = static_cast<std::uint64_t>(element) << 32 | count;
+		if (const auto found = arrays.find(key); found != arrays.end()) return found->second;
+		const std::uint32_t result = id();
+		instruction(28, {result, element, constantUnsignedInteger(count)});
+		arrays.emplace(key, result);
+		return result;
+	}
+
 	std::uint32_t typeFor(rtsl::ir::TypeId type_id) {
 		if (const auto found = types.find(type_id.value()); found != types.end()) return found->second;
 		const rtsl::ir::Type* type = module.findType(type_id);
@@ -241,6 +259,13 @@ private:
 			instruction(30, operands);
 			break;
 		}
+		case rtsl::ir::TypeKind::type_patch:
+		case rtsl::ir::TypeKind::type_primitive:
+			if (!type->element_type) throw std::runtime_error("RTIR patch or primitive type has no element type");
+			result = typeFor(type->element_type); break;
+		case rtsl::ir::TypeKind::type_pointer:
+			if (!type->element_type) throw std::runtime_error("RTIR pointer type has no pointee type");
+			result = typeFor(type->element_type); break;
 		default:
 			throw std::runtime_error("RTIR type is not supported by the SPIR-V translator");
 		}
@@ -396,13 +421,94 @@ private:
 		if (entry.stage == rtsl::ir::Stage::stage_compute) return;
 		std::vector<std::uint32_t> path;
 		for (std::uint32_t index = 0; index < function.parameters.size(); ++index)
-			collectLeaves(index, function.parameters[index].type, "value", path, input_leaves);
+			if (!patchType(function.parameters[index].type))
+				collectLeaves(index, function.parameters[index].type, "value", path, input_leaves);
 		// A scalar or vector fragment return is the unnamed color output.  It has
 		// a physical SPIR-V location but deliberately no public Rutile location.
 		// Structure members keep their member names as public output names.
-		collectLeaves(0, function.return_type, "", path, output_leaves);
+		if (entry.stage != rtsl::ir::Stage::stage_tessellation_control)
+			collectLeaves(0, function.return_type, "", path, output_leaves);
 		createInterfaceVariables(input_leaves, false);
 		createInterfaceVariables(output_leaves, true);
+	}
+
+	const rtsl::ir::Type* patchType(rtsl::ir::TypeId type_id) const {
+		const rtsl::ir::Type* type = module.findType(type_id);
+		while (type && type->kind == rtsl::ir::TypeKind::type_pointer) type = module.findType(type->element_type);
+		return type && type->kind == rtsl::ir::TypeKind::type_patch ? type : nullptr;
+	}
+
+	std::uint32_t tessellationControlOutputVertices() const {
+		const rtsl::ir::EntryPoint* control = entry.stage == rtsl::ir::Stage::stage_tessellation_control ? &entry : nullptr;
+		if (!control) {
+			for (const rtsl::ir::EntryPoint& candidate : module.entry_points) {
+				if (candidate.stage == rtsl::ir::Stage::stage_tessellation_control) { control = &candidate; break; }
+			}
+		}
+		if (!control) throw std::runtime_error("tessellation stage has no tessellation-control entry point");
+		const rtsl::ir::EntryAttribute* invocations = nullptr;
+		for (const rtsl::ir::EntryAttribute& attribute : control->attributes) {
+			if (module.strings.get(attribute.name) != "invocations") continue;
+			if (invocations) throw std::runtime_error("tessellation-control entry has multiple invocations attributes");
+			invocations = &attribute;
+		}
+		if (!invocations || invocations->tokens.size() != 1)
+			throw std::runtime_error("tessellation-control entry requires @invocations : N");
+		const std::string_view spelling = module.strings.get(invocations->tokens.front());
+		std::uint32_t count{};
+		const auto [end, error] = std::from_chars(spelling.data(), spelling.data() + spelling.size(), count);
+		if (error != std::errc{} || end != spelling.data() + spelling.size() || count == 0)
+			throw std::runtime_error("tessellation-control @invocations must contain one non-zero unsigned integer");
+		return count;
+	}
+
+	void declarePatchInterfaces(const rtsl::ir::Function& function) {
+		if (entry.stage != rtsl::ir::Stage::stage_tessellation_control &&
+			entry.stage != rtsl::ir::Stage::stage_tessellation_evaluation) return;
+		const std::uint32_t control_points = tessellationControlOutputVertices();
+		std::uint32_t location{};
+		for (const rtsl::ir::Parameter& parameter : function.parameters) {
+			const rtsl::ir::Type* type = patchType(parameter.type);
+			if (!type) continue;
+			const std::uint32_t variable = id();
+			instruction(59, {pointerType(1, typeArray(typeFor(type->element_type), control_points)), variable, 1});
+			name(variable, "in_patch");
+			instruction(71, {variable, 30, location++});
+			interface_ids.push_back(variable);
+			patch_variables.emplace(parameter.value.value(), variable);
+		}
+		if (entry.stage != rtsl::ir::Stage::stage_tessellation_control) return;
+		const std::uint32_t variable = id();
+		instruction(59, {pointerType(3, typeArray(typeFor(function.return_type), control_points)), variable, 3});
+		name(variable, "out_patch");
+		instruction(71, {variable, 30, location});
+		interface_ids.push_back(variable);
+		patch_output_variable = variable;
+	}
+
+	void declareTessellationOuterLevels() {
+		const std::uint32_t variable = id();
+		instruction(59, {pointerType(3, typeArray(typeFloat(), 4)), variable, 3});
+		name(variable, "gl_TessLevelOuter");
+		instruction(71, {variable, 11, 12});
+		interface_ids.push_back(variable);
+		tessellation_outer_levels = variable;
+	}
+
+	void declareInvocationId() {
+		invocation_id = id();
+		instruction(59, {pointerType(1, typeUnsignedInteger()), invocation_id, 1});
+		name(invocation_id, "gl_InvocationID");
+		instruction(71, {invocation_id, 11, 8});
+		interface_ids.push_back(invocation_id);
+	}
+
+	void declareTessellationCoordinates() {
+		tessellation_coordinates = id();
+		instruction(59, {pointerType(1, typeVector(typeFloat(), 3)), tessellation_coordinates, 1});
+		name(tessellation_coordinates, "gl_TessCoord");
+		instruction(71, {tessellation_coordinates, 11, 13});
+		interface_ids.push_back(tessellation_coordinates);
 	}
 
 	void declareResources() {
@@ -680,7 +786,8 @@ private:
 
 	void emitIRInstruction(const rtsl::ir::Instruction& source,
 		std::unordered_map<std::uint32_t, std::uint32_t>& values,
-		std::unordered_map<std::uint32_t, rtsl::ir::TypeId>& value_types) {
+		std::unordered_map<std::uint32_t, rtsl::ir::TypeId>& value_types,
+		std::unordered_map<std::uint32_t, std::uint32_t>& writable_pointers) {
 		std::vector<std::uint32_t> operands;
 		for (rtsl::ir::ValueId operand : source.operands) operands.push_back(valueFor(values, operand));
 		std::uint32_t result{};
@@ -713,8 +820,47 @@ private:
 		case rtsl::ir::Opcode::opcode_access: {
 			result = id();
 			const rtsl::ir::TypeId base_type = value_types.at(source.operands.at(0).value());
-			const rtsl::ir::Type& base = requireType(base_type);
-			if (base.kind == rtsl::ir::TypeKind::type_vector) {
+			const rtsl::ir::Type* base = &requireType(base_type);
+			while (base->kind == rtsl::ir::TypeKind::type_pointer) base = &requireType(base->element_type);
+			const std::string_view member = source.immediates.size() == 1 ?
+				module.strings.get(rtsl::ir::StringId{source.immediates[0]}) : std::string_view{};
+			if (base->kind == rtsl::ir::TypeKind::type_patch) {
+				auto patch = patch_variables.find(source.operands.at(0).value());
+				if (patch == patch_variables.end()) throw std::runtime_error("RTIR patch access does not target an entry-point patch parameter");
+				if (member == "outer") {
+					if (operands.size() != 2) throw std::runtime_error("RTIR patch outer access must have a patch base and u32 index");
+					if (!tessellation_outer_levels) throw std::runtime_error("RTIR patch outer access is outside tessellation control");
+					const std::uint32_t pointer = id();
+					instruction(65, {pointerType(3, typeFor(source.type)), pointer, tessellation_outer_levels, operands[1]});
+					instruction(61, {typeFor(source.type), result, pointer});
+					if (source.result) writable_pointers.emplace(source.result.value(), pointer);
+					break;
+				}
+				if (member == "coordinate") {
+					if (operands.size() != 1 || !tessellation_coordinates)
+						throw std::runtime_error("RTIR patch coordinate access is malformed or outside tessellation evaluation");
+					const std::uint32_t coordinates = id();
+					instruction(61, {typeVector(typeFloat(), 3), coordinates, tessellation_coordinates});
+					instruction(81, {typeFor(source.type), result, coordinates, 0});
+					break;
+				}
+				std::uint32_t index{};
+				if (member == "current") {
+					if (operands.size() != 1 || !invocation_id)
+						throw std::runtime_error("RTIR patch current access is malformed or outside tessellation control");
+					index = id();
+					instruction(61, {typeUnsignedInteger(), index, invocation_id});
+				} else {
+					if (!member.empty() || operands.size() != 2)
+						throw std::runtime_error("RTIR patch subscript is malformed");
+					index = operands[1];
+				}
+				const std::uint32_t pointer = id();
+				instruction(65, {pointerType(1, typeFor(source.type)), pointer, patch->second, index});
+				instruction(61, {typeFor(source.type), result, pointer});
+				break;
+			}
+			if (base->kind == rtsl::ir::TypeKind::type_vector) {
 				if (source.immediates.empty()) {
 					if (operands.size() != 2) throw std::runtime_error("RTIR vector subscript is malformed");
 					instruction(77, {typeFor(source.type), result, operands[0], operands[1]});
@@ -733,6 +879,15 @@ private:
 			if (source.immediates.empty()) throw std::runtime_error("RTIR aggregate subscript lowering is not implemented");
 			const std::uint32_t index = memberIndex(base_type, rtsl::ir::StringId{source.immediates[0]});
 			instruction(81, {typeFor(source.type), result, operands.at(0), index});
+			break;
+		}
+		case rtsl::ir::Opcode::opcode_store: {
+			if (source.result || source.type || operands.size() != 2)
+				throw std::runtime_error("RTIR store instruction is malformed");
+			const auto pointer = writable_pointers.find(source.operands[0].value());
+			if (pointer == writable_pointers.end())
+				throw std::runtime_error("RTIR store destination is not a writable tessellation access");
+			instruction(62, {pointer->second, operands[1]});
 			break;
 		}
 		case rtsl::ir::Opcode::opcode_add:
@@ -844,6 +999,7 @@ private:
 			function_types.at(source.id.value())});
 		std::unordered_map<std::uint32_t, std::uint32_t> values;
 		std::unordered_map<std::uint32_t, rtsl::ir::TypeId> value_types;
+		std::unordered_map<std::uint32_t, std::uint32_t> writable_pointers;
 		std::unordered_map<std::uint32_t, std::uint32_t> block_labels;
 		for (const rtsl::ir::Block& block : source.blocks) block_labels.emplace(block.id.value(), id());
 		for (const rtsl::ir::Parameter& parameter : source.parameters) {
@@ -876,7 +1032,7 @@ private:
 			}
 			for (const rtsl::ir::Instruction& source_instruction : block.instructions) {
 				try {
-					emitIRInstruction(source_instruction, values, value_types);
+				emitIRInstruction(source_instruction, values, value_types, writable_pointers);
 				} catch (const std::exception& error) {
 					throw std::runtime_error("RTIR function " + std::string(function_name) +
 						" instruction " + std::string(opcodeName(source_instruction.opcode)) + ": " + error.what());
@@ -929,7 +1085,14 @@ private:
 			function_ids.at(stage_function.id.value())};
 		call.insert(call.end(), arguments.begin(), arguments.end());
 		instruction(57, call);
-		storeInterfaceValue(stage_function.return_type, result, path);
+		if (entry.stage == rtsl::ir::Stage::stage_tessellation_control) {
+			if (!patch_output_variable || !invocation_id) throw std::runtime_error("tessellation-control wrapper has no patch output interface");
+			const std::uint32_t index = id();
+			instruction(61, {typeUnsignedInteger(), index, invocation_id});
+			const std::uint32_t pointer = id();
+			instruction(65, {pointerType(3, typeFor(stage_function.return_type)), pointer, patch_output_variable, index});
+			instruction(62, {pointer, result});
+		} else storeInterfaceValue(stage_function.return_type, result, path);
 		instruction(253, {});
 		instruction(56, {});
 	}
@@ -939,6 +1102,12 @@ private:
 		appendString(operands, "main");
 		operands.insert(operands.end(), interfaces.begin(), interfaces.end());
 		instruction(15, operands);
+	}
+
+	bool belongsToAnotherEntry(const rtsl::ir::Function& function) const {
+		for (const rtsl::ir::EntryPoint& candidate : module.entry_points)
+			if (candidate.function == function.id && candidate.function != entry.function) return true;
+		return false;
 	}
 
 	std::uint32_t executionModel() const {
@@ -956,7 +1125,8 @@ private:
 	void emitExecutionModes(std::uint32_t function) {
 		if (entry.stage == rtsl::ir::Stage::stage_fragment) instruction(16, {function, 7});
 		if (const auto* compute = std::get_if<rtsl::ir::ComputeConfiguration>(&entry.configuration)) instruction(16, {function, 17, compute->workgroup_size[0], compute->workgroup_size[1], compute->workgroup_size[2]});
-		if (const auto* control = std::get_if<rtsl::ir::TessellationControlConfiguration>(&entry.configuration)) instruction(16, {function, 26, control->output_control_points});
+		if (entry.stage == rtsl::ir::Stage::stage_tessellation_control)
+			instruction(16, {function, 26, tessellationControlOutputVertices()});
 		if (const auto* evaluation = std::get_if<rtsl::ir::TessellationEvaluationConfiguration>(&entry.configuration)) {
 			switch (evaluation->domain) {
 			case rtsl::ir::TessellationDomain::tessellation_domain_triangles: instruction(16, {function, 22}); break;
@@ -971,22 +1141,14 @@ private:
 			instruction(16, {function, evaluation->winding == rtsl::ir::Winding::winding_clockwise ? 4u : 5u});
 		}
 		if (const auto* geometry = std::get_if<rtsl::ir::GeometryConfiguration>(&entry.configuration)) {
-			switch (geometry->input) {
-			case rtsl::ir::PrimitiveTopology::primitive_points: instruction(16, {function, 19}); break;
-			case rtsl::ir::PrimitiveTopology::primitive_lines: instruction(16, {function, 20}); break;
-			case rtsl::ir::PrimitiveTopology::primitive_lines_adjacency: instruction(16, {function, 21}); break;
-			case rtsl::ir::PrimitiveTopology::primitive_triangles: instruction(16, {function, 22}); break;
-			case rtsl::ir::PrimitiveTopology::primitive_triangles_adjacency: instruction(16, {function, 23}); break;
-			default: throw std::runtime_error("RTIR geometry input topology is invalid");
-			}
-			switch (geometry->output) {
-			case rtsl::ir::PrimitiveTopology::primitive_points: instruction(16, {function, 27}); break;
-			case rtsl::ir::PrimitiveTopology::primitive_line_strip: instruction(16, {function, 28}); break;
-			case rtsl::ir::PrimitiveTopology::primitive_triangle_strip: instruction(16, {function, 29}); break;
-			default: throw std::runtime_error("RTIR geometry output topology is invalid");
-			}
+			if (entry.stage != rtsl::ir::Stage::stage_geometry ||
+				geometry->input != rtsl::ir::PrimitiveTopology::primitive_triangles ||
+				geometry->output != rtsl::ir::PrimitiveTopology::primitive_triangle_strip ||
+				geometry->maximum_vertices == 0)
+				throw std::runtime_error("RTIR geometry configuration is not the supported triangle to triangle-strip signature");
+			instruction(16, {function, 22});
+			instruction(16, {function, 29});
 			instruction(16, {function, 26, geometry->maximum_vertices});
-			instruction(16, {function, 0, geometry->invocations});
 		}
 	}
 
@@ -1003,6 +1165,7 @@ private:
 	std::unordered_map<std::uint64_t, std::uint32_t> integer_types;
 	std::unordered_map<std::uint64_t, std::uint32_t> vectors;
 	std::unordered_map<std::uint64_t, std::uint32_t> matrices;
+	std::unordered_map<std::uint64_t, std::uint32_t> arrays;
 	std::unordered_map<std::uint64_t, std::uint32_t> pointers;
 	std::unordered_map<std::uint32_t, std::uint32_t> float_constants;
 	std::unordered_map<std::uint32_t, std::uint32_t> unsigned_integer_constants;
@@ -1013,6 +1176,7 @@ private:
 	std::unordered_map<std::uint32_t, std::uint32_t> storage_members;
 	std::unordered_set<std::uint32_t> uniform_arrays;
 	std::unordered_set<std::uint32_t> uniform_structures;
+	std::unordered_map<std::uint32_t, std::uint32_t> patch_variables;
 	struct FunctionTypeRecord {
 		std::uint32_t result;
 		std::vector<std::uint32_t> parameters;
@@ -1030,6 +1194,10 @@ private:
 	std::uint32_t uniform_block_variable{};
 	std::uint32_t storage_block_variable{};
 	std::uint32_t wrapper_function{};
+	std::uint32_t patch_output_variable{};
+	std::uint32_t tessellation_outer_levels{};
+	std::uint32_t invocation_id{};
+	std::uint32_t tessellation_coordinates{};
 };
 
 rt_spirv_stage stage(const rtsl::ir::Stage value) {
@@ -1268,6 +1436,32 @@ rt_spirv_status rt_spirv_transpile(const uint8_t* bytes, size_t byte_size, const
 		const std::uint32_t vertex = 1u << RT_SPIRV_VERTEX;
 		const std::uint32_t tessellation_control = 1u << RT_SPIRV_TESSELLATION_CONTROL;
 		const std::uint32_t tessellation_evaluation = 1u << RT_SPIRV_TESSELLATION_EVALUATION;
+		/* Linked tessellation programs can carry the linker-synthesized vertex
+		 * stage under its own source name.  It is part of the same program even
+		 * though it is not an overload of the user's tessellation entry. */
+		if (!(selected_stages & vertex) && (selected_stages & (tessellation_control | tessellation_evaluation))) {
+			const rtsl::ir::EntryPoint* synthesized_vertex = nullptr;
+			for (const rtsl::ir::EntryPoint& entry : module.entry_points) {
+				if (entry.stage != rtsl::ir::Stage::stage_vertex) continue;
+				if (synthesized_vertex) {
+					if (message && message_size) {
+						std::strncpy(message, "tessellation entry has no unambiguous linked vertex stage", message_size - 1);
+						message[message_size - 1] = 0;
+					}
+					return RT_SPIRV_INVALID_MODULE;
+				}
+				synthesized_vertex = &entry;
+			}
+			if (!synthesized_vertex) {
+				if (message && message_size) {
+					std::strncpy(message, "tessellation entry has no linked vertex stage", message_size - 1);
+					message[message_size - 1] = 0;
+				}
+				return RT_SPIRV_INVALID_MODULE;
+			}
+			selected_entries.push_back(synthesized_vertex);
+			selected_stages |= vertex;
+		}
 		if ((selected_stages & compute) && selected_stages != compute) {
 			if (message && message_size) {
 				std::strncpy(message, "compute entry cannot be combined with graphics shader stages", message_size - 1);

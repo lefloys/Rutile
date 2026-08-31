@@ -8,23 +8,24 @@
 #include <GLFW/glfw3.h>
 #include <cstddef>
 #include <iostream>
+#include <string>
 
 extern "C" const rt_example_program triangle_rtslp;
 
 struct Vertex {
-	f32 position[2];
-	f32 color[3];
+	f32 position[3];
+	f32 color[4];
 };
 
 static const Vertex Vertices[] = {
-	{ { 0.0f, -0.6f }, { 1.0f, 0.2f, 0.2f } },
-	{ { 0.6f, 0.5f }, { 0.2f, 1.0f, 0.3f } },
-	{ { -0.6f, 0.5f }, { 0.3f, 0.4f, 1.0f } },
+	{ { 0.0f, -0.6f, 0.0f }, { 1.0f, 0.2f, 0.2f, 1.0f } },
+	{ { 0.6f, 0.5f, 0.0f }, { 0.2f, 1.0f, 0.3f, 1.0f } },
+	{ { -0.6f, 0.5f, 0.0f }, { 0.3f, 0.4f, 1.0f, 1.0f } },
 };
 
 static const rt_vertex_attribute Attributes[] = {
-	{ "position", offsetof(Vertex, position), RT_RG32_SFLOAT },
-	{ "color", offsetof(Vertex, color), RT_RGB32_SFLOAT },
+	{ "position", offsetof(Vertex, position), RT_RGB32_SFLOAT },
+	{ "color", offsetof(Vertex, color), RT_RGBA32_SFLOAT },
 };
 static const rt_vertex_input Inputs[] = {
 	{ Attributes, 2, sizeof(Vertex), RT_VERTEX_RATE_VERTEX },
@@ -33,7 +34,8 @@ static const rt_vertex_layout Layout = { Inputs, 1 };
 
 int main(int argc, char* argv[]) {
 	const ExampleOptions options = parse_cli(argc, argv);
-	if (rtLoad(options.backend.c_str(), nullptr, 0) != RT_SUCCESS) {
+	const auto layers = selected_layers(options);
+	if (rtLoad(options.backend.c_str(), layers.data(), layers.size()) != RT_SUCCESS) {
 		std::cerr << "rtLoad failed\n";
 		return 1;
 	}
@@ -49,7 +51,8 @@ int main(int argc, char* argv[]) {
 
 	glfwInit();
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-	GLFWwindow* window = glfwCreateWindow(960, 540, "Rutile 01 Triangle", nullptr, nullptr);
+	const std::string window_title = "Rutile 01 Triangle - " + options.backend;
+	GLFWwindow* window = glfwCreateWindow(960, 540, window_title.c_str(), nullptr, nullptr);
 
 	rt_swapchain swapchain = rtSwapchainCreate();
 	rtSwapchainBindGLFW(swapchain, window);

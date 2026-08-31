@@ -40,6 +40,7 @@ void rtgl_init_glfw_platform(void) {
 }
 
 bool rtInit_GLFW(void) {
+	rtgl_begin_errorable_operation();
 	rtgl_init_glfw_platform();
 	return rtgl_error() == RT_SUCCESS;
 }
@@ -47,10 +48,10 @@ bool rtInit_GLFW(void) {
 #undef RTGL_GLFW_LOAD_PROC
 
 static HWND rtgl_glfw_get_win32_window(GLFWwindow* window) {
-	if (!glfw_procs.glfwGetWin32Window || !window) {
-		return NULL;
-	}
-	return glfw_procs.glfwGetWin32Window(window);
+    if (!glfw_procs.glfwGetWin32Window || !window) {
+        return NULL;
+    }
+    return glfw_procs.glfwGetWin32Window(window);
 }
 
 struct gl_surface* rtgl_create_glfw_surface(struct gl_context* context, GLFWwindow* window) {

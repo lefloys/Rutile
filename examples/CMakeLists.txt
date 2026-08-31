@@ -77,6 +77,7 @@ add_subdirectory("02-spinning-cube")
 add_subdirectory("03-plasma-lab")
 add_subdirectory("04-galaxy")
 add_subdirectory("05-voxel-renderer")
+add_subdirectory("06-rt-debug-software")
 
 set_property(GLOBAL APPEND PROPERTY RUTILE_EXAMPLE_TARGETS
     "rutile-01-triangle"
@@ -84,4 +85,5 @@ set_property(GLOBAL APPEND PROPERTY RUTILE_EXAMPLE_TARGETS
     "rutile-03-plasma-lab"
     "rutile-04-galaxy"
     "rutile-05-voxel-renderer"
+    "rutile-06-rt-debug-software"
 )

@@ -12,6 +12,7 @@
 /*                                                                                               */
 /*===============================================================================================*/
 rt_program rtProgramCreate(void) {
+	rtgl_begin_errorable_operation();
 	return rtgl_program_to_handle(rtgl_program_create(rtgl_get_current_context()));
 }
 
@@ -23,6 +24,7 @@ void rtProgramDestroy(rt_program program) {
 }
 
 void rtProgramSetLayout(rt_program program, const rt_vertex_layout* layout) {
+	rtgl_begin_errorable_operation();
 	rtgl_program_layout(
 		rtgl_get_current_context(),
 		rtgl_program_from_handle(program),
@@ -31,6 +33,7 @@ void rtProgramSetLayout(rt_program program, const rt_vertex_layout* layout) {
 }
 
 void rtProgramSource(rt_program program, const char* entry_point, const u08* data, usize size) {
+	rtgl_begin_errorable_operation();
 	rtgl_program_source(
 		rtgl_get_current_context(),
 		rtgl_program_from_handle(program),
@@ -41,6 +44,7 @@ void rtProgramSource(rt_program program, const char* entry_point, const u08* dat
 }
 
 void rtProgramSetRasterState(rt_program program, enum rt_cull_mode cull_mode, enum rt_front_face front_face, enum rt_fill_mode fill_mode) {
+	rtgl_begin_errorable_operation();
 	rtgl_program_raster_state(
 		rtgl_get_current_context(),
 		rtgl_program_from_handle(program),
@@ -51,6 +55,7 @@ void rtProgramSetRasterState(rt_program program, enum rt_cull_mode cull_mode, en
 }
 
 void rtProgramSetBlendState(rt_program program, bool enabled, enum rt_blend_factor src_color, enum rt_blend_factor dst_color, enum rt_blend_op color_op, enum rt_blend_factor src_alpha, enum rt_blend_factor dst_alpha, enum rt_blend_op alpha_op) {
+	rtgl_begin_errorable_operation();
 	rtgl_program_blend_state(
 		rtgl_get_current_context(),
 		rtgl_program_from_handle(program),
@@ -65,6 +70,7 @@ void rtProgramSetBlendState(rt_program program, bool enabled, enum rt_blend_fact
 }
 
 void rtProgramFinalize(rt_program program) {
+	rtgl_begin_errorable_operation();
 	rtgl_program_finalize(
 		rtgl_get_current_context(),
 		rtgl_program_from_handle(program)
@@ -72,11 +78,13 @@ void rtProgramFinalize(rt_program program) {
 }
 
 rt_location rtProgramUniformLocation(rt_program program, const char* name) {
+	rtgl_begin_errorable_operation();
 	struct rtgl_context* ctx = rtgl_get_current_context();
 	return rtgl_program_uniform_location(ctx, rtgl_program_from_handle(program), name);
 }
 
 rt_location rtProgramInputLocation(rt_program program, const rt_vertex_attribute* attributes, usize attribute_count) {
+	rtgl_begin_errorable_operation();
 	struct rtgl_program* internal = rtgl_program_from_handle(program);
 	if (!internal || !attributes || !attribute_count || !internal->gl_program) {
 		return NULL;
@@ -119,6 +127,7 @@ rt_location rtProgramInputLocation(rt_program program, const rt_vertex_attribute
 }
 
 rt_location rtProgramOutputLocation(rt_program program, const char* name) {
+	rtgl_begin_errorable_operation();
 	struct rtgl_program* internal = rtgl_program_from_handle(program);
 	if (!internal || !internal->gl_program) {
 		return NULL;

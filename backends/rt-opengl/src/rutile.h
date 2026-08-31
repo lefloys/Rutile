@@ -10,6 +10,7 @@
 
 #define RT_NULL_HANDLE NULL
 #define RT_FEATURE_PRESENTATION "RT_FEATURE_PRESENTATION"
+#define RT_HEADER_VERSION (((u64)0 << 48u) | ((u64)1 << 32u))
 
 typedef uint8_t u08;
 typedef uint16_t u16;

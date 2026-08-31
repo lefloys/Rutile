@@ -5,6 +5,7 @@
 #include "framebuffer.h"
 #include "program.h"
 #include "resource.h"
+#include "sampler.h"
 #include "texture.h"
 
 RTGL_EXTERN_C_ENTER
@@ -29,6 +30,7 @@ RTGL_API void rtCmdStorageData(rt_command_buffer command_buffer, rt_location loc
 RTGL_API void rtCmdSetScissor(rt_command_buffer command_buffer, usize x, usize y, usize width, usize height);
 RTGL_API void rtCmdBindBuffer(rt_command_buffer command_buffer, rt_location location, rt_buffer buffer, rt_buffer_range range);
 RTGL_API void rtCmdBindTexture(rt_command_buffer command_buffer, rt_location location, rt_texture_view texture_view);
+RTGL_API void rtCmdBindSampler(rt_command_buffer command_buffer, rt_location location, rt_sampler sampler);
 RTGL_API void rtCmdVertexBuffer(rt_command_buffer command_buffer, rt_location location, rt_buffer buffer, rt_buffer_range range);
 RTGL_API void rtCmdIndexBuffer(rt_command_buffer command_buffer, rt_buffer buffer, rt_buffer_range range, enum rt_index_format format);
 RTGL_API void rtCmdDraw(rt_command_buffer command_buffer, usize vertex_count, usize first_vertex);
@@ -60,6 +62,7 @@ typedef enum rtgl_recorded_command_kind {
 	RTGL_RECORDED_COMMAND_SET_SCISSOR,
 	RTGL_RECORDED_COMMAND_BIND_BUFFER,
 	RTGL_RECORDED_COMMAND_BIND_TEXTURE,
+	RTGL_RECORDED_COMMAND_BIND_SAMPLER,
 	RTGL_RECORDED_COMMAND_VERTEX_BUFFER,
 	RTGL_RECORDED_COMMAND_INDEX_BUFFER,
 	RTGL_RECORDED_COMMAND_DRAW,
@@ -132,6 +135,19 @@ typedef struct rtgl_recorded_command {
 			f32 max_lod;
 			f32 lod_bias;
 		} bind_texture;
+		struct {
+			u08 address;
+			enum rt_filter mag_filter;
+			enum rt_filter min_filter;
+			enum rt_mip_filter mip_filter;
+			enum rt_address_mode address_u;
+			enum rt_address_mode address_v;
+			enum rt_address_mode address_w;
+			u32 max_anisotropy;
+			f32 min_lod;
+			f32 max_lod;
+			f32 lod_bias;
+		} bind_sampler;
 		struct {
 			u08 address;
 			struct rtgl_buffer_storage* storage;

@@ -8,6 +8,10 @@
 void rtvalSetOutput(rt_output output, void* user_data);
 void rtval_printf(const char* format, ...);
 void rtval_vprintf(const char* format, va_list args);
-void rtval_report_error(const char* call_name);
+void rtval_fail(const char* message);
+enum rt_error rtval_local_error(void);
+const char* rtval_local_error_message(void);
+void rtval_clear_local_error(void);
+bool rtval_report_error(const char* call_name);
 
 #endif

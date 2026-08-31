@@ -6,6 +6,7 @@
 #include "framebuffer.h"
 #include "program.h"
 #include "queue.h"
+#include "sampler.h"
 #include "swapchain.h"
 #include "texture.h"
 
@@ -98,6 +99,9 @@ void rtgl_resource_finalize(struct rtgl_resource_base* base) {
 		break;
 	case RTGL_RESOURCE_QUEUE:
 		rtgl_queue_finish((struct rtgl_queue*)base);
+		break;
+	case RTGL_RESOURCE_SAMPLER:
+		rtgl_sampler_finish((struct rtgl_sampler*)base);
 		break;
 	case RTGL_RESOURCE_UNKNOWN:
 		break;

@@ -2,11 +2,12 @@
 #include "buffer.h"
 #include "framebuffer.h"
 #include "program.h"
+#include "sampler.h"
 #include "logger.h"
 #include "texture.h"
 #include "texture_view.h"
 
-#define RTVAL_DROP(message) rtval_printf("[validation] %s, dropping call\n", message)
+#define RTVAL_DROP(message) rtval_fail(message)
 
 /*===============================================================================================*/
 /*                                                                                               */
@@ -16,10 +17,12 @@ static bool rtval_command_buffer_recording(struct rtval_command_buffer* command_
 	struct rtval_command_buffer* state = RTVAL_PAYLOAD(command_buffer, struct rtval_command_buffer);
 	if (!state) {
 		rtval_printf("[validation] %s: invalid command buffer, dropping call\n", call_name);
+		rtval_fail("invalid command buffer");
 		return false;
 	}
 	if (!state->recording) {
 		rtval_printf("[validation] %s: command buffer is not recording, dropping call\n", call_name);
+		rtval_fail("command buffer is not recording");
 		return false;
 	}
 	return true;
@@ -31,7 +34,8 @@ static bool rtval_command_buffer_rendering(struct rtval_command_buffer* command_
 		return false;
 	}
 	if (!state->rendering && !state->continuation_rendering) {
-		rtval_printf("[validation] %s: command buffer has no active rendering scope, dropping call\n", call_name);
+		rtval_printf("[validation] %s: active rendering scope required, dropping call\n", call_name);
+		rtval_fail("active rendering scope required");
 		return false;
 	}
 	return true;
@@ -44,9 +48,17 @@ static bool rtval_command_buffer_outside_rendering(struct rtval_command_buffer* 
 	}
 	if (state->rendering || state->continuation_rendering) {
 		rtval_printf("[validation] %s: command must be outside an active rendering scope, dropping call\n", call_name);
+		rtval_fail("command must be outside an active rendering scope");
 		return false;
 	}
 	return true;
+}
+
+static bool rtval_access_valid(rt_access access) {
+	if (((u32)access.stage & ~(u32)RT_STAGE_ALL) != 0) {
+		return false;
+	}
+	return access.type == RT_ACCESS_NONE || access.type == RT_ACCESS_READ || access.type == RT_ACCESS_WRITE;
 }
 
 /*===============================================================================================*/
@@ -94,7 +106,9 @@ RT_API_PUBLIC void rtCmdBufferData(rt_command_buffer command_buffer, rt_buffer b
 	struct rtval_buffer* buffer_handle = rtval_buffer_from_handle(buffer);
 	struct rtval_buffer* buffer_state = RTVAL_PAYLOAD(buffer_handle, struct rtval_buffer);
 	if (!rtval_command_buffer_outside_rendering(command_handle, "rtCmdBufferData") || !buffer_state || (range.size && !data)) {
-		if (!buffer_state || (range.size && !data)) RTVAL_DROP("rtCmdBufferData: buffer and data required");
+		if (!buffer_state || (range.size && !data)) {
+			RTVAL_DROP("rtCmdBufferData: buffer and data required");
+		}
 		return;
 	}
 	rtval_next_rtCmdBufferData(command_state->backend, buffer_state->backend, range, data);
@@ -109,7 +123,9 @@ RT_API_PUBLIC void rtCmdBufferCopy(rt_command_buffer command_buffer, rt_buffer s
 	struct rtval_buffer* dst_handle = rtval_buffer_from_handle(dst);
 	struct rtval_buffer* dst_state = RTVAL_PAYLOAD(dst_handle, struct rtval_buffer);
 	if (!rtval_command_buffer_outside_rendering(command_handle, "rtCmdBufferCopy") || !src_state || !dst_state) {
-		if (!src_state || !dst_state) RTVAL_DROP("rtCmdBufferCopy: source and destination buffers required");
+		if (!src_state || !dst_state) {
+			RTVAL_DROP("rtCmdBufferCopy: source and destination buffers required");
+		}
 		return;
 	}
 	rtval_next_rtCmdBufferCopy(command_state->backend, src_state->backend, src_range, dst_state->backend, dst_range);
@@ -124,7 +140,9 @@ RT_API_PUBLIC void rtCmdBufferCopyToTexture(rt_command_buffer command_buffer, rt
 	struct rtval_texture* dst_handle = rtval_texture_from_handle(dst);
 	struct rtval_texture* dst_state = RTVAL_PAYLOAD(dst_handle, struct rtval_texture);
 	if (!rtval_command_buffer_outside_rendering(command_handle, "rtCmdBufferCopyToTexture") || !src_state || !dst_state) {
-		if (!src_state || !dst_state) RTVAL_DROP("rtCmdBufferCopyToTexture: source buffer and destination texture required");
+		if (!src_state || !dst_state) {
+			RTVAL_DROP("rtCmdBufferCopyToTexture: source buffer and destination texture required");
+		}
 		return;
 	}
 	rtval_next_rtCmdBufferCopyToTexture(command_state->backend, src_state->backend, src_range, dst_state->backend, dst_range);
@@ -137,7 +155,13 @@ RT_API_PUBLIC void rtCmdBufferBarrier(rt_command_buffer command_buffer, rt_buffe
 	struct rtval_buffer* buffer_handle = rtval_buffer_from_handle(buffer);
 	struct rtval_buffer* buffer_state = RTVAL_PAYLOAD(buffer_handle, struct rtval_buffer);
 	if (!rtval_command_buffer_outside_rendering(command_handle, "rtCmdBufferBarrier") || !buffer_state) {
-		if (!buffer_state) RTVAL_DROP("rtCmdBufferBarrier: buffer required");
+		if (!buffer_state) {
+			RTVAL_DROP("rtCmdBufferBarrier: buffer required");
+		}
+		return;
+	}
+	if (!rtval_access_valid(src) || !rtval_access_valid(dst)) {
+		RTVAL_DROP("rtCmdBufferBarrier: valid source and destination accesses required");
 		return;
 	}
 	rtval_next_rtCmdBufferBarrier(command_state->backend, buffer_state->backend, range, src, dst);
@@ -152,7 +176,9 @@ RT_API_PUBLIC void rtCmdTextureCopy(rt_command_buffer command_buffer, rt_texture
 	struct rtval_texture* dst_handle = rtval_texture_from_handle(dst);
 	struct rtval_texture* dst_state = RTVAL_PAYLOAD(dst_handle, struct rtval_texture);
 	if (!rtval_command_buffer_outside_rendering(command_handle, "rtCmdTextureCopy") || !src_state || !dst_state) {
-		if (!src_state || !dst_state) RTVAL_DROP("rtCmdTextureCopy: source and destination textures required");
+		if (!src_state || !dst_state) {
+			RTVAL_DROP("rtCmdTextureCopy: source and destination textures required");
+		}
 		return;
 	}
 	rtval_next_rtCmdTextureCopy(command_state->backend, src_state->backend, src_range, dst_state->backend, dst_range);
@@ -165,7 +191,9 @@ RT_API_PUBLIC void rtCmdTextureData(rt_command_buffer command_buffer, rt_texture
 	struct rtval_texture* texture_handle = rtval_texture_from_handle(texture);
 	struct rtval_texture* texture_state = RTVAL_PAYLOAD(texture_handle, struct rtval_texture);
 	if (!rtval_command_buffer_outside_rendering(command_handle, "rtCmdTextureData") || !texture_state || !data) {
-		if (!texture_state || !data) RTVAL_DROP("rtCmdTextureData: texture and data required");
+		if (!texture_state || !data) {
+			RTVAL_DROP("rtCmdTextureData: texture and data required");
+		}
 		return;
 	}
 	rtval_next_rtCmdTextureData(command_state->backend, texture_state->backend, range, data);
@@ -180,7 +208,9 @@ RT_API_PUBLIC void rtCmdTextureCopyToBuffer(rt_command_buffer command_buffer, rt
 	struct rtval_buffer* dst_handle = rtval_buffer_from_handle(dst);
 	struct rtval_buffer* dst_state = RTVAL_PAYLOAD(dst_handle, struct rtval_buffer);
 	if (!rtval_command_buffer_outside_rendering(command_handle, "rtCmdTextureCopyToBuffer") || !src_state || !dst_state) {
-		if (!src_state || !dst_state) RTVAL_DROP("rtCmdTextureCopyToBuffer: source texture and destination buffer required");
+		if (!src_state || !dst_state) {
+			RTVAL_DROP("rtCmdTextureCopyToBuffer: source texture and destination buffer required");
+		}
 		return;
 	}
 	rtval_next_rtCmdTextureCopyToBuffer(command_state->backend, src_state->backend, src_range, dst_state->backend, dst_range);
@@ -193,7 +223,13 @@ RT_API_PUBLIC void rtCmdTextureBarrier(rt_command_buffer command_buffer, rt_text
 	struct rtval_texture* texture_handle = rtval_texture_from_handle(texture);
 	struct rtval_texture* texture_state = RTVAL_PAYLOAD(texture_handle, struct rtval_texture);
 	if (!rtval_command_buffer_outside_rendering(command_handle, "rtCmdTextureBarrier") || !texture_state) {
-		if (!texture_state) RTVAL_DROP("rtCmdTextureBarrier: texture required");
+		if (!texture_state) {
+			RTVAL_DROP("rtCmdTextureBarrier: texture required");
+		}
+		return;
+	}
+	if (!rtval_access_valid(src) || !rtval_access_valid(dst)) {
+		RTVAL_DROP("rtCmdTextureBarrier: valid source and destination accesses required");
 		return;
 	}
 	rtval_next_rtCmdTextureBarrier(command_state->backend, texture_state->backend, range, src, dst);
@@ -328,7 +364,9 @@ void rtval_command_buffer_destroy(struct rtval_command_buffer* command_buffer) {
 		return;
 	}
 	rtval_next_rtCommandBufferDestroy(state->backend);
-	rtval_handle_destroy(command_buffer);
+	if (rtval_report_error("rtCommandBufferDestroy")) {
+		rtval_handle_destroy(command_buffer);
+	}
 }
 
 void rtval_command_buffer_reset(struct rtval_command_buffer* command_buffer) {
@@ -337,12 +375,13 @@ void rtval_command_buffer_reset(struct rtval_command_buffer* command_buffer) {
 		RTVAL_DROP("rtCommandBufferReset: invalid or recording command buffer");
 		return;
 	}
-	state->executable = false;
-	state->rendering = false;
-	state->continuation = false;
-	state->continuation_rendering = false;
 	rtval_next_rtCommandBufferReset(state->backend);
-	rtval_report_error("rtCommandBufferReset");
+	if (rtval_report_error("rtCommandBufferReset")) {
+		state->executable = false;
+		state->rendering = false;
+		state->continuation = false;
+		state->continuation_rendering = false;
+	}
 }
 
 void rtval_command_buffer_begin(struct rtval_command_buffer* command_buffer) {
@@ -351,11 +390,12 @@ void rtval_command_buffer_begin(struct rtval_command_buffer* command_buffer) {
 		RTVAL_DROP("rtCommandBufferBegin: reset command buffer required");
 		return;
 	}
-	state->recording = true;
-	state->continuation = false;
-	state->continuation_rendering = false;
 	rtval_next_rtCommandBufferBegin(state->backend);
-	rtval_report_error("rtCommandBufferBegin");
+	if (rtval_report_error("rtCommandBufferBegin")) {
+		state->recording = true;
+		state->continuation = false;
+		state->continuation_rendering = false;
+	}
 }
 
 void rtval_command_buffer_continue(struct rtval_command_buffer* command_buffer, bool rendering) {
@@ -364,15 +404,20 @@ void rtval_command_buffer_continue(struct rtval_command_buffer* command_buffer, 
 		RTVAL_DROP("rtCommandBufferContinue: reset command buffer required");
 		return;
 	}
-	state->recording = true;
-	state->continuation = true;
-	state->continuation_rendering = rendering;
 	if (rendering) {
 		rtval_next_rtCommandBufferContinueRendering(state->backend);
-		rtval_report_error("rtCommandBufferContinueRendering");
+		if (rtval_report_error("rtCommandBufferContinueRendering")) {
+			state->recording = true;
+			state->continuation = true;
+			state->continuation_rendering = true;
+		}
 	} else {
 		rtval_next_rtCommandBufferContinue(state->backend);
-		rtval_report_error("rtCommandBufferContinue");
+		if (rtval_report_error("rtCommandBufferContinue")) {
+			state->recording = true;
+			state->continuation = true;
+			state->continuation_rendering = false;
+		}
 	}
 }
 
@@ -404,9 +449,10 @@ void rtval_command_buffer_begin_rendering(struct rtval_command_buffer* command_b
 		RTVAL_DROP("rtCmdBeginRendering: direct command buffer, valid framebuffer, and no active rendering scope required");
 		return;
 	}
-	state->rendering = true;
 	rtval_next_rtCmdBeginRendering(state->backend, framebuffer_state->backend);
-	rtval_report_error("rtCmdBeginRendering");
+	if (rtval_report_error("rtCmdBeginRendering")) {
+		state->rendering = true;
+	}
 }
 
 void rtval_command_buffer_clear_color(struct rtval_command_buffer* command_buffer, rt_location location, f32 r, f32 g, f32 b, f32 a) {
@@ -441,7 +487,7 @@ void rtval_command_buffer_clear(struct rtval_command_buffer* command_buffer, enu
 	if (!rtval_command_buffer_rendering(command_buffer, "rtCmdClear")) {
 		return;
 	}
-	if (!(attachments & (RT_CLEAR_COLOR | RT_CLEAR_DEPTH | RT_CLEAR_STENCIL))) {
+	if ((attachments & ~(RT_CLEAR_COLOR | RT_CLEAR_DEPTH | RT_CLEAR_STENCIL)) != 0 || !(attachments & (RT_CLEAR_COLOR | RT_CLEAR_DEPTH | RT_CLEAR_STENCIL))) {
 		RTVAL_DROP("rtCmdClear: at least one attachment required");
 		return;
 	}
@@ -476,9 +522,10 @@ void rtval_command_buffer_end_rendering(struct rtval_command_buffer* command_buf
 		RTVAL_DROP("rtCmdEndRendering: rendering continuations cannot end their parent scope");
 		return;
 	}
-	state->rendering = false;
 	rtval_next_rtCmdEndRendering(state->backend);
-	rtval_report_error("rtCmdEndRendering");
+	if (rtval_report_error("rtCmdEndRendering")) {
+		state->rendering = false;
+	}
 }
 
 void rtval_command_buffer_use_program(struct rtval_command_buffer* command_buffer, struct rtval_program* program) {
@@ -493,6 +540,10 @@ void rtval_command_buffer_use_program(struct rtval_command_buffer* command_buffe
 	}
 	rtval_next_rtCmdUseProgram(state->backend, program_state->backend);
 	rtval_report_error("rtCmdUseProgram");
+}
+
+RT_API_PUBLIC void rtCmdBindSampler(rt_command_buffer command_buffer, rt_location location, rt_sampler sampler) {
+	rtval_command_buffer_bind_sampler(rtval_command_buffer_from_handle(command_buffer), location, rtval_sampler_from_handle(sampler));
 }
 
 void rtval_command_buffer_uniform_data(struct rtval_command_buffer* command_buffer, rt_location location, const u08* data, usize size) {
@@ -547,6 +598,20 @@ void rtval_command_buffer_bind_texture(struct rtval_command_buffer* command_buff
 	}
 	rtval_next_rtCmdBindTexture(state->backend, location, texture_view_state->backend);
 	rtval_report_error("rtCmdBindTexture");
+}
+
+void rtval_command_buffer_bind_sampler(struct rtval_command_buffer* command_buffer, rt_location location, struct rtval_sampler* sampler) {
+	struct rtval_command_buffer* state = RTVAL_PAYLOAD(command_buffer, struct rtval_command_buffer);
+	struct rtval_sampler* sampler_state = RTVAL_PAYLOAD(sampler, struct rtval_sampler);
+	if (!rtval_command_buffer_recording(command_buffer, "rtCmdBindSampler")) {
+		return;
+	}
+	if (!location || !sampler_state) {
+		RTVAL_DROP("rtCmdBindSampler: location and sampler required");
+		return;
+	}
+	rtval_next_rtCmdBindSampler(state->backend, location, sampler_state->backend);
+	rtval_report_error("rtCmdBindSampler");
 }
 
 void rtval_command_buffer_vertex_buffer(struct rtval_command_buffer* command_buffer, rt_location location, struct rtval_buffer* buffer, rt_buffer_range range) {
@@ -642,10 +707,11 @@ void rtval_command_buffer_end(struct rtval_command_buffer* command_buffer) {
 		RTVAL_DROP("rtCommandBufferEnd: active rendering scope must end first");
 		return;
 	}
-	state->recording = false;
-	state->executable = true;
 	rtval_next_rtCommandBufferEnd(state->backend);
-	rtval_report_error("rtCommandBufferEnd");
+	if (rtval_report_error("rtCommandBufferEnd")) {
+		state->recording = false;
+		state->executable = true;
+	}
 }
 
 #undef RTVAL_DROP

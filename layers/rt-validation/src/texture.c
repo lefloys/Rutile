@@ -2,7 +2,7 @@
 #include "logger.h"
 #include "texture_view.h"
 
-#define RTVAL_DROP(message) rtval_printf("[validation] %s, dropping call\n", message)
+#define RTVAL_DROP(message) rtval_fail(message)
 
 /*===============================================================================================*/
 /*                                                                                               */
@@ -63,6 +63,7 @@ struct rtval_texture* rtval_texture_create(void) {
 
 void rtval_texture_destroy(struct rtval_texture* texture) {
 	if (!texture) {
+		RTVAL_DROP("rtTextureDestroy: invalid handle");
 		return;
 	}
 	struct rtval_texture* state = RTVAL_PAYLOAD(texture, struct rtval_texture);
@@ -71,13 +72,19 @@ void rtval_texture_destroy(struct rtval_texture* texture) {
 		return;
 	}
 	rtval_next_rtTextureDestroy(state->backend);
-	rtval_handle_destroy(texture);
+	if (rtval_report_error("rtTextureDestroy")) {
+		rtval_handle_destroy(texture);
+	}
 }
 
 void rtval_texture_resize(struct rtval_texture* texture, enum rt_texture_type type, enum rt_format format, rt_extent_3d extent, usize mip_count) {
 	struct rtval_texture* state = RTVAL_PAYLOAD(texture, struct rtval_texture);
 	if (!state || !mip_count || !extent.width || !extent.height || !extent.depth) {
 		RTVAL_DROP("rtTextureResize: texture, non-zero extent, and mip count required");
+		return;
+	}
+	if (type < RT_TEXTURE_1D || type > RT_TEXTURE_2D_ARRAY || format < RT_R8_UNORM || format > RT_D32_SFLOAT_S8_UINT) {
+		RTVAL_DROP("rtTextureResize: valid texture type and format required");
 		return;
 	}
 	rtval_next_rtTextureResize(state->backend, type, format, extent, mip_count);
@@ -114,6 +121,7 @@ void rtval_texture_view_set_texture(struct rtval_texture_view* view, struct rtva
 
 void rtval_texture_view_destroy(struct rtval_texture_view* view) {
 	if (!view) {
+		RTVAL_DROP("rtTextureViewDestroy: invalid handle");
 		return;
 	}
 	struct rtval_texture_view* state = RTVAL_PAYLOAD(view, struct rtval_texture_view);
@@ -122,7 +130,9 @@ void rtval_texture_view_destroy(struct rtval_texture_view* view) {
 		return;
 	}
 	rtval_next_rtTextureViewDestroy(state->backend);
-	rtval_handle_destroy(view);
+	if (rtval_report_error("rtTextureViewDestroy")) {
+		rtval_handle_destroy(view);
+	}
 }
 
 rt_extent_3d rtval_texture_view_extent(struct rtval_texture_view* view) {

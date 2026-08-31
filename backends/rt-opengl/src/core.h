@@ -9,8 +9,8 @@ RTGL_EXTERN_C_ENTER
 
 RTGL_API void rtInit(const char* const* features, usize feature_count);
 RTGL_API void rtExit(void);
+RTGL_API u64 rtVersion(void);
 RTGL_API const char* rtGetName(void);
-RTGL_API enum rt_format_usage rtQueryFormatCapabilities(enum rt_format format);
 
 RTGL_EXTERN_C_EXIT
 

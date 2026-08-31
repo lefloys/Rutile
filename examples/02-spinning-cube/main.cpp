@@ -15,6 +15,7 @@
 #include <cstdio>
 #include <cstring>
 #include <iostream>
+#include <string>
 #include <vector>
 
 extern "C" const rt_example_program cube_rtslp;
@@ -144,7 +145,8 @@ void update_camera(GLFWwindow* window, Camera& camera, f32 delta) {
 
 int main(int argc, char** argv) {
 	const ExampleOptions options = parse_cli(argc, argv);
-	if (rtLoad("rt-vulkan", nullptr, 0) != RT_SUCCESS) {
+	const auto layers = selected_layers(options);
+	if (rtLoad(options.backend.c_str(), layers.data(), layers.size()) != RT_SUCCESS) {
 		std::cerr << "rtLoad failed\n";
 		return 1;
 	}
@@ -155,7 +157,8 @@ int main(int argc, char** argv) {
 
 	glfwInit();
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-	GLFWwindow* window = glfwCreateWindow(1280, 720, "Rutile 02 Spinning Cube", nullptr, nullptr);
+	const std::string window_title = "Rutile 02 Spinning Cube - " + options.backend;
+	GLFWwindow* window = glfwCreateWindow(1280, 720, window_title.c_str(), nullptr, nullptr);
 	glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 	glfwSetCursorPosCallback(window, cursor_moved);
 	glfwSetFramebufferSizeCallback(window, framebuffer_resized);

@@ -13,7 +13,7 @@ static bool rtd3d12_feature_equals(const char* feature, const char* expected) {
 	return feature && strcmp(feature, expected) == 0;
 }
 
-static bool rtd3d12_validate_init_features(const char* const* features, u32 feature_count, rtd3d12_context_flags* flags) {
+static bool rtd3d12_validate_init_features(const char* const* features, usize feature_count, rtd3d12_context_flags* flags) {
 	if (feature_count && !features) {
 		rtd3d12_fail(rt::error::improper_usage, "rtInit feature_count is {} but features is nullptr", feature_count);
 		return false;
@@ -42,8 +42,9 @@ static bool rtd3d12_validate_init_features(const char* const* features, u32 feat
 /*                                                                                               */
 /*===============================================================================================*/
 
-void rtInit(const char* const* features, u32 feature_count) {
+void rtInit(const char* const* features, usize feature_count) {
 	rtd3d12_context_flags flags;
+	rtd3d12_begin_errorable_operation();
 
 	if (current_context) {
 		rtd3d12_fail(rt::error::already_initialized, "rtInit called while rt-d3d12 is already initialized");

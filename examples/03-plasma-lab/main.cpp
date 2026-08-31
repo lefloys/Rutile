@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <iostream>
+#include <string>
 #include <vector>
 
 extern "C" const rt_example_program plasma_rtslp;
@@ -120,7 +121,8 @@ void update_plasma(std::vector<std::uint8_t>& pixels, f32 time) {
 
 int main(int argc, char** argv) {
 	const ExampleOptions options = parse_cli(argc, argv);
-	if (rtLoad("rt-vulkan", nullptr, 0) != RT_SUCCESS) {
+	const auto layers = selected_layers(options);
+	if (rtLoad(options.backend.c_str(), layers.data(), layers.size()) != RT_SUCCESS) {
 		std::cerr << "rtLoad failed\n";
 		return 1;
 	}
@@ -131,7 +133,8 @@ int main(int argc, char** argv) {
 
 	glfwInit();
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-	GLFWwindow* window = glfwCreateWindow(1280, 720, "Rutile 03 Plasma Lab - drag to excite", nullptr, nullptr);
+	const std::string window_title = "Rutile 03 Plasma Lab - " + options.backend;
+	GLFWwindow* window = glfwCreateWindow(1280, 720, window_title.c_str(), nullptr, nullptr);
 	glfwSetFramebufferSizeCallback(window, framebuffer_resized);
 	glfwSetCursorPosCallback(window, cursor_moved);
 	glfwSetMouseButtonCallback(window, mouse_button);

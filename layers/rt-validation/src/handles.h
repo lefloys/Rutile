@@ -15,6 +15,7 @@ struct rtval_program;
 struct rtval_command_buffer;
 struct rtval_queue;
 struct rtval_swapchain;
+struct rtval_sampler;
 
 /*===============================================================================================*/
 /*                                                                                               */
@@ -32,6 +33,7 @@ RTVAL_DECLARE_NEW_RESOURCE(program, rt_program)
 RTVAL_DECLARE_NEW_RESOURCE(command_buffer, rt_command_buffer)
 RTVAL_DECLARE_NEW_RESOURCE(queue, rt_queue)
 RTVAL_DECLARE_NEW_RESOURCE(swapchain, rt_swapchain)
+RTVAL_DECLARE_NEW_RESOURCE(sampler, rt_sampler)
 
 /*===============================================================================================*/
 /*                                                                                               */
@@ -53,14 +55,16 @@ typedef enum rtval_handle_type {
 	RTVAL_HANDLE_TYPE_COMMAND_BUFFER,
 	RTVAL_HANDLE_TYPE_QUEUE,
 	RTVAL_HANDLE_TYPE_SWAPCHAIN,
+	RTVAL_HANDLE_TYPE_SAMPLER,
 	RTVAL_HANDLE_TYPE_COUNT,
 } rtval_handle_type;
 
 void* rtval_handle_create(rtval_handle_type type);
 void* rtval_handle_payload(void* handle);
+void* rtval_handle_find_by_backend(rtval_handle_type type, void* backend);
 bool rtval_handle_is_live(void* handle);
 void rtval_handle_destroy(void* handle);
-void rtval_handle_report_leaks(void);
+bool rtval_handle_report_leaks(void);
 void rtval_handle_reset_registry(void);
 
 #define RTVAL_PAYLOAD(handle, type) ((type*)rtval_handle_payload((handle)))

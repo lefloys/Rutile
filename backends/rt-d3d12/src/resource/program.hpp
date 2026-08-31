@@ -8,7 +8,7 @@
 #include <array>
 #include <cstddef>
 #include <optional>
-#include <rtsl/program.hpp>
+#include <rtsl/Serialization/Artifact.hpp>
 #include <string>
 #include <vector>
 
@@ -77,7 +77,7 @@ struct rtd3d12_program_data_mapping {
 };
 
 struct rtd3d12_program_shader {
-	rtsl::Stage stage;
+	rtsl::ir::Stage stage;
 	std::vector<std::byte> bytecode;
 };
 
@@ -126,7 +126,7 @@ struct rt_program_t : rtd3d12_resource<rt_program_t> {
 	std::array<bool, 256> location_allocated;
 	u32 location_count;
 	std::string entry_point;
-	std::optional<rtsl::Program> rtsl_program;
+	std::optional<rtsl::Artifact> rtsl_artifact;
 	std::vector<rtd3d12_program_shader> shaders;
 };
 

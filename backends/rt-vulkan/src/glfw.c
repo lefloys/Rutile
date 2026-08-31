@@ -95,6 +95,7 @@ void rtvk_init_glfw_platform(void) {
 }
 
 bool rtInit_GLFW(void) {
+	rtvk_begin_errorable_operation();
 	rtvk_init_glfw_platform();
 	return rtvk_error() == RT_SUCCESS;
 }

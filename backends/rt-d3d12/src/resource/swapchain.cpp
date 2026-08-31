@@ -18,7 +18,11 @@ bool rtd3d12_presentation_present(rtd3d12_presentation* presentation, bool vsync
 /*===============================================================================================*/
 
 rt_swapchain_t* rtSwapchainCreate(void) {
+	rtd3d12_begin_errorable_operation();
 	struct rt_swapchain_t* swapchain = rtd3d12::create_resource<rt_swapchain_t>(rtd3d12_get_current_context());
+	if (swapchain) {
+		rtd3d12_swapchain_init(rtd3d12_get_current_context(), swapchain);
+	}
 	return swapchain;
 }
 
@@ -27,6 +31,7 @@ void rtSwapchainDestroy(rt_swapchain_t* swapchain) {
 }
 
 void rtSwapchainResize(rt_swapchain_t* swapchain, u32 width, u32 height) {
+	rtd3d12_begin_errorable_operation();
 	rtd3d12_swapchain_resize(
 		rtd3d12_get_current_context(),
 		swapchain,
@@ -36,6 +41,7 @@ void rtSwapchainResize(rt_swapchain_t* swapchain, u32 width, u32 height) {
 }
 
 rt::swapchain_acquire_result rtSwapchainAcquire(rt_swapchain_t* swapchain) {
+	rtd3d12_begin_errorable_operation();
 	return rtd3d12_swapchain_acquire(
 		rtd3d12_get_current_context(),
 		swapchain
@@ -43,10 +49,12 @@ rt::swapchain_acquire_result rtSwapchainAcquire(rt_swapchain_t* swapchain) {
 }
 
 void rtSwapchainPresent(rt_swapchain_t* swapchain, rt::timepoint rendered) {
+	rtd3d12_begin_errorable_operation();
 	rtd3d12_swapchain_present(rtd3d12_get_current_context(), swapchain, rendered);
 }
 
 void rtSwapchainBindGLFW(rt_swapchain_t* swapchain, GLFWwindow* window) {
+	rtd3d12_begin_errorable_operation();
 	if (!window) {
 		rtd3d12_fail(rt::error::improper_usage, "rtSwapchainBindGLFW window is nullptr");
 		return;

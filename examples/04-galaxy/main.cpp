@@ -16,6 +16,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <random>
+#include <string>
 #include <vector>
 
 extern "C" const rt_example_program galaxy_rtslp;
@@ -284,7 +285,8 @@ void update_camera(GLFWwindow* window, Camera* camera, f32 dt) {
 
 int main(int argc, char** argv) {
 	const ExampleOptions options = parse_cli(argc, argv);
-	if (rtLoad("rt-vulkan", nullptr, 0) != RT_SUCCESS) {
+	const auto layers = selected_layers(options);
+	if (rtLoad(options.backend.c_str(), layers.data(), layers.size()) != RT_SUCCESS) {
 		return 1;
 	}
 	rtInit(Features, 1);
@@ -293,7 +295,8 @@ int main(int argc, char** argv) {
 	glfwInit();
 
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-	GLFWwindow* window = glfwCreateWindow(1600, 900, "Rutile 04 Galaxy", nullptr, nullptr);
+	const std::string window_title = "Rutile 04 Galaxy - " + options.backend;
+	GLFWwindow* window = glfwCreateWindow(1600, 900, window_title.c_str(), nullptr, nullptr);
 
 	glfwSetFramebufferSizeCallback(window, framebuffer_resized);
 	glfwSetCursorPosCallback(window, cursor_moved);

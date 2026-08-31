@@ -4,16 +4,16 @@
 #include <stdio.h>
 #include <string.h>
 
-static bool rtvk_validate_init_features(const char* const* features, u32 feature_count, rtvk_context_flags* flags);
+static bool rtvk_validate_init_features(const char* const* features, usize feature_count, rtvk_context_flags* flags);
 
 /*===============================================================================================*/
 /*                                                                                               */
 /*===============================================================================================*/
 
-void rtInit(const char* const* features, u32 feature_count) {
+void rtInit(const char* const* features, usize feature_count) {
 	rtvk_context_flags flags;
 
-	rtClearError();
+	rtvk_begin_errorable_operation();
 	if (current_context) {
 		rtvk_throwf(RT_ALREADY_INITIALIZED, "rtInit called while rt-vulkan is already initialized");
 		return;
@@ -36,21 +36,6 @@ void rtSettingSet(const char* name, const char* value) {
 	(void)value;
 }
 const char* rtGetName(void) { return "rt-vulkan"; }
-enum rt_format_usage rtQueryFormatCapabilities(enum rt_format format) {
-	struct rtvk_context* ctx = rtvk_get_current_context();
-	if (!ctx || !ctx->vk_physical_device) {
-		return RT_FORMAT_USAGE_NONE;
-	}
-
-	VkFormat vk_format = rtvk_format_to_vk(format);
-	if (vk_format == VK_FORMAT_UNDEFINED) {
-		return RT_FORMAT_USAGE_NONE;
-	}
-
-	VkFormatProperties properties;
-	vkGetPhysicalDeviceFormatProperties(ctx->vk_physical_device, vk_format, &properties);
-	return rtvk_usage_from_vk_features(properties.optimalTilingFeatures);
-}
 
 /*===============================================================================================*/
 /*                                                                                               */
@@ -152,42 +137,20 @@ VkFormat rtvk_format_to_vk(enum rt_format format) {
 		return VK_FORMAT_UNDEFINED;
 	}
 }
-enum rt_format_usage rtvk_usage_from_vk_features(VkFormatFeatureFlags features) {
-	enum rt_format_usage usage = RT_FORMAT_USAGE_NONE;
-	if (features & VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT) {
-		usage |= RT_FORMAT_USAGE_SAMPLED;
-	}
-	if (features & VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT) {
-		usage |= RT_FORMAT_USAGE_COLOR_ATTACHMENT;
-	}
-	if (features & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT) {
-		usage |= RT_FORMAT_USAGE_DEPTH_ATTACHMENT;
-	}
-	if (features & VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT) {
-		usage |= RT_FORMAT_USAGE_STORAGE;
-	}
-	if (features & VK_FORMAT_FEATURE_TRANSFER_SRC_BIT) {
-		usage |= RT_FORMAT_USAGE_TRANSFER_SRC;
-	}
-	if (features & VK_FORMAT_FEATURE_TRANSFER_DST_BIT) {
-		usage |= RT_FORMAT_USAGE_TRANSFER_DST;
-	}
-	return usage;
-}
 static bool rtvk_feature_equals(const char* feature, const char* expected) {
 	return feature && strcmp(feature, expected) == 0;
 }
-static bool rtvk_validate_init_features(const char* const* features, u32 feature_count, rtvk_context_flags* flags) {
+static bool rtvk_validate_init_features(const char* const* features, usize feature_count, rtvk_context_flags* flags) {
 	if (feature_count && !features) {
-		rtvk_throwf(RT_IMPROPER_USAGE, "rtInit feature_count is %u but features is NULL", feature_count);
+		rtvk_throwf(RT_IMPROPER_USAGE, "rtInit feature_count is %zu but features is NULL", feature_count);
 		return false;
 	}
 
 	*flags = (rtvk_context_flags){ 0 };
-	for (u32 i = 0; i < feature_count; i++) {
+	for (usize i = 0; i < feature_count; i++) {
 		const char* feature = features[i];
 		if (!feature) {
-			rtvk_throwf(RT_IMPROPER_USAGE, "rtInit feature at index %u is NULL", i);
+			rtvk_throwf(RT_IMPROPER_USAGE, "rtInit feature at index %zu is NULL", i);
 			return false;
 		}
 		if (rtvk_feature_equals(feature, RT_FEATURE_PRESENTATION)) {

@@ -57,6 +57,11 @@ void rtd3d12_set_error(rt::error error, std::string message) {
 	rtd3d12_error_text = std::move(message);
 }
 
+void rtd3d12_begin_errorable_operation() {
+	rtd3d12_error = rt::error::success;
+	rtd3d12_error_text.clear();
+}
+
 rt::error rtd3d12_error_from_hresult(HRESULT result) {
 	switch (result) {
 	case E_OUTOFMEMORY:
@@ -89,6 +94,5 @@ const char* rtErrorMessage(void) {
 }
 
 void rtClearError(void) {
-	rtd3d12_error = rt::error::success;
-	rtd3d12_error_text.clear();
+	rtd3d12_begin_errorable_operation();
 }

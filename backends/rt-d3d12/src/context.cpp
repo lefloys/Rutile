@@ -3,6 +3,7 @@
 #include "resource/queue.hpp"
 
 #include <chrono>
+#include <memory>
 #include <new>
 #include <vector>
 
@@ -153,8 +154,10 @@ void rtd3d12_context::report_validation() {
 	for (UINT64 index = 0; index < count; ++index) {
 		SIZE_T size = 0;
 		messages->GetMessage(index, nullptr, &size);
-		std::vector<std::byte> storage(size);
-		auto* message = reinterpret_cast<D3D12_MESSAGE*>(storage.data());
+		/* GetMessage writes a D3D12_MESSAGE header followed by its text.  The
+		 * backing storage must meet the header's alignment, not byte alignment. */
+		auto storage = std::make_unique_for_overwrite<std::byte[]>(size);
+		auto* message = reinterpret_cast<D3D12_MESSAGE*>(storage.get());
 		if (SUCCEEDED(messages->GetMessage(index, message, &size))) {
 			rtd3d12_print("D3D12 validation: {}\n", message->pDescription);
 		}

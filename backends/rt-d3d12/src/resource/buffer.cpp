@@ -15,12 +15,12 @@ static rt_queue_t* rtd3d12_buffer_transfer_queue(rtd3d12_context* ctx) {
 	return queue ? queue : rtd3d12_context_queue(ctx, rt::queue_capability::graphics);
 }
 
-rt_buffer_t* rtBufferCreate(void) { return rtd3d12::create_resource<rt_buffer_t>(rtd3d12_get_current_context()); }
+rt_buffer_t* rtBufferCreate(void) { rtd3d12_begin_errorable_operation(); return rtd3d12::create_resource<rt_buffer_t>(rtd3d12_get_current_context()); }
 void rtBufferDestroy(rt_buffer_t* buffer) { if (buffer) buffer->retire(); }
-void rtBufferResize(rt_buffer_t* buffer, rt::memory_type memory_type, usize size) { rtd3d12_buffer_resize(rtd3d12_get_current_context(), buffer, memory_type, size); }
-void rtBufferRead(rt_buffer_t* buffer, rt::buffer_range range, u08* data, usize data_size) { rtd3d12_buffer_read(rtd3d12_get_current_context(), buffer, range, data, data_size); }
-u08* rtBufferMap(rt_buffer_t* buffer, rt::buffer_range range) { return rtd3d12_buffer_map(rtd3d12_get_current_context(), buffer, range); }
-void rtBufferUnmap(rt_buffer_t* buffer) { rtd3d12_buffer_unmap(rtd3d12_get_current_context(), buffer); }
+void rtBufferResize(rt_buffer_t* buffer, rt::memory_type memory_type, usize size) { rtd3d12_begin_errorable_operation(); rtd3d12_buffer_resize(rtd3d12_get_current_context(), buffer, memory_type, size); }
+void rtBufferRead(rt_buffer_t* buffer, rt::buffer_range range, u08* data, usize data_size) { rtd3d12_begin_errorable_operation(); rtd3d12_buffer_read(rtd3d12_get_current_context(), buffer, range, data, data_size); }
+u08* rtBufferMap(rt_buffer_t* buffer, rt::buffer_range range) { rtd3d12_begin_errorable_operation(); return rtd3d12_buffer_map(rtd3d12_get_current_context(), buffer, range); }
+void rtBufferUnmap(rt_buffer_t* buffer) { rtd3d12_begin_errorable_operation(); rtd3d12_buffer_unmap(rtd3d12_get_current_context(), buffer); }
 
 void rtd3d12_buffer_init(rtd3d12_context* ctx, rt_buffer_t* buffer) {
 }

@@ -5,6 +5,9 @@
 
 struct rtval_buffer {
 	rt_buffer backend;
+	enum rt_memory_type memory_type;
+	usize size;
+	bool mapped;
 };
 
 struct rtval_buffer* rtval_buffer_create(void);

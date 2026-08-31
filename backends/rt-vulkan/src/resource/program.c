@@ -15,6 +15,7 @@
 /*===============================================================================================*/
 
 rt_program rtProgramCreate(void) {
+	rtvk_begin_errorable_operation();
 	return rtvk_program_to_handle(rtvk_program_create(rtvk_get_current_context()));
 }
 
@@ -26,6 +27,7 @@ void rtProgramDestroy(rt_program program) {
 }
 
 void rtProgramSetLayout(rt_program program, const rt_vertex_layout* layout) {
+	rtvk_begin_errorable_operation();
 	rtvk_program_layout(
 		rtvk_get_current_context(),
 		rtvk_program_from_handle(program),
@@ -34,6 +36,7 @@ void rtProgramSetLayout(rt_program program, const rt_vertex_layout* layout) {
 }
 
 void rtProgramSource(rt_program program, const char* entry_point, const u08* program_bytes, usize program_byte_size) {
+	rtvk_begin_errorable_operation();
 	rtvk_program_source(
 		rtvk_get_current_context(),
 		rtvk_program_from_handle(program),
@@ -44,10 +47,12 @@ void rtProgramSource(rt_program program, const char* entry_point, const u08* pro
 }
 
 void rtProgramSetRasterState(rt_program program, enum rt_cull_mode cull_mode, enum rt_front_face front_face, enum rt_fill_mode fill_mode) {
+	rtvk_begin_errorable_operation();
 	rtvk_program_raster_state(rtvk_get_current_context(), rtvk_program_from_handle(program), cull_mode, front_face, fill_mode);
 }
 
 void rtProgramSetBlendState(rt_program program, bool enabled, enum rt_blend_factor src_color, enum rt_blend_factor dst_color, enum rt_blend_op color_op, enum rt_blend_factor src_alpha, enum rt_blend_factor dst_alpha, enum rt_blend_op alpha_op) {
+	rtvk_begin_errorable_operation();
 	rtvk_program_blend_state(
 		rtvk_get_current_context(),
 		rtvk_program_from_handle(program),
@@ -62,6 +67,7 @@ void rtProgramSetBlendState(rt_program program, bool enabled, enum rt_blend_fact
 }
 
 void rtProgramFinalize(rt_program program) {
+	rtvk_begin_errorable_operation();
 	rtvk_program_finalize(
 		rtvk_get_current_context(),
 		rtvk_program_from_handle(program)
@@ -69,14 +75,17 @@ void rtProgramFinalize(rt_program program) {
 }
 
 rt_location rtProgramUniformLocation(rt_program program, const char* name) {
+	rtvk_begin_errorable_operation();
 	return rtvk_program_uniform_location(rtvk_program_from_handle(program), name);
 }
 
 rt_location rtProgramInputLocation(rt_program program, const rt_vertex_attribute* attributes, usize attribute_count) {
+	rtvk_begin_errorable_operation();
 	return rtvk_program_input_location(rtvk_program_from_handle(program), attributes, attribute_count);
 }
 
 rt_location rtProgramOutputLocation(rt_program program, const char* name) {
+	rtvk_begin_errorable_operation();
 	return rtvk_program_output_location(rtvk_program_from_handle(program), name);
 }
 

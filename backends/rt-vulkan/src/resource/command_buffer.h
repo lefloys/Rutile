@@ -219,6 +219,7 @@ struct rtvk_ir_texture {
 	struct rtvk_texture_view* view;
 	struct rtvk_image_base* image;
 	VkImageView vk_image_view;
+	bool owns_image_view;
 };
 
 struct rtvk_ir_sampler {
@@ -291,9 +292,15 @@ struct rtvk_lowered_resource_job {
 	struct rtvk_lowered_resource_job* next;
 };
 
+struct rtvk_lowered_image_view {
+	VkImageView vk_image_view;
+	struct rtvk_lowered_image_view* next;
+};
+
 struct rtvk_lowered_command_buffer {
 	struct rtvk_lowered_resource_job* resource_jobs;
 	struct rtvk_lowered_staging_buffer* staging_buffers;
+	struct rtvk_lowered_image_view* image_views;
 	VkCommandBuffer vk_command_buffer;
 	VkDescriptorPool vk_descriptor_pool;
 	VkCommandPool vk_command_pool;

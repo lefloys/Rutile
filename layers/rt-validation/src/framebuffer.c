@@ -2,7 +2,7 @@
 #include "logger.h"
 #include "texture_view.h"
 
-#define RTVAL_DROP(message) rtval_printf("[validation] %s, dropping call\n", message)
+#define RTVAL_DROP(message) rtval_fail(message)
 
 /*===============================================================================================*/
 /*                                                                                               */
@@ -91,6 +91,9 @@ void rtval_framebuffer_destroy(struct rtval_framebuffer* framebuffer) {
 	}
 	if (framebuffer_state->owns_backend) {
 		rtval_next_rtFramebufferDestroy(framebuffer_state->backend);
+		if (!rtval_report_error("rtFramebufferDestroy")) {
+			return;
+		}
 	}
 	rtval_handle_destroy(framebuffer);
 }
@@ -107,7 +110,14 @@ rt_texture_view rtval_framebuffer_color_view(struct rtval_framebuffer* framebuff
 	}
 	rt_texture_view result = rtval_next_rtFramebufferColorView(framebuffer_state->backend, location);
 	rtval_report_error("rtFramebufferColorView");
-	return result;
+	if (!result) {
+		return RT_NULL_HANDLE;
+	}
+	rt_texture_view view = rtval_handle_find_by_backend(RTVAL_HANDLE_TYPE_TEXTURE_VIEW, result);
+	if (!view) {
+		RTVAL_DROP("rtFramebufferColorView: attachment is not a validation texture view");
+	}
+	return view;
 }
 
 void rtval_framebuffer_set_color_view(struct rtval_framebuffer* framebuffer, struct rtval_texture_view* view, rt_location location) {
