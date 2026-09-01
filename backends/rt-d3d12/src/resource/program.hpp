@@ -116,6 +116,7 @@ struct rt_program_t : rtd3d12_resource<rt_program_t> {
 	rt::blend_op alpha_blend_op;
 	DXGI_FORMAT d3d_pipeline_format;
 	DXGI_FORMAT d3d_pipeline_depth_format;
+	D3D_PRIMITIVE_TOPOLOGY d3d_primitive_topology;
 
 	rt::location locations[256];
 	std::array<std::optional<rtd3d12_program_input_mapping>, 256> input_mappings;

@@ -176,10 +176,15 @@ void rtgl_command_buffer_begin_rendering(struct rtgl_command_buffer* command_buf
 void rtgl_command_buffer_clear_color(struct rtgl_command_buffer* command_buffer, struct rt_location_t* location, f32 r, f32 g, f32 b, f32 a) {
 	struct rtgl_program* program = rtgl_location_program(location);
 	struct rtgl_program_mapping* mapping = rtgl_program_mapping(program, location);
-	if (!command_buffer || !mapping || mapping->kind != RTGL_LOCATION_MAPPING_OUTPUT || mapping->binding >= RTGL_MAX_FRAMEBUFFER_COLOR_ATTACHMENTS) {
+	if (!command_buffer) {
 		return;
 	}
-	const usize color_index = mapping->binding;
+	/* A null location addresses the primary color attachment, consistently with
+	 * the Vulkan and D3D12 backends. */
+	const usize color_index = mapping ? mapping->binding : 0;
+	if (mapping && (mapping->kind != RTGL_LOCATION_MAPPING_OUTPUT || color_index >= RTGL_MAX_FRAMEBUFFER_COLOR_ATTACHMENTS)) {
+		return;
+	}
 	command_buffer->clear_colors[color_index][0] = r;
 	command_buffer->clear_colors[color_index][1] = g;
 	command_buffer->clear_colors[color_index][2] = b;
@@ -1357,6 +1362,9 @@ void rtgl_command_buffer_execute(struct rtgl_context* ctx, struct rtgl_command_b
 			if (!program || !program->gl_program)
 				break;
 			glUseProgram(program->gl_program);
+			if (program->tessellated) {
+				glPatchParameteri(GL_PATCH_VERTICES, (GLint)program->patch_vertices);
+			}
 			if (program->cull_mode == RT_CULL_NONE)
 				glDisable(GL_CULL_FACE);
 			else {
@@ -1480,7 +1488,7 @@ void rtgl_command_buffer_execute(struct rtgl_context* ctx, struct rtgl_command_b
 				glCreateVertexArrays(1, &vao);
 				rtgl_bind_vertex_layout(ctx, program, vertex_storages, vertex_offsets, vao);
 				glBindVertexArray(vao);
-				glDrawArrays(GL_TRIANGLES, (GLint)command->data.draw.first_vertex, (GLsizei)command->data.draw.vertex_count);
+				glDrawArrays(program->tessellated ? GL_PATCHES : GL_TRIANGLES, (GLint)command->data.draw.first_vertex, (GLsizei)command->data.draw.vertex_count);
 				glBindVertexArray(0);
 				glDeleteVertexArrays(1, &vao);
 			}
@@ -1491,7 +1499,7 @@ void rtgl_command_buffer_execute(struct rtgl_context* ctx, struct rtgl_command_b
 				glCreateVertexArrays(1, &vao);
 				rtgl_bind_vertex_layout(ctx, program, vertex_storages, vertex_offsets, vao);
 				glBindVertexArray(vao);
-				glDrawArraysInstancedBaseInstance(GL_TRIANGLES, (GLint)command->data.draw_instanced.first_vertex, (GLsizei)command->data.draw_instanced.vertex_count, (GLsizei)command->data.draw_instanced.instance_count, command->data.draw_instanced.first_instance);
+				glDrawArraysInstancedBaseInstance(program->tessellated ? GL_PATCHES : GL_TRIANGLES, (GLint)command->data.draw_instanced.first_vertex, (GLsizei)command->data.draw_instanced.vertex_count, (GLsizei)command->data.draw_instanced.instance_count, command->data.draw_instanced.first_instance);
 				glBindVertexArray(0);
 				glDeleteVertexArrays(1, &vao);
 			}
@@ -1512,9 +1520,9 @@ void rtgl_command_buffer_execute(struct rtgl_context* ctx, struct rtgl_command_b
 				glBindVertexArray(vao);
 				const void* indices = (const void*)(uintptr_t)(index_offset + (usize)first_index * index_size);
 				if (instanced) {
-					glDrawElementsInstancedBaseVertexBaseInstance(GL_TRIANGLES, (GLsizei)index_count, type, indices, (GLsizei)command->data.draw_indexed_instanced.instance_count, vertex_offset, command->data.draw_indexed_instanced.first_instance);
+					glDrawElementsInstancedBaseVertexBaseInstance(program->tessellated ? GL_PATCHES : GL_TRIANGLES, (GLsizei)index_count, type, indices, (GLsizei)command->data.draw_indexed_instanced.instance_count, vertex_offset, command->data.draw_indexed_instanced.first_instance);
 				} else {
-					glDrawElementsBaseVertex(GL_TRIANGLES, (GLsizei)index_count, type, indices, vertex_offset);
+					glDrawElementsBaseVertex(program->tessellated ? GL_PATCHES : GL_TRIANGLES, (GLsizei)index_count, type, indices, vertex_offset);
 				}
 				glBindVertexArray(0);
 				glDeleteVertexArrays(1, &vao);

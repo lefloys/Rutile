@@ -57,6 +57,7 @@ RTVK_API int rt_spirv_validate(const uint32_t* words, size_t word_count, char* m
 RTVK_API void rt_spirv_program_destroy(rt_spirv_program* program);
 RTVK_API const uint32_t* rt_spirv_stage_words(const rt_spirv_program* program, rt_spirv_stage stage, size_t* word_count);
 RTVK_API const char* rt_spirv_stage_entry_point(const rt_spirv_program* program, rt_spirv_stage stage);
+RTVK_API uint32_t rt_spirv_program_tessellation_control_points(const rt_spirv_program* program);
 RTVK_API uint32_t rt_spirv_location_count(const rt_spirv_program* program);
 RTVK_API int rt_spirv_location(const rt_spirv_program* program, uint32_t index, rt_spirv_location_info* location);
 

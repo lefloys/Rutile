@@ -45,6 +45,7 @@ struct rt_swapchain_t : rtd3d12_resource<rt_swapchain_t> {
 	usize height{};
 	usize current_image_index{};
 	DXGI_FORMAT dxgi_format{};
+	DXGI_FORMAT rtv_format{};
 	u32 rtv_descriptor_size{};
 	bool frame_acquired{};
 	bool vsync{};

@@ -1,3 +1,5 @@
+
+
 struct ControlPoint {
 	vec2 position;
 };
@@ -27,3 +29,5 @@ fn main(const isoline_patch<ControlPoint>& curve, tessellation<equal>) -> Vertex
 fn main(Vertex vertex) -> vec4 {
 	return vec4(1.0, 0.8, 0.2, 1.0);
 }
+
+

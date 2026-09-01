@@ -1,0 +1,17 @@
+struct ControlPoint {
+	vec2 position;
+};
+
+struct Vertex : Position {
+	fn Vertex(ControlPoint point) : Position(vec3(point.position, 0.0)) {}
+};
+
+@stage : vertex
+fn main(ControlPoint point) -> Vertex {
+	return Vertex(point);
+}
+
+@stage : fragment
+fn main(Vertex vertex) -> vec4 {
+	return vec4(0.2, 0.75, 1.0, 1.0);
+}

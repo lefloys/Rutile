@@ -462,6 +462,7 @@ static void rtvk_context_create_device(struct rtvk_context* ctx) {
 	VkPhysicalDeviceFeatures features = { 0 };
 	features.shaderInt64 = supported_features.shaderInt64;
 	features.samplerAnisotropy = supported_features.samplerAnisotropy;
+	features.tessellationShader = supported_features.tessellationShader;
 
 	VkDeviceCreateInfo device_info = { VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
 	device_info.pNext = &features12;

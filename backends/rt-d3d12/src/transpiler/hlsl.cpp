@@ -30,10 +30,8 @@ std::string typeName(const rtsl::ir::Module& module, rtsl::ir::TypeId id, Error&
 		return element.empty() ? std::string{} : element + std::to_string(type->element_count);
 	}
 	case rtsl::ir::TypeKind::type_matrix: {
-		const rtsl::ir::Type* column = module.findType(type->element_type);
-		if (!column || column->kind != rtsl::ir::TypeKind::type_vector) { error = {"type", "matrix column is not a vector"}; return {}; }
-		std::string element = typeName(module, column->element_type, error);
-		return element.empty() ? std::string{} : element + std::to_string(column->element_count) + "x" + std::to_string(type->element_count);
+		std::string element = typeName(module, type->element_type, error);
+		return element.empty() ? std::string{} : element + std::to_string(type->element_count) + "x" + std::to_string(type->element_count);
 	}
 	case rtsl::ir::TypeKind::type_structure: {
 		std::string name = hlslIdentifier(module.strings.get(type->name));
@@ -93,7 +91,9 @@ public:
 		for (const auto& function : module.functions) {
 			const bool is_entry = std::ranges::any_of(module.entry_points,
 				[&](const rtsl::ir::EntryPoint& candidate) { return candidate.function == function.id; });
-			if (!function.declaration && !is_entry && !emitFunction(out, function)) return false;
+			const bool is_direct_entry = function.id == entry.function &&
+				(entry.stage == rtsl::ir::Stage::stage_vertex || entry.stage == rtsl::ir::Stage::stage_fragment);
+			if (!function.declaration && (!is_entry || is_direct_entry) && !emitFunction(out, function)) return false;
 		}
 		const auto* function = module.findFunction(entry.function);
 		if (!function) return fail("entry", "entry point references an unknown function");
@@ -226,9 +226,10 @@ private:
 		if (!configuration) return fail("entry", "tessellation-evaluation configuration is missing");
 		const auto* element = patchElement(function); if (!element) return false;
 		const std::string element_name = typeName(module, element->id, error); if (element_name.empty()) return false;
+		const std::string result_name = typeName(module, function.return_type, error); if (result_name.empty()) return false;
 		if (!emitTessellationFactorType(out, *configuration)) return false;
 		const std::string input = valueName(function.parameters[0].value);
-		out << "[domain(\"" << tessellationDomain(*configuration) << "\")]\n" << element_name << " main(rtsl_tessellation_factors rtsl_factors, float2 rtsl_domain_location : SV_DomainLocation, OutputPatch<" << element_name << ", " << *count << "> " << input << ") {\n";
+		out << "[domain(\"" << tessellationDomain(*configuration) << "\")]\n" << result_name << " main(rtsl_tessellation_factors rtsl_factors, float2 rtsl_domain_location : SV_DomainLocation, OutputPatch<" << element_name << ", " << *count << "> " << input << ") {\n";
 		entry_patch_parameter = function.parameters[0].value; entry_patch_name = input; entry_coordinate_name = configuration->domain == rtsl::ir::TessellationDomain::tessellation_domain_isolines ? "rtsl_domain_location.x" : "rtsl_domain_location";
 		suppress_returns = false;
 		if (!emitEntryFunctionBody(out, function, 1)) return false;
@@ -266,12 +267,16 @@ private:
 		const std::string name(module.strings.get(type.name)); if (name.empty()) return fail("type", "anonymous structure cannot be emitted to HLSL");
 		out << "struct " << name << " {\n";
 		std::uint32_t texcoord = 0;
-		for (const auto& member : type.members) {
+		for (std::size_t index = 0; index < type.members.size(); ++index) {
+			const auto& member = type.members[index];
 			const std::string member_type = typeName(module, member.type, error);
 			const std::string member_name = hlslIdentifier(module.strings.get(member.name));
 			if (member_type.empty()) return false;
 			out << "  " << member_type << " " << member_name;
-			if (member_name == "position" && member_type == "float4") out << " : SV_Position";
+			const bool is_position = std::ranges::any_of(type.builtin_members, [index](const rtsl::ir::BuiltinMember& builtin) {
+				return builtin.builtin == rtsl::ir::Builtin::builtin_position && !builtin.member_path.empty() && builtin.member_path.front() == index;
+			});
+			if (is_position) out << " : SV_Position";
 			else out << " : TEXCOORD" << texcoord++;
 			out << ";\n";
 		}
@@ -303,12 +308,23 @@ private:
 		auto then_it = blocks.find(term.successors[0].block.value()), else_it = blocks.find(term.successors[1].block.value()), merge_it = blocks.find(block.merge.merge_block.value());
 		if (then_it == blocks.end() || else_it == blocks.end() || merge_it == blocks.end()) return fail("terminator", "selection references an unknown block");
 		const auto& merge = *merge_it->second;
-		for (const auto& argument : merge.arguments) { const std::string type = typeName(module, argument.type, error); if (type.empty()) return false; out << pad << type << " " << valueName(argument.value) << ";\n"; }
+		const bool else_is_merge = else_it->second->id == merge.id;
+		if (else_is_merge && term.successors[1].arguments.size() != merge.arguments.size()) return fail("terminator", "selection merge arguments are malformed");
+		for (std::size_t index = 0; index < merge.arguments.size(); ++index) {
+			const std::string type = typeName(module, merge.arguments[index].type, error);
+			if (type.empty()) return false;
+			out << pad << type << " " << valueName(merge.arguments[index].value);
+			if (else_is_merge) out << " = " << valueName(term.successors[1].arguments[index]);
+			out << ";\n";
+		}
 		out << pad << "if (" << valueName(term.operands[0]) << ") {\n";
 		if (!emitSelectionArm(out, *then_it->second, merge, blocks, value_types, indent + 1)) return false;
-		out << pad << "} else {\n";
-		if (!emitSelectionArm(out, *else_it->second, merge, blocks, value_types, indent + 1)) return false;
-		out << pad << "}\n";
+		if (else_is_merge) out << pad << "}\n";
+		else {
+			out << pad << "} else {\n";
+			if (!emitSelectionArm(out, *else_it->second, merge, blocks, value_types, indent + 1)) return false;
+			out << pad << "}\n";
+		}
 		return emitBlock(out, merge, blocks, value_types, indent);
 	}
 	bool emitSelectionArm(std::ostringstream& out, const rtsl::ir::Block& arm, const rtsl::ir::Block& merge, const std::unordered_map<std::uint32_t, const rtsl::ir::Block*>& blocks, const std::unordered_map<std::uint32_t, rtsl::ir::TypeId>& value_types, int indent) {
@@ -316,10 +332,34 @@ private:
 		for (const auto& instruction : arm.instructions) if (!emitInstruction(out, instruction, value_types, pad)) return false;
 		if (!arm.terminator) return fail("terminator", "selection arm has no terminator");
 		const auto& term = *arm.terminator;
+		if (term.kind == rtsl::ir::TerminatorKind::terminator_return) {
+			if (!suppress_returns) out << pad << "return;\n";
+			return true;
+		}
+		if (term.kind == rtsl::ir::TerminatorKind::terminator_return_value && term.operands.size() == 1) {
+			if (!suppress_returns) out << pad << "return " << valueName(term.operands[0]) << ";\n";
+			return true;
+		}
 		if (term.kind == rtsl::ir::TerminatorKind::terminator_branch && term.successors.size() == 1 && term.successors[0].block == merge.id) {
 			if (term.successors[0].arguments.size() != merge.arguments.size()) return fail("terminator", "selection merge arguments are malformed");
 			for (std::size_t index = 0; index < merge.arguments.size(); ++index) out << pad << valueName(merge.arguments[index].value) << " = " << valueName(term.successors[0].arguments[index]) << ";\n";
 			return true;
+		}
+		if (term.kind == rtsl::ir::TerminatorKind::terminator_conditional_branch && term.operands.size() == 1 && term.successors.size() == 2 && arm.merge.kind == rtsl::ir::MergeKind::merge_selection) {
+			auto then_it = blocks.find(term.successors[0].block.value()), else_it = blocks.find(term.successors[1].block.value()), inner_merge_it = blocks.find(arm.merge.merge_block.value());
+			if (then_it == blocks.end() || else_it == blocks.end() || inner_merge_it == blocks.end()) return fail("terminator", "nested selection references an unknown block");
+			const auto& inner_merge = *inner_merge_it->second;
+			for (const auto& argument : inner_merge.arguments) {
+				const std::string type = typeName(module, argument.type, error);
+				if (type.empty()) return false;
+				out << pad << type << " " << valueName(argument.value) << ";\n";
+			}
+			out << pad << "if (" << valueName(term.operands[0]) << ") {\n";
+			if (!emitSelectionArm(out, *then_it->second, inner_merge, blocks, value_types, indent + 1)) return false;
+			out << pad << "} else {\n";
+			if (!emitSelectionArm(out, *else_it->second, inner_merge, blocks, value_types, indent + 1)) return false;
+			out << pad << "}\n";
+			return emitSelectionArm(out, inner_merge, merge, blocks, value_types, indent);
 		}
 		return fail("terminator", "nested or non-structured selection arm is not supported by the D3D12 HLSL translator");
 	}
@@ -328,6 +368,13 @@ private:
 		const std::string type = resultless ? std::string{} : typeName(module, ins.type, error);
 		if (type.empty() && ins.opcode != rtsl::ir::Opcode::opcode_store && ins.opcode != rtsl::ir::Opcode::opcode_emit && ins.opcode != rtsl::ir::Opcode::opcode_end_primitive) return false;
 		auto binary = [&](const char* op) { if (ins.operands.size() != 2) return fail("instruction", "binary instruction has invalid operand count"); out << pad << type << " " << valueName(ins.result) << " = " << valueName(ins.operands[0]) << " " << op << " " << valueName(ins.operands[1]) << ";\n"; return true; };
+		auto valueType = [&](rtsl::ir::ValueId value) {
+			auto found = value_types.find(value.value());
+			if (found == value_types.end()) return static_cast<const rtsl::ir::Type*>(nullptr);
+			const rtsl::ir::Type* value_type = module.findType(found->second);
+			while (value_type && value_type->kind == rtsl::ir::TypeKind::type_pointer) value_type = module.findType(value_type->element_type);
+			return value_type;
+		};
 		switch (ins.opcode) {
 		case rtsl::ir::Opcode::opcode_constant_boolean: out << pad << type << " " << valueName(ins.result) << " = " << (ins.immediates.empty() || !ins.immediates[0] ? "false" : "true") << ";\n"; return true;
 		case rtsl::ir::Opcode::opcode_constant_integer: if (ins.immediates.empty()) return fail("instruction", "integer constant has no literal"); out << pad << type << " " << valueName(ins.result) << " = " << ins.immediates[0] << ";\n"; return true;
@@ -359,7 +406,19 @@ private:
 			if (loaded && loaded->kind == rtsl::ir::TypeKind::type_patch && !entry_patch_name.empty()) return true;
 			return fail("instruction", "D3D12 HLSL translator only supports loading the entry patch");
 		}
-		case rtsl::ir::Opcode::opcode_add: return binary("+"); case rtsl::ir::Opcode::opcode_subtract: return binary("-"); case rtsl::ir::Opcode::opcode_multiply: return binary("*"); case rtsl::ir::Opcode::opcode_divide: return binary("/");
+		case rtsl::ir::Opcode::opcode_add: return binary("+"); case rtsl::ir::Opcode::opcode_subtract: return binary("-");
+		case rtsl::ir::Opcode::opcode_multiply: {
+			if (ins.operands.size() != 2) return fail("instruction", "multiply instruction has invalid operand count");
+			const rtsl::ir::Type* left = valueType(ins.operands[0]);
+			const rtsl::ir::Type* right = valueType(ins.operands[1]);
+			const bool matrix_product = left && right &&
+				((left->kind == rtsl::ir::TypeKind::type_matrix && (right->kind == rtsl::ir::TypeKind::type_matrix || right->kind == rtsl::ir::TypeKind::type_vector)) ||
+				 (left->kind == rtsl::ir::TypeKind::type_vector && right->kind == rtsl::ir::TypeKind::type_matrix));
+			if (!matrix_product) return binary("*");
+			out << pad << type << " " << valueName(ins.result) << " = mul(" << valueName(ins.operands[0]) << ", " << valueName(ins.operands[1]) << ");\n";
+			return true;
+		}
+		case rtsl::ir::Opcode::opcode_divide: return binary("/");
 		case rtsl::ir::Opcode::opcode_remainder: return binary("%");
 		case rtsl::ir::Opcode::opcode_compare_equal: return binary("==");
 		case rtsl::ir::Opcode::opcode_compare_not_equal: return binary("!=");
@@ -397,6 +456,11 @@ private:
 			if (base->kind == rtsl::ir::TypeKind::type_structure && !ins.immediates.empty()) {
 				const auto member = static_cast<rtsl::ir::StringId>(ins.immediates[0]);
 				out << "." << hlslIdentifier(module.strings.get(member));
+			} else if (base->kind == rtsl::ir::TypeKind::type_vector && ins.immediates.size() == 1) {
+				const std::string_view component = module.strings.get(static_cast<rtsl::ir::StringId>(ins.immediates[0]));
+				if (component.size() != 1 || std::string_view{"xyzw"}.find(component[0]) == std::string_view::npos)
+					return fail("instruction", "vector access has an invalid component '" + std::string(component) + "'");
+				out << "." << component;
 			} else if (ins.immediates.empty() && ins.operands.size() == 2) out << "[" << valueName(ins.operands[1]) << "]";
 			else return fail("instruction", "access form is unsupported");
 			out << ";\n"; return true;

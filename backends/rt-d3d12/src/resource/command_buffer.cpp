@@ -1356,7 +1356,7 @@ void rtd3d12_lower_use_program(rtd3d12_context* ctx, rtd3d12_command_lower_state
 
 	command_list->SetGraphicsRootSignature(state->program->d3d_root_signature);
 	command_list->SetPipelineState(state->program->d3d_pipeline);
-	command_list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	command_list->IASetPrimitiveTopology(state->program->d3d_primitive_topology);
 	for (usize index = 0; index < state->pending_buffer_count; ++index) {
 		rtd3d12_lower_bind_buffer(ctx, state, command_list, &state->pending_buffers[index]);
 	}

@@ -12,6 +12,8 @@ enable_testing()
 
 set(RUTILE_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 
+# The examples embed RTSL program artifacts through the rtslc target.
+set(RTSL_BUILD_CLI ON)
 add_subdirectory("RTSL" EXCLUDE_FROM_ALL)
 
 add_library(rutile STATIC

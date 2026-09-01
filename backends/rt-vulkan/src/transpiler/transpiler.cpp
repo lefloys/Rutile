@@ -31,6 +31,7 @@ struct rt_spirv_owned_location {
 struct rt_spirv_program {
 	rt_spirv_stage_binary stages[RT_SPIRV_STAGE_COUNT];
 	std::vector<rt_spirv_owned_location> locations;
+	std::uint32_t tessellation_control_points{};
 };
 
 namespace rutile::spirv {
@@ -354,6 +355,7 @@ private:
 		std::string name;
 		std::string contract;
 		std::uint32_t variable{};
+		bool builtin_position{};
 		bool omitted{};
 	};
 
@@ -378,7 +380,7 @@ private:
 		return {};
 	}
 
-	void collectLeaves(std::uint32_t parameter_index, rtsl::ir::TypeId type_id, std::string name_value, std::vector<std::uint32_t>& path,
+	void collectLeaves(std::uint32_t parameter_index, rtsl::ir::TypeId root_type, rtsl::ir::TypeId type_id, std::string name_value, std::vector<std::uint32_t>& path,
 		std::vector<InterfaceLeaf>& leaves) {
 		const rtsl::ir::Type* type = module.findType(type_id);
 		if (type && type->kind == rtsl::ir::TypeKind::type_structure) {
@@ -386,13 +388,20 @@ private:
 				const rtsl::ir::StructMember& member = type->members[index];
 				std::string member_name(module.strings.get(member.name));
 				path.push_back(index);
-				collectLeaves(parameter_index, member.type, member_name.empty() ? name_value : member_name, path, leaves);
+				collectLeaves(parameter_index, root_type, member.type, member_name.empty() ? name_value : member_name, path, leaves);
 				path.pop_back();
 			}
 			return;
 		}
 		InterfaceLeaf leaf{.parameter_index = parameter_index, .path = path, .type = type_id, .name = name_value};
-		if (!path.empty() && name_value == "position") leaf.contract = "clip";
+		if (const rtsl::ir::Type* root = module.findType(root_type)) {
+			for (const rtsl::ir::BuiltinMember& builtin : root->builtin_members) {
+				if (builtin.builtin == rtsl::ir::Builtin::builtin_position && std::ranges::equal(builtin.member_path, path)) {
+					leaf.builtin_position = true;
+					break;
+				}
+			}
+		}
 		if (const std::string contract = parameterContract(parameter_index, path); !contract.empty()) leaf.contract = contract;
 		leaves.push_back(leaf);
 	}
@@ -400,8 +409,11 @@ private:
 	void createInterfaceVariables(std::vector<InterfaceLeaf>& leaves, bool output) {
 		std::uint32_t location{};
 		for (InterfaceLeaf& leaf : leaves) {
-			const bool clip = leaf.contract == "clip";
-			if (!output && entry.stage == rtsl::ir::Stage::stage_fragment && clip) {
+			const bool raster_position = output && leaf.builtin_position &&
+				(entry.stage == rtsl::ir::Stage::stage_vertex ||
+					entry.stage == rtsl::ir::Stage::stage_tessellation_evaluation ||
+					entry.stage == rtsl::ir::Stage::stage_geometry);
+			if (!output && entry.stage == rtsl::ir::Stage::stage_fragment && leaf.builtin_position) {
 				leaf.omitted = true;
 				continue;
 			}
@@ -409,7 +421,7 @@ private:
 			const std::uint32_t storage_class = output ? 3u : 1u;
 			instruction(59, {pointerType(storage_class, typeFor(leaf.type)), leaf.variable, storage_class});
 			name(leaf.variable, std::string(output ? "out_" : "in_") + leaf.name);
-			if (output && entry.stage == rtsl::ir::Stage::stage_vertex && clip)
+			if (raster_position)
 				instruction(71, {leaf.variable, 11, 0});
 			else instruction(71, {leaf.variable, 30, location++});
 			if (leaf.contract == "flat") instruction(71, {leaf.variable, 14});
@@ -422,12 +434,12 @@ private:
 		std::vector<std::uint32_t> path;
 		for (std::uint32_t index = 0; index < function.parameters.size(); ++index)
 			if (!patchType(function.parameters[index].type))
-				collectLeaves(index, function.parameters[index].type, "value", path, input_leaves);
+				collectLeaves(index, function.parameters[index].type, function.parameters[index].type, "value", path, input_leaves);
 		// A scalar or vector fragment return is the unnamed color output.  It has
 		// a physical SPIR-V location but deliberately no public Rutile location.
 		// Structure members keep their member names as public output names.
 		if (entry.stage != rtsl::ir::Stage::stage_tessellation_control)
-			collectLeaves(0, function.return_type, "", path, output_leaves);
+			collectLeaves(0, function.return_type, function.return_type, "", path, output_leaves);
 		createInterfaceVariables(input_leaves, false);
 		createInterfaceVariables(output_leaves, true);
 	}
@@ -481,7 +493,7 @@ private:
 		const std::uint32_t variable = id();
 		instruction(59, {pointerType(3, typeArray(typeFor(function.return_type), control_points)), variable, 3});
 		name(variable, "out_patch");
-		instruction(71, {variable, 30, location});
+		instruction(71, {variable, 30, 0});
 		interface_ids.push_back(variable);
 		patch_output_variable = variable;
 	}
@@ -490,7 +502,8 @@ private:
 		const std::uint32_t variable = id();
 		instruction(59, {pointerType(3, typeArray(typeFloat(), 4)), variable, 3});
 		name(variable, "gl_TessLevelOuter");
-		instruction(71, {variable, 11, 12});
+		instruction(71, {variable, 11, 11});
+		instruction(71, {variable, 15});
 		interface_ids.push_back(variable);
 		tessellation_outer_levels = variable;
 	}
@@ -1487,6 +1500,22 @@ rt_spirv_status rt_spirv_transpile(const uint8_t* bytes, size_t byte_size, const
 		auto result = new rt_spirv_program;
 		for (const rtsl::ir::EntryPoint* entry : selected_entries) {
 			const rt_spirv_stage output_stage = rutile::spirv::stage(entry->stage);
+			if (entry->stage == rtsl::ir::Stage::stage_tessellation_control) {
+				const rtsl::ir::EntryAttribute* invocations = nullptr;
+				for (const rtsl::ir::EntryAttribute& attribute : entry->attributes) {
+					if (module.strings.get(attribute.name) != "invocations") continue;
+					if (invocations) throw std::runtime_error("tessellation-control entry has multiple invocations attributes");
+					invocations = &attribute;
+				}
+				if (!invocations || invocations->tokens.size() != 1)
+					throw std::runtime_error("tessellation-control entry requires @invocations : N");
+				const std::string_view spelling = module.strings.get(invocations->tokens.front());
+				std::uint32_t count{};
+				const auto [end, error] = std::from_chars(spelling.data(), spelling.data() + spelling.size(), count);
+				if (error != std::errc{} || end != spelling.data() + spelling.size() || count == 0)
+					throw std::runtime_error("tessellation-control @invocations must contain one non-zero unsigned integer");
+				result->tessellation_control_points = count;
+			}
 			result->stages[output_stage].words = rutile::spirv::ModuleBuilder(module, *entry).build();
 			if (!rt_spirv_validate(
 					result->stages[output_stage].words.data(),
@@ -1524,6 +1553,10 @@ const uint32_t* rt_spirv_stage_words(const rt_spirv_program* program, rt_spirv_s
 
 const char* rt_spirv_stage_entry_point(const rt_spirv_program* program, rt_spirv_stage stage) {
 	return program && stage < RT_SPIRV_STAGE_COUNT && !program->stages[stage].entry_point.empty() ? program->stages[stage].entry_point.c_str() : nullptr;
+}
+
+uint32_t rt_spirv_program_tessellation_control_points(const rt_spirv_program* program) {
+	return program ? program->tessellation_control_points : 0;
 }
 
 uint32_t rt_spirv_location_count(const rt_spirv_program* program) { return program ? static_cast<uint32_t>(program->locations.size()) : 0; }

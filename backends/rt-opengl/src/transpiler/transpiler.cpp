@@ -378,6 +378,7 @@ private:
 		std::string name;
 		std::string contract;
 		std::uint32_t variable{};
+		bool builtin_position{};
 		bool omitted{};
 	};
 
@@ -402,7 +403,7 @@ private:
 		return {};
 	}
 
-	void collectLeaves(std::uint32_t parameter_index, rtsl::ir::TypeId type_id, std::string name_value, std::vector<std::uint32_t>& path,
+	void collectLeaves(std::uint32_t parameter_index, rtsl::ir::TypeId root_type, rtsl::ir::TypeId type_id, std::string name_value, std::vector<std::uint32_t>& path,
 		std::vector<InterfaceLeaf>& leaves) {
 		const rtsl::ir::Type* type = module.findType(type_id);
 		if (type && type->kind == rtsl::ir::TypeKind::type_structure) {
@@ -410,13 +411,20 @@ private:
 				const rtsl::ir::StructMember& member = type->members[index];
 				std::string member_name(module.strings.get(member.name));
 				path.push_back(index);
-				collectLeaves(parameter_index, member.type, member_name.empty() ? name_value : member_name, path, leaves);
+				collectLeaves(parameter_index, root_type, member.type, member_name.empty() ? name_value : member_name, path, leaves);
 				path.pop_back();
 			}
 			return;
 		}
 		InterfaceLeaf leaf{.parameter_index = parameter_index, .path = path, .type = type_id, .name = name_value};
-		if (!path.empty() && name_value == "position") leaf.contract = "clip";
+		if (const rtsl::ir::Type* root = module.findType(root_type)) {
+			for (const rtsl::ir::BuiltinMember& builtin : root->builtin_members) {
+				if (builtin.builtin == rtsl::ir::Builtin::builtin_position && std::ranges::equal(builtin.member_path, path)) {
+					leaf.builtin_position = true;
+					break;
+				}
+			}
+		}
 		if (const std::string contract = parameterContract(parameter_index, path); !contract.empty()) leaf.contract = contract;
 		leaves.push_back(leaf);
 	}
@@ -424,8 +432,11 @@ private:
 	void createInterfaceVariables(std::vector<InterfaceLeaf>& leaves, bool output) {
 		std::uint32_t location{};
 		for (InterfaceLeaf& leaf : leaves) {
-			const bool clip = leaf.contract == "clip";
-			if (!output && entry.stage == rtsl::ir::Stage::stage_fragment && clip) {
+			const bool raster_position = output && leaf.builtin_position &&
+				(entry.stage == rtsl::ir::Stage::stage_vertex ||
+					entry.stage == rtsl::ir::Stage::stage_tessellation_evaluation ||
+					entry.stage == rtsl::ir::Stage::stage_geometry);
+			if (!output && entry.stage == rtsl::ir::Stage::stage_fragment && leaf.builtin_position) {
 				leaf.omitted = true;
 				continue;
 			}
@@ -433,7 +444,7 @@ private:
 			const std::uint32_t storage_class = output ? 3u : 1u;
 			instruction(59, {pointerType(storage_class, typeFor(leaf.type)), leaf.variable, storage_class});
 			name(leaf.variable, std::string(output ? "out_" : "in_") + leaf.name);
-			if (output && entry.stage == rtsl::ir::Stage::stage_vertex && clip)
+			if (raster_position)
 				instruction(71, {leaf.variable, 11, 0});
 			else instruction(71, {leaf.variable, 30, location++});
 			if (leaf.contract == "flat") instruction(71, {leaf.variable, 14});
@@ -464,15 +475,15 @@ private:
 		std::vector<std::uint32_t> path;
 		for (std::uint32_t index = 0; index < function.parameters.size(); ++index) {
 			if (const rtsl::ir::Type* patch = patchType(function.parameters[index].type))
-				collectLeaves(index, patch->element_type, "value", path, patch_input_leaves);
-			else collectLeaves(index, function.parameters[index].type, "value", path, input_leaves);
+				collectLeaves(index, patch->element_type, patch->element_type, "value", path, patch_input_leaves);
+			else collectLeaves(index, function.parameters[index].type, function.parameters[index].type, "value", path, input_leaves);
 		}
 		// A scalar or vector fragment return is the unnamed color output.  It has
 		// a physical SPIR-V location but deliberately no public Rutile location.
 		// Structure members keep their member names as public output names.
 		if (entry.stage == rtsl::ir::Stage::stage_tessellation_control)
-			collectLeaves(0, function.return_type, "", path, patch_output_leaves);
-		else collectLeaves(0, function.return_type, "", path, output_leaves);
+			collectLeaves(0, function.return_type, function.return_type, "", path, patch_output_leaves);
+		else collectLeaves(0, function.return_type, function.return_type, "", path, output_leaves);
 		createInterfaceVariables(input_leaves, false);
 		if (!patch_input_leaves.empty()) createPatchInterfaceVariables(patch_input_leaves, false, 32);
 		if (!patch_output_leaves.empty()) createPatchInterfaceVariables(patch_output_leaves, true, tessellationControlInvocations());

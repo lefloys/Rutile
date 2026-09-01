@@ -76,6 +76,8 @@ struct rtgl_program {
 	enum rt_blend_factor src_alpha_blend;
 	enum rt_blend_factor dst_alpha_blend;
 	enum rt_blend_op alpha_blend_op;
+	bool tessellated;
+	u32 patch_vertices;
 };
 RTGL_DECLARE_NEW_RESOURCE(program)
 

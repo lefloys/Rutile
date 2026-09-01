@@ -3,7 +3,9 @@
 #include "error.hpp"
 #include "transpiler/hlsl.hpp"
 
+#include <algorithm>
 #include <cassert>
+#include <charconv>
 #include <cstddef>
 #include <climits>
 #include <cstring>
@@ -101,6 +103,7 @@ rt_program_t::rt_program_t(rtd3d12_context* context)
 	  alpha_blend_op(rt::blend_op::add),
 	  d3d_pipeline_format(DXGI_FORMAT_UNKNOWN),
 	  d3d_pipeline_depth_format(DXGI_FORMAT_UNKNOWN),
+	  d3d_primitive_topology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST),
 	  locations{},
 	  input_mappings{},
 	  output_mappings{},
@@ -434,6 +437,28 @@ static D3D12_BLEND_OP rtd3d12_blend_op(rt::blend_op operation) {
 	}
 }
 
+static std::optional<D3D_PRIMITIVE_TOPOLOGY> rtd3d12_tessellation_primitive_topology(
+	const rtsl::ir::Module& module,
+	const rtsl::ir::EntryPoint& entry
+) {
+	for (const rtsl::ir::EntryAttribute& attribute : entry.attributes) {
+		if (module.strings.get(attribute.name) != "invocations" || attribute.tokens.size() != 1) {
+			continue;
+		}
+		const std::string_view token = module.strings.get(attribute.tokens.front());
+		u32 control_point_count = 0;
+		const auto [end, result] = std::from_chars(token.data(), token.data() + token.size(), control_point_count);
+		if (result != std::errc{} || end != token.data() + token.size() || control_point_count == 0 || control_point_count > 32) {
+			rtd3d12_fail(rt::error::shader_link_failed, "tessellation-control @invocations must be one unsigned integer in the D3D12 range [1, 32]");
+			return std::nullopt;
+		}
+		return static_cast<D3D_PRIMITIVE_TOPOLOGY>(
+			static_cast<unsigned>(D3D_PRIMITIVE_TOPOLOGY_1_CONTROL_POINT_PATCHLIST) + control_point_count - 1);
+	}
+	rtd3d12_fail(rt::error::shader_link_failed, "tessellation-control entry requires @invocations : N");
+	return std::nullopt;
+}
+
 bool rt_program_t::prepare(
 	DXGI_FORMAT color_format,
 	DXGI_FORMAT depth_format
@@ -515,7 +540,9 @@ bool rt_program_t::prepare(
 	desc.DepthStencilState.StencilReadMask = D3D12_DEFAULT_STENCIL_READ_MASK;
 	desc.DepthStencilState.StencilWriteMask = D3D12_DEFAULT_STENCIL_WRITE_MASK;
 	desc.InputLayout = { elements.data(), static_cast<UINT>(elements.size()) };
-	desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+	desc.PrimitiveTopologyType = d3d_primitive_topology >= D3D_PRIMITIVE_TOPOLOGY_1_CONTROL_POINT_PATCHLIST
+		? D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH
+		: D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
 	desc.NumRenderTargets = 1;
 	desc.RTVFormats[0] = color_format;
 	desc.DSVFormat = depth_format;
@@ -635,9 +662,25 @@ bool compile_hlsl(std::string_view source, std::string_view entry_point, const w
 		if (compiler) compiler->Release();
 		return false;
 	}
+	HRESULT compile_status = E_FAIL;
+	status = result->GetStatus(&compile_status);
+	if (FAILED(status) || FAILED(compile_status)) {
+		IDxcBlobUtf8* diagnostics = nullptr;
+		std::string message = "DXC rejected the generated HLSL";
+		if (SUCCEEDED(result->GetOutput(DXC_OUT_ERRORS, IID_PPV_ARGS(&diagnostics), nullptr)) && diagnostics) {
+			const std::string_view text{ diagnostics->GetStringPointer(), diagnostics->GetStringLength() };
+			if (!text.empty()) message.assign(text);
+			diagnostics->Release();
+		}
+		rtd3d12_fail(rt::error::shader_link_failed, "{}", message);
+		result->Release();
+		compiler->Release();
+		return false;
+	}
 	status = result->GetOutput(DXC_OUT_OBJECT, IID_PPV_ARGS(&object), nullptr);
-	if (FAILED(status) || !object) {
+	if (FAILED(status) || !object || object->GetBufferSize() == 0) {
 		rtd3d12_fail(rt::error::shader_link_failed, "DXC rejected the generated HLSL");
+		if (object) object->Release();
 		if (result) result->Release();
 		if (compiler) compiler->Release();
 		return false;
@@ -678,12 +721,19 @@ void rt_program_t::finalize() {
 	};
 
 	std::vector<rtd3d12_program_shader> shaders;
+	const rtsl::ir::EntryPoint* tessellation_control = nullptr;
+	const rtsl::ir::EntryPoint* tessellation_evaluation = nullptr;
 	for (const auto& config : stage_configs) {
 		const rtsl::ir::EntryPoint* entry = nullptr;
 		for (const rtsl::ir::EntryPoint& candidate : rtsl_artifact->module.entry_points)
 			if (candidate.stage == config.stage && rtsl_artifact->module.strings.get(candidate.source_name) == entry_point) { entry = &candidate; break; }
 		if (!entry) {
 			continue;
+		}
+		if (config.stage == rtsl::ir::Stage::stage_tessellation_control) {
+			tessellation_control = entry;
+		} else if (config.stage == rtsl::ir::Stage::stage_tessellation_evaluation) {
+			tessellation_evaluation = entry;
 		}
 		rtd3d12::hlsl::Error error;
 		auto translation = rtd3d12::hlsl::transpile(rtsl_artifact->module, *entry, error);
@@ -700,6 +750,46 @@ void rt_program_t::finalize() {
 	if (shaders.empty()) {
 		rtd3d12_fail(rt::error::shader_link_failed, "RTSL program does not expose entry point '{}' in a D3D12-supported stage", entry_point.c_str());
 		return;
+	}
+	if (tessellation_control || tessellation_evaluation) {
+		if (!tessellation_control || !tessellation_evaluation) {
+			rtd3d12_fail(rt::error::shader_link_failed, "D3D12 tessellation requires both tessellation-control and tessellation-evaluation entries");
+			return;
+		}
+		const bool has_vertex = std::any_of(shaders.begin(), shaders.end(), [](const rtd3d12_program_shader& shader) {
+			return shader.stage == rtsl::ir::Stage::stage_vertex;
+		});
+		if (!has_vertex) {
+			const rtsl::ir::EntryPoint* synthesized_vertex = nullptr;
+			for (const rtsl::ir::EntryPoint& candidate : rtsl_artifact->module.entry_points) {
+				if (candidate.stage != rtsl::ir::Stage::stage_vertex) continue;
+				if (synthesized_vertex) {
+					rtd3d12_fail(rt::error::shader_link_failed, "tessellation entry has no unambiguous linked vertex stage");
+					return;
+				}
+				synthesized_vertex = &candidate;
+			}
+			if (!synthesized_vertex) {
+				rtd3d12_fail(rt::error::shader_link_failed, "tessellation entry has no linked vertex stage");
+				return;
+			}
+			rtd3d12::hlsl::Error error;
+			auto translation = rtd3d12::hlsl::transpile(rtsl_artifact->module, *synthesized_vertex, error);
+			if (!translation) {
+				rtd3d12_fail(rt::error::shader_link_failed, "RTSL to HLSL failed in linked vertex stage: {}", error.message.c_str());
+				return;
+			}
+			rtd3d12_program_shader shader = { .stage = rtsl::ir::Stage::stage_vertex };
+			if (!rtd3d12_program_detail::compile_hlsl(translation->source, translation->entry_point, L"vs_6_0", shader.bytecode)) return;
+			shaders.push_back(std::move(shader));
+		}
+		const std::optional<D3D_PRIMITIVE_TOPOLOGY> topology = rtd3d12_tessellation_primitive_topology(rtsl_artifact->module, *tessellation_control);
+		if (!topology) {
+			return;
+		}
+		d3d_primitive_topology = *topology;
+	} else {
+		d3d_primitive_topology = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 	}
 
 	destroy_root_signature();

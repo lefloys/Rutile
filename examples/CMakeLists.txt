@@ -3,7 +3,7 @@ find_package(glm CONFIG REQUIRED)
 find_package(CLI11 CONFIG REQUIRED)
 find_package(Stb REQUIRED)
 
-set(RUTILE_EXAMPLE_RUNTIMES "rt-vulkan" CACHE STRING "Runtime backends built and deployed with examples")
+set(RUTILE_EXAMPLE_RUNTIMES "rt-vulkan;rt-d3d12;rt-opengl" CACHE STRING "Runtime backends built and deployed with examples")
 
 function(rutile_embed_program target symbol source)
     get_filename_component(module_name "${source}" NAME_WE)
@@ -77,6 +77,7 @@ add_subdirectory("02-spinning-cube")
 add_subdirectory("03-plasma-lab")
 add_subdirectory("04-galaxy")
 add_subdirectory("05-voxel-renderer")
+add_subdirectory("06-tessellation")
 add_subdirectory("06-rt-debug-software")
 
 set_property(GLOBAL APPEND PROPERTY RUTILE_EXAMPLE_TARGETS
@@ -85,5 +86,6 @@ set_property(GLOBAL APPEND PROPERTY RUTILE_EXAMPLE_TARGETS
     "rutile-03-plasma-lab"
     "rutile-04-galaxy"
     "rutile-05-voxel-renderer"
+    "rutile-06-tessellation"
     "rutile-06-rt-debug-software"
 )

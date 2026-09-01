@@ -123,6 +123,7 @@ struct rtvk_program {
 	u32 shader_count;
 	u32 shader_capacity;
 	u32 location_count;
+	u32 tessellation_control_points;
 };
 RTVK_DECLARE_NEW_RESOURCE(program)
 

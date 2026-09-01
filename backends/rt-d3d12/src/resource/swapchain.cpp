@@ -193,7 +193,10 @@ rtd3d12_presentation::~rtd3d12_presentation() {
 
 void rtd3d12_swapchain_init(struct rtd3d12_context* ctx, struct rt_swapchain_t* swapchain) {
 	(void)ctx;
+	/* Flip-model swapchains require an UNORM resource format. Its compatible
+	 * sRGB RTV makes the default presentation target encode linear shader output. */
 	swapchain->dxgi_format = DXGI_FORMAT_B8G8R8A8_UNORM;
+	swapchain->rtv_format = DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
 	swapchain->vsync = false;
 }
 
@@ -346,7 +349,7 @@ bool rtd3d12_swapchain_create_framebuffers(struct rtd3d12_context* ctx, struct r
 		}
 
 		D3D12_RENDER_TARGET_VIEW_DESC rtv_info = {};
-		rtv_info.Format = swapchain->dxgi_format;
+		rtv_info.Format = swapchain->rtv_format;
 		rtv_info.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
 		rtv_info.Texture2D.MipSlice = 0;
 		rtv_info.Texture2D.PlaneSlice = 0;

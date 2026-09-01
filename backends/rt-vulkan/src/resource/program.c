@@ -181,6 +181,7 @@ static void rtvk_program_clear_shaders(struct rtvk_context* ctx, struct rtvk_pro
 	program->shaders = NULL;
 	program->shader_count = 0;
 	program->shader_capacity = 0;
+	program->tessellation_control_points = 0;
 }
 
 void rtvk_program_destroy_pipeline(struct rtvk_context* ctx, struct rtvk_program* program) {
@@ -476,8 +477,13 @@ static VkPipeline rtvk_program_create_pipeline(struct rtvk_context* ctx, struct 
 	}
 
 	VkPipelineInputAssemblyStateCreateInfo input_assembly_info = { VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO };
-	input_assembly_info.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+	input_assembly_info.topology = program->tessellation_control_points
+		? VK_PRIMITIVE_TOPOLOGY_PATCH_LIST
+		: VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 	input_assembly_info.primitiveRestartEnable = VK_FALSE;
+
+	VkPipelineTessellationStateCreateInfo tessellation_info = { VK_STRUCTURE_TYPE_PIPELINE_TESSELLATION_STATE_CREATE_INFO };
+	tessellation_info.patchControlPoints = program->tessellation_control_points;
 
 	VkViewport viewport = { 0 };
 	VkRect2D scissor = { 0 };
@@ -553,7 +559,7 @@ static VkPipeline rtvk_program_create_pipeline(struct rtvk_context* ctx, struct 
 	pipeline_info.pStages = stages;
 	pipeline_info.pVertexInputState = &vertex_input_info;
 	pipeline_info.pInputAssemblyState = &input_assembly_info;
-	pipeline_info.pTessellationState = NULL;
+	pipeline_info.pTessellationState = program->tessellation_control_points ? &tessellation_info : NULL;
 	pipeline_info.pViewportState = &viewport_info;
 	pipeline_info.pRasterizationState = &raster_info;
 	pipeline_info.pMultisampleState = &multisample_info;
@@ -1159,6 +1165,7 @@ void rtvk_program_finalize(struct rtvk_context* ctx, struct rtvk_program* progra
 		rtvk_throwf(RT_SHADER_LINK_FAILED, "RTSL translation contains no shader entry points");
 		goto cleanup;
 	}
+	program->tessellation_control_points = rt_spirv_program_tessellation_control_points(translation);
 
 	if (!rtvk_program_build_locations(program, translation)) {
 		goto cleanup;
