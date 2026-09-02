@@ -1,0 +1,42 @@
+
+
+
+struct Point {
+	vec2 position;
+	vec4 color;
+};
+
+struct Vertex : Position {
+	vec4 color;
+
+	fn Vertex(vec2 point, vec4 value) {
+		position = vec4(point, 0.0, 1.0);
+		color = value;
+	}
+};
+
+@stage : vertex
+fn main(Point point) -> Vertex {
+	return Vertex(point.position, point.color);
+}
+
+@stage : geometry
+fn main(triangle<Vertex> input) -> triangle_strip<Vertex, 8> {
+	var vec2 shadow_offset = vec2(0.11, -0.12);
+	var vec4 shadow_color = vec4(0.02, 0.03, 0.06, 1.0);
+
+	// Emit a generated drop shadow, then the original triangle. The repeated
+	// vertices are degenerate triangle-strip joins, not additional faces.
+	emit Vertex(input[0].xy() + shadow_offset, shadow_color);
+	emit Vertex(input[1].xy() + shadow_offset, shadow_color);
+	emit Vertex(input[2].xy() + shadow_offset, shadow_color);
+	emit end;
+	emit input[0];
+	emit input[1];
+	emit input[2];
+}
+
+@stage : fragment
+fn main(Vertex vertex) -> vec4 {
+	return vertex.color;
+}

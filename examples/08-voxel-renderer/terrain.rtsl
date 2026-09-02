@@ -45,6 +45,7 @@ fn masked_edge_pixel(vec2 uv, f32 mask) -> bool {
 }
 
 fn masked_corner_pixel(vec2 uv, f32 mask) -> bool {
+	var vec2<f32> as;	
 	return
 		(uv.x < 0.125 && uv.y < 0.125 && mask_bit(mask, 1.0)) ||
 		(uv.x >= 0.875 && uv.y < 0.125 && mask_bit(mask, 2.0)) ||

@@ -37,6 +37,7 @@ RTGL_API void rtCmdDraw(rt_command_buffer command_buffer, usize vertex_count, us
 RTGL_API void rtCmdDrawInstanced(rt_command_buffer command_buffer, usize vertex_count, usize instance_count, usize first_vertex, usize first_instance);
 RTGL_API void rtCmdDrawIndexed(rt_command_buffer command_buffer, usize index_count, usize first_index, usize vertex_offset);
 RTGL_API void rtCmdDrawIndexedInstanced(rt_command_buffer command_buffer, usize index_count, usize instance_count, usize first_index, usize vertex_offset, usize first_instance);
+RTGL_API void rtCmdDispatch(rt_command_buffer command_buffer, usize group_count_x, usize group_count_y, usize group_count_z);
 RTGL_API void rtCmdEndRendering(rt_command_buffer command_buffer);
 RTGL_API void rtCmdBufferData(rt_command_buffer command_buffer, rt_buffer buffer, rt_buffer_range range, const u08* data);
 RTGL_API void rtCmdBufferCopy(rt_command_buffer command_buffer, rt_buffer src, rt_buffer_range src_range, rt_buffer dst, rt_buffer_range dst_range);
@@ -69,6 +70,7 @@ typedef enum rtgl_recorded_command_kind {
 	RTGL_RECORDED_COMMAND_DRAW_INSTANCED,
 	RTGL_RECORDED_COMMAND_DRAW_INDEXED,
 	RTGL_RECORDED_COMMAND_DRAW_INDEXED_INSTANCED,
+	RTGL_RECORDED_COMMAND_DISPATCH,
 	RTGL_RECORDED_COMMAND_END_RENDERING,
 	RTGL_RECORDED_COMMAND_BUFFER_DATA,
 	RTGL_RECORDED_COMMAND_BUFFER_COPY,
@@ -182,6 +184,11 @@ typedef struct rtgl_recorded_command {
 			usize vertex_offset;
 			usize first_instance;
 		} draw_indexed_instanced;
+		struct {
+			usize group_count_x;
+			usize group_count_y;
+			usize group_count_z;
+		} dispatch;
 		struct {
 			struct rtgl_buffer_storage* storage;
 			struct rtgl_buffer_storage* copy_source;

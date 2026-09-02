@@ -52,6 +52,13 @@ u32 FramebufferHeight = 720;
 f32 MouseDx = 0.0f;
 f32 MouseDy = 0.0f;
 
+bool report_error(const char* operation) {
+	if (rtError() == RT_SUCCESS) return true;
+	std::cerr << operation << ": " << rtErrorMessage() << '\n';
+	rtClearError();
+	return false;
+}
+
 glm::vec3 camera_forward(const Camera& camera) {
 	const f32 cp = glm::cos(camera.pitch);
 	return glm::normalize(glm::vec3(glm::cos(camera.yaw) * cp, glm::sin(camera.pitch), glm::sin(camera.yaw) * cp));
@@ -142,7 +149,7 @@ int main(int argc, char** argv) {
 	glfwInit();
 
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-	const std::string window_title = "Rutile 05 Voxel Renderer - " + options.backend;
+	const std::string window_title = "Rutile 08 Voxel Renderer - " + options.backend;
 	GLFWwindow* window = glfwCreateWindow(1280, 720, window_title.c_str(), nullptr, nullptr);
 
 	glfwSetFramebufferSizeCallback(window, framebuffer_resized);
@@ -188,6 +195,7 @@ int main(int argc, char** argv) {
 	rtProgramSource(program, "main", terrain_rtslp.data, terrain_rtslp.size);
 	rtProgramSetRasterState(program, RT_CULL_BACK, RT_FRONT_FACE_CCW, RT_FILL_SOLID);
 	rtProgramFinalize(program);
+	if (!report_error("terrain rtProgramFinalize")) return 1;
 	rt_location transform_location = rtProgramUniformLocation(program, "scene");
 	rt_location vertex_location = rtProgramInputLocation(program, VertexAttributes, 7);
 
@@ -197,6 +205,7 @@ int main(int argc, char** argv) {
 	rtProgramSetRasterState(water_program, RT_CULL_BACK, RT_FRONT_FACE_CCW, RT_FILL_SOLID);
 	rtProgramSetBlendState(water_program, true, RT_BLEND_SRC_ALPHA, RT_BLEND_ONE_MINUS_SRC_ALPHA, RT_BLEND_OP_ADD, RT_BLEND_ONE, RT_BLEND_ONE_MINUS_SRC_ALPHA, RT_BLEND_OP_ADD);
 	rtProgramFinalize(water_program);
+	if (!report_error("water rtProgramFinalize")) return 1;
 	rt_location water_transform_location = rtProgramUniformLocation(water_program, "scene");
 	rt_location water_vertex_location = rtProgramInputLocation(water_program, VertexAttributes, 7);
 
@@ -279,7 +288,7 @@ int main(int argc, char** argv) {
 		if (fps_delta.count() >= 0.5f) {
 			char title[96];
 			const f32 fps = (f32)fps_frames / fps_delta.count();
-			std::snprintf(title, sizeof(title), "Rutile 05 Voxel Renderer - %.0f FPS", fps);
+			std::snprintf(title, sizeof(title), "Rutile 08 Voxel Renderer - %.0f FPS", fps);
 			glfwSetWindowTitle(window, title);
 			fps_time = fps_now;
 			fps_frames = 0;

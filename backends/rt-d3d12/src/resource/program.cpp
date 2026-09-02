@@ -5,7 +5,6 @@
 
 #include <algorithm>
 #include <cassert>
-#include <charconv>
 #include <cstddef>
 #include <climits>
 #include <cstring>
@@ -104,6 +103,7 @@ rt_program_t::rt_program_t(rtd3d12_context* context)
 	  d3d_pipeline_format(DXGI_FORMAT_UNKNOWN),
 	  d3d_pipeline_depth_format(DXGI_FORMAT_UNKNOWN),
 	  d3d_primitive_topology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST),
+	  d3d_compute_pipeline(false),
 	  locations{},
 	  input_mappings{},
 	  output_mappings{},
@@ -120,6 +120,7 @@ void rt_program_t::destroy_pipeline() {
 	}
 	d3d_pipeline_format = DXGI_FORMAT_UNKNOWN;
 	d3d_pipeline_depth_format = DXGI_FORMAT_UNKNOWN;
+	d3d_compute_pipeline = false;
 }
 
 void rt_program_t::destroy_root_signature() {
@@ -202,6 +203,47 @@ static std::optional<u32> rtd3d12_type_byte_size(const rtsl::ir::Module& module,
 	}
 	default:
 		return std::nullopt;
+	}
+}
+
+struct rtd3d12_storage_layout { u32 alignment; u32 size; };
+
+static std::optional<rtd3d12_storage_layout> rtd3d12_storage_type_layout(const rtsl::ir::Module& module, rtsl::ir::TypeId type_id) {
+	const rtsl::ir::Type* type = module.findType(type_id);
+	if (!type) return std::nullopt;
+	switch (type->kind) {
+	case rtsl::ir::TypeKind::type_boolean:
+	case rtsl::ir::TypeKind::type_signed_integer:
+	case rtsl::ir::TypeKind::type_unsigned_integer:
+	case rtsl::ir::TypeKind::type_floating: return rtd3d12_storage_layout{4, 4};
+	case rtsl::ir::TypeKind::type_vector: {
+		auto element = rtd3d12_storage_type_layout(module, type->element_type);
+		if (!element) return std::nullopt;
+		if (type->element_count == 2) return rtd3d12_storage_layout{8, element->size * 2};
+		if (type->element_count == 3 || type->element_count == 4) return rtd3d12_storage_layout{16, 16};
+		return std::nullopt;
+	}
+	case rtsl::ir::TypeKind::type_matrix: return rtd3d12_storage_layout{16, 16 * type->element_count};
+	case rtsl::ir::TypeKind::type_array: {
+		auto element = rtd3d12_storage_type_layout(module, type->element_type);
+		if (!element) return std::nullopt;
+		const u32 stride = (element->size + 15u) & ~u32(15u);
+		return rtd3d12_storage_layout{16, stride * type->element_count};
+	}
+	case rtsl::ir::TypeKind::type_structure: {
+		u32 alignment = 16;
+		u32 offset{};
+		for (const rtsl::ir::StructMember& member : type->members) {
+			auto layout = rtd3d12_storage_type_layout(module, member.type);
+			if (!layout) return std::nullopt;
+			alignment = (std::max)(alignment, layout->alignment);
+			offset = (offset + layout->alignment - 1u) / layout->alignment * layout->alignment;
+			offset += layout->size;
+		}
+		offset = (offset + alignment - 1u) / alignment * alignment;
+		return rtd3d12_storage_layout{alignment, offset};
+	}
+	default: return std::nullopt;
 	}
 }
 
@@ -319,6 +361,53 @@ static bool rtd3d12_program_create_root_signature(rtd3d12_context* ctx, rt_progr
 		rt::location* location = program->allocate_location();
 		if (!location) return false;
 		program->descriptor_mappings[location->address] = std::move(mapping);
+	}
+	/* Plain RTSL `storage` declarations share one raw UAV.  Their locations
+	 * address members of that block and are written with rtCmdStorageData. */
+	std::vector<const rtsl::ir::StorageObject*> storage_objects;
+	for (const rtsl::ir::StorageObject& object : module.storage_objects)
+		if (object.address_space == rtsl::ir::AddressSpace::address_space_storage) storage_objects.push_back(&object);
+	if (!storage_objects.empty()) {
+		D3D12_DESCRIPTOR_RANGE range = {};
+		range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+		range.NumDescriptors = 1;
+		range.BaseShaderRegister = 0;
+		range.RegisterSpace = 0;
+		range.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+		ranges.push_back(range);
+		D3D12_ROOT_PARAMETER parameter = {};
+		parameter.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+		parameter.DescriptorTable.NumDescriptorRanges = 1;
+		parameter.DescriptorTable.pDescriptorRanges = &ranges.back();
+		parameter.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+		const u32 root_parameter = static_cast<u32>(parameters.size());
+		parameters.push_back(parameter);
+
+		usize block_size{};
+		std::vector<usize> offsets;
+		offsets.reserve(storage_objects.size());
+		for (const rtsl::ir::StorageObject* object : storage_objects) {
+			const auto layout = rtd3d12_storage_type_layout(module, object->type);
+			if (!layout || !layout->size) {
+				rtd3d12_fail(rt::error::shader_link_failed, "cannot reflect RTSL storage object into D3D12 storage data");
+				return false;
+			}
+			block_size = (block_size + layout->alignment - 1u) / layout->alignment * layout->alignment;
+			offsets.push_back(block_size);
+			block_size += layout->size;
+		}
+		block_size = (block_size + 15u) & ~usize(15u);
+		for (usize index = 0; index < storage_objects.size(); ++index) {
+			const rtsl::ir::StorageObject& object = *storage_objects[index];
+			const rtsl::ir::Symbol* symbol = module.findSymbol(object.symbol);
+			const auto layout = rtd3d12_storage_type_layout(module, object.type);
+			if (!symbol || !layout) return false;
+			rt::location* location = program->allocate_location();
+			if (!location) return false;
+			program->storage_data_mappings[location->address] = rtd3d12_program_data_mapping{
+				.name = std::string(module.strings.get(symbol->fully_qualified_name)), .binding = 0,
+				.root_parameter = root_parameter, .byte_offset = offsets[index], .byte_size = layout->size, .block_size = block_size};
+		}
 	}
 	for (usize index = 0; index < program->vertex_layout.input_count; index++) {
 		rt::location* location = program->allocate_location();
@@ -438,25 +527,15 @@ static D3D12_BLEND_OP rtd3d12_blend_op(rt::blend_op operation) {
 }
 
 static std::optional<D3D_PRIMITIVE_TOPOLOGY> rtd3d12_tessellation_primitive_topology(
-	const rtsl::ir::Module& module,
 	const rtsl::ir::EntryPoint& entry
 ) {
-	for (const rtsl::ir::EntryAttribute& attribute : entry.attributes) {
-		if (module.strings.get(attribute.name) != "invocations" || attribute.tokens.size() != 1) {
-			continue;
-		}
-		const std::string_view token = module.strings.get(attribute.tokens.front());
-		u32 control_point_count = 0;
-		const auto [end, result] = std::from_chars(token.data(), token.data() + token.size(), control_point_count);
-		if (result != std::errc{} || end != token.data() + token.size() || control_point_count == 0 || control_point_count > 32) {
-			rtd3d12_fail(rt::error::shader_link_failed, "tessellation-control @invocations must be one unsigned integer in the D3D12 range [1, 32]");
-			return std::nullopt;
-		}
-		return static_cast<D3D_PRIMITIVE_TOPOLOGY>(
-			static_cast<unsigned>(D3D_PRIMITIVE_TOPOLOGY_1_CONTROL_POINT_PATCHLIST) + control_point_count - 1);
+	const auto* configuration = std::get_if<rtsl::ir::TessellationControlConfiguration>(&entry.configuration);
+	if (!configuration || configuration->output_control_points == 0 || configuration->output_control_points > 32) {
+		rtd3d12_fail(rt::error::shader_link_failed, "tessellation-control RTIR output_control_points must be in the D3D12 range [1, 32]");
+		return std::nullopt;
 	}
-	rtd3d12_fail(rt::error::shader_link_failed, "tessellation-control entry requires @invocations : N");
-	return std::nullopt;
+	return static_cast<D3D_PRIMITIVE_TOPOLOGY>(
+		static_cast<unsigned>(D3D_PRIMITIVE_TOPOLOGY_1_CONTROL_POINT_PATCHLIST) + configuration->output_control_points - 1);
 }
 
 bool rt_program_t::prepare(
@@ -465,6 +544,10 @@ bool rt_program_t::prepare(
 ) {
 	if (!d3d_root_signature) {
 		rtd3d12_fail(rt::error::improper_usage, "program must be finalized before use");
+		return false;
+	}
+	if (d3d_compute_pipeline) {
+		rtd3d12_fail(rt::error::improper_usage, "compute program cannot be used in a rendering scope");
 		return false;
 	}
 	if (d3d_pipeline && d3d_pipeline_format == color_format && d3d_pipeline_depth_format == depth_format) {
@@ -718,11 +801,13 @@ void rt_program_t::finalize() {
 		{ rtsl::ir::Stage::stage_tessellation_evaluation, L"ds_6_0" },
 		{ rtsl::ir::Stage::stage_geometry, L"gs_6_0" },
 		{ rtsl::ir::Stage::stage_fragment, L"ps_6_0" },
+		{ rtsl::ir::Stage::stage_compute, L"cs_6_0" },
 	};
 
 	std::vector<rtd3d12_program_shader> shaders;
 	const rtsl::ir::EntryPoint* tessellation_control = nullptr;
 	const rtsl::ir::EntryPoint* tessellation_evaluation = nullptr;
+	bool compute = false;
 	for (const auto& config : stage_configs) {
 		const rtsl::ir::EntryPoint* entry = nullptr;
 		for (const rtsl::ir::EntryPoint& candidate : rtsl_artifact->module.entry_points)
@@ -734,6 +819,8 @@ void rt_program_t::finalize() {
 			tessellation_control = entry;
 		} else if (config.stage == rtsl::ir::Stage::stage_tessellation_evaluation) {
 			tessellation_evaluation = entry;
+		} else if (config.stage == rtsl::ir::Stage::stage_compute) {
+			compute = true;
 		}
 		rtd3d12::hlsl::Error error;
 		auto translation = rtd3d12::hlsl::transpile(rtsl_artifact->module, *entry, error);
@@ -749,6 +836,10 @@ void rt_program_t::finalize() {
 	}
 	if (shaders.empty()) {
 		rtd3d12_fail(rt::error::shader_link_failed, "RTSL program does not expose entry point '{}' in a D3D12-supported stage", entry_point.c_str());
+		return;
+	}
+	if (compute && shaders.size() != 1) {
+		rtd3d12_fail(rt::error::shader_link_failed, "compute entry cannot be combined with graphics shader stages");
 		return;
 	}
 	if (tessellation_control || tessellation_evaluation) {
@@ -783,7 +874,7 @@ void rt_program_t::finalize() {
 			if (!rtd3d12_program_detail::compile_hlsl(translation->source, translation->entry_point, L"vs_6_0", shader.bytecode)) return;
 			shaders.push_back(std::move(shader));
 		}
-		const std::optional<D3D_PRIMITIVE_TOPOLOGY> topology = rtd3d12_tessellation_primitive_topology(rtsl_artifact->module, *tessellation_control);
+		const std::optional<D3D_PRIMITIVE_TOPOLOGY> topology = rtd3d12_tessellation_primitive_topology(*tessellation_control);
 		if (!topology) {
 			return;
 		}
@@ -796,6 +887,18 @@ void rt_program_t::finalize() {
 	this->shaders = std::move(shaders);
 	if (!rtd3d12_program_create_root_signature(ctx, this)) {
 		this->shaders.clear();
+		return;
+	}
+	if (compute) {
+		D3D12_COMPUTE_PIPELINE_STATE_DESC desc = {};
+		desc.pRootSignature = d3d_root_signature;
+		desc.CS = { this->shaders.front().bytecode.data(), this->shaders.front().bytecode.size() };
+		const HRESULT result = ctx->d3d_device->CreateComputePipelineState(&desc, IID_PPV_ARGS(&d3d_pipeline));
+		if (FAILED(result)) {
+			rtd3d12_fail(rtd3d12_error_from_hresult(result), "CreateComputePipelineState failed: 0x{:08x}", static_cast<u32>(result));
+			return;
+		}
+		d3d_compute_pipeline = true;
 	}
 }
 

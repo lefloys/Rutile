@@ -4,7 +4,6 @@
 
 #include <algorithm>
 #include <bit>
-#include <charconv>
 #include <cctype>
 #include <iomanip>
 #include <limits>
@@ -61,12 +60,61 @@ std::string symbolName(const rtsl::ir::Module& module, rtsl::ir::SymbolId symbol
 
 std::string valueName(rtsl::ir::ValueId id) { return "v" + std::to_string(id.value()); }
 
+std::uint32_t roundUp(std::uint32_t value, std::uint32_t alignment) {
+	return (value + alignment - 1u) / alignment * alignment;
+}
+
+struct StorageLayout {
+	std::uint32_t alignment{};
+	std::uint32_t size{};
+};
+
+std::optional<StorageLayout> storageLayout(const rtsl::ir::Module& module, rtsl::ir::TypeId type_id) {
+	const rtsl::ir::Type* type = module.findType(type_id);
+	if (!type) return std::nullopt;
+	switch (type->kind) {
+	case rtsl::ir::TypeKind::type_boolean:
+	case rtsl::ir::TypeKind::type_signed_integer:
+	case rtsl::ir::TypeKind::type_unsigned_integer:
+	case rtsl::ir::TypeKind::type_floating:
+		return StorageLayout{4, 4};
+	case rtsl::ir::TypeKind::type_vector: {
+		auto element = storageLayout(module, type->element_type);
+		if (!element) return std::nullopt;
+		if (type->element_count == 2) return StorageLayout{8, element->size * 2};
+		if (type->element_count == 3 || type->element_count == 4) return StorageLayout{16, 16};
+		return std::nullopt;
+	}
+	case rtsl::ir::TypeKind::type_matrix:
+		return StorageLayout{16, 16 * type->element_count};
+	case rtsl::ir::TypeKind::type_array: {
+		auto element = storageLayout(module, type->element_type);
+		if (!element) return std::nullopt;
+		return StorageLayout{16, roundUp(element->size, 16) * type->element_count};
+	}
+	case rtsl::ir::TypeKind::type_structure: {
+		std::uint32_t alignment = 16;
+		std::uint32_t offset{};
+		for (const rtsl::ir::StructMember& member : type->members) {
+			auto member_layout = storageLayout(module, member.type);
+			if (!member_layout) return std::nullopt;
+			alignment = (std::max)(alignment, member_layout->alignment);
+			offset = roundUp(offset, member_layout->alignment);
+			offset += member_layout->size;
+		}
+		return StorageLayout{alignment, roundUp(offset, alignment)};
+	}
+	default: return std::nullopt;
+	}
+}
+
 class Emitter {
 public:
 	Emitter(const rtsl::ir::Module& module, Error& error) : module(module), error(error) {}
 
 	bool emit(std::ostringstream& out, const rtsl::ir::EntryPoint& entry) {
 		for (const auto& type : module.types) if (type.kind == rtsl::ir::TypeKind::type_structure && !emitStruct(out, type)) return false;
+		if (!prepareStorageObjects()) return false;
 		std::uint32_t next_uniform_binding = 0;
 		for (const auto& resource : module.resources) if (resource.binding && resource.binding->set == 0) next_uniform_binding = (std::max)(next_uniform_binding, resource.binding->binding + 1);
 		for (const auto& resource : module.resources) {
@@ -88,11 +136,14 @@ public:
 			const auto binding = uniform.binding.value_or(rtsl::ir::Binding{.set = 0, .binding = next_uniform_binding++});
 			out << "cbuffer cb_" << name << " : register(b" << binding.binding << ", space" << binding.set << ") { " << type << " " << name << "; };\n";
 		}
+		if (!storage_offsets.empty()) out << "RWByteAddressBuffer rtsl_storage : register(u0, space0);\n";
 		for (const auto& function : module.functions) {
 			const bool is_entry = std::ranges::any_of(module.entry_points,
 				[&](const rtsl::ir::EntryPoint& candidate) { return candidate.function == function.id; });
 			const bool is_direct_entry = function.id == entry.function &&
-				(entry.stage == rtsl::ir::Stage::stage_vertex || entry.stage == rtsl::ir::Stage::stage_fragment);
+				(entry.stage == rtsl::ir::Stage::stage_vertex ||
+					entry.stage == rtsl::ir::Stage::stage_fragment ||
+					entry.stage == rtsl::ir::Stage::stage_compute);
 			if (!function.declaration && (!is_entry || is_direct_entry) && !emitFunction(out, function)) return false;
 		}
 		const auto* function = module.findFunction(entry.function);
@@ -104,6 +155,8 @@ public:
 			return emitTessellationEvaluation(out, entry, *function);
 		if (entry.stage == rtsl::ir::Stage::stage_geometry)
 			return emitGeometry(out, entry, *function);
+		if (entry.stage == rtsl::ir::Stage::stage_compute)
+			return emitCompute(out, entry, *function);
 		if (entry.stage != rtsl::ir::Stage::stage_vertex && entry.stage != rtsl::ir::Stage::stage_fragment)
 			return fail("entry", "D3D12 backend does not support this entry stage");
 		const std::string entry_return_type = typeName(module, function->return_type, error);
@@ -131,6 +184,44 @@ public:
 
 private:
 	bool fail(std::string context, std::string message) { error = {std::move(context), std::move(message)}; return false; }
+	bool prepareStorageObjects() {
+		if (!storage_offsets.empty()) return true;
+		std::uint32_t offset{};
+		for (const rtsl::ir::StorageObject& object : module.storage_objects) {
+			if (object.address_space != rtsl::ir::AddressSpace::address_space_storage) continue;
+			auto layout = storageLayout(module, object.type);
+			if (!layout) return fail("storage", "storage object has an unsupported layout");
+			offset = roundUp(offset, layout->alignment);
+			storage_offsets.emplace(object.symbol.value(), offset);
+			offset += layout->size;
+		}
+		storage_block_size = roundUp(offset, 16);
+		return true;
+	}
+	std::optional<std::string> storageLoad(rtsl::ir::TypeId type_id, std::uint32_t offset) {
+		const rtsl::ir::Type* value_type = module.findType(type_id);
+		if (!value_type) return std::nullopt;
+		auto scalar = [&](std::string_view operation) { return std::string(operation) + "(rtsl_storage.Load(" + std::to_string(offset) + "))"; };
+		switch (value_type->kind) {
+		case rtsl::ir::TypeKind::type_unsigned_integer: return "rtsl_storage.Load(" + std::to_string(offset) + ")";
+		case rtsl::ir::TypeKind::type_signed_integer: return scalar("asint");
+		case rtsl::ir::TypeKind::type_floating: return scalar("asfloat");
+		case rtsl::ir::TypeKind::type_boolean: return "rtsl_storage.Load(" + std::to_string(offset) + ") != 0";
+		case rtsl::ir::TypeKind::type_vector: {
+			if (value_type->element_count < 2 || value_type->element_count > 4) return std::nullopt;
+			const rtsl::ir::Type* element = module.findType(value_type->element_type);
+			if (!element) return std::nullopt;
+			const std::string load = "rtsl_storage.Load" + std::to_string(value_type->element_count) + "(" + std::to_string(offset) + ")";
+			switch (element->kind) {
+			case rtsl::ir::TypeKind::type_unsigned_integer: return load;
+			case rtsl::ir::TypeKind::type_signed_integer: return "asint(" + load + ")";
+			case rtsl::ir::TypeKind::type_floating: return "asfloat(" + load + ")";
+			default: return std::nullopt;
+			}
+		}
+		default: return std::nullopt;
+		}
+	}
 	const rtsl::ir::Type* patchElement(const rtsl::ir::Function& function, std::size_t parameter = 0) {
 		if (function.parameters.size() <= parameter) { fail("entry", "entry point has no patch parameter"); return nullptr; }
 		const auto* patch = module.findType(function.parameters[parameter].type);
@@ -141,17 +232,12 @@ private:
 		return element;
 	}
 	std::optional<std::uint32_t> controlPointCount(const rtsl::ir::EntryPoint& entry) {
-		for (const auto& attribute : entry.attributes) {
-			if (module.strings.get(attribute.name) != "invocations" || attribute.tokens.size() != 1) continue;
-			const std::string_view token = module.strings.get(attribute.tokens.front());
-			std::uint32_t value{};
-			const auto [end, result] = std::from_chars(token.data(), token.data() + token.size(), value);
-			if (result == std::errc{} && end == token.data() + token.size() && value != 0) return value;
-			fail("entry", "@invocations must contain one non-zero unsigned numeric token");
+		const auto* configuration = std::get_if<rtsl::ir::TessellationControlConfiguration>(&entry.configuration);
+		if (!configuration || configuration->output_control_points == 0) {
+			fail("entry", "tessellation-control entry requires a non-zero RTIR output_control_points configuration");
 			return std::nullopt;
 		}
-		fail("entry", "tessellation-control entry requires @invocations : N");
-		return std::nullopt;
+		return configuration->output_control_points;
 	}
 	const rtsl::ir::TessellationEvaluationConfiguration* tessellationEvaluation(const rtsl::ir::EntryPoint& entry) {
 		for (const auto& candidate : module.entry_points) {
@@ -251,6 +337,19 @@ private:
 		if (!emitEntryFunctionBody(out, function, 1)) return false;
 		out << "}\n";
 		clearEntryLowering();
+		return true;
+	}
+	bool emitCompute(std::ostringstream& out, const rtsl::ir::EntryPoint& entry, const rtsl::ir::Function& function) {
+		const auto* configuration = std::get_if<rtsl::ir::ComputeConfiguration>(&entry.configuration);
+		if (!configuration || configuration->workgroup_size[0] == 0 || configuration->workgroup_size[1] == 0 || configuration->workgroup_size[2] == 0)
+			return fail("entry", "compute entry requires a non-zero RTIR workgroup_size configuration");
+		if (!function.parameters.empty())
+			return fail("entry", "D3D12 compute entry parameters are not yet represented by RTIR compute builtins");
+		const auto* return_type = module.findType(function.return_type);
+		if (!return_type || return_type->kind != rtsl::ir::TypeKind::type_void)
+			return fail("entry", "D3D12 compute entry must return void");
+		out << "[numthreads(" << configuration->workgroup_size[0] << ", " << configuration->workgroup_size[1] << ", " << configuration->workgroup_size[2] << ")]\n";
+		out << "void main() { " << symbolName(module, function.symbol) << "(); }\n";
 		return true;
 	}
 	bool emitEntryFunctionBody(std::ostringstream& out, const rtsl::ir::Function& function, int indent) {
@@ -363,10 +462,42 @@ private:
 		}
 		return fail("terminator", "nested or non-structured selection arm is not supported by the D3D12 HLSL translator");
 	}
+	bool isEndPrimitiveCall(const rtsl::ir::Instruction& instruction) const {
+		if (entry_geometry_stream.empty() || instruction.opcode != rtsl::ir::Opcode::opcode_call || instruction.operands.size() != 2) return false;
+		const rtsl::ir::Function* function = module.findFunction(instruction.callee);
+		if (!function || !function->declaration || !function->implicit || function->parameters.size() != 2 || function->return_type != function->parameters[0].type) return false;
+		const rtsl::ir::Type* primitive = module.findType(function->parameters[0].type);
+		const rtsl::ir::Type* marker = module.findType(function->parameters[1].type);
+		return primitive && primitive->kind == rtsl::ir::TypeKind::type_primitive && marker &&
+			marker->kind == rtsl::ir::TypeKind::type_structure && marker->members.empty();
+	}
+	bool isGeometryEmitCall(const rtsl::ir::Instruction& instruction) const {
+		if (entry_geometry_stream.empty() || instruction.opcode != rtsl::ir::Opcode::opcode_call || instruction.operands.size() != 2) return false;
+		const rtsl::ir::Function* function = module.findFunction(instruction.callee);
+		if (!function || !function->declaration || !function->implicit || function->parameters.size() != 2 || function->return_type != function->parameters[0].type) return false;
+		const rtsl::ir::Type* primitive = module.findType(function->parameters[0].type);
+		return primitive && primitive->kind == rtsl::ir::TypeKind::type_primitive &&
+			function->parameters[1].type == primitive->element_type;
+	}
+	bool isPositionXYCall(const rtsl::ir::Instruction& instruction) const {
+		if (instruction.opcode != rtsl::ir::Opcode::opcode_call || instruction.operands.size() != 1) return false;
+		const rtsl::ir::Function* function = module.findFunction(instruction.callee);
+		if (!function || !function->declaration || !function->implicit || function->parameters.size() != 1) return false;
+		const rtsl::ir::Type* result = module.findType(function->return_type);
+		const rtsl::ir::Type* argument = module.findType(function->parameters[0].type);
+		const rtsl::ir::Type* scalar = result ? module.findType(result->element_type) : nullptr;
+		return result && argument && scalar && result->kind == rtsl::ir::TypeKind::type_vector &&
+			argument->kind == rtsl::ir::TypeKind::type_vector && result->element_count == 2 &&
+			argument->element_count == 4 && result->element_type == argument->element_type &&
+			scalar->kind == rtsl::ir::TypeKind::type_floating;
+	}
 	bool emitInstruction(std::ostringstream& out, const rtsl::ir::Instruction& ins, const std::unordered_map<std::uint32_t, rtsl::ir::TypeId>& value_types, std::string_view pad) {
-		const bool resultless = ins.opcode == rtsl::ir::Opcode::opcode_store || ins.opcode == rtsl::ir::Opcode::opcode_emit || ins.opcode == rtsl::ir::Opcode::opcode_end_primitive;
+		const rtsl::ir::Type* instruction_type = module.findType(ins.type);
+		const bool geometry_primitive = !entry_geometry_stream.empty() && instruction_type &&
+			instruction_type->kind == rtsl::ir::TypeKind::type_primitive;
+		const bool resultless = ins.opcode == rtsl::ir::Opcode::opcode_store || geometry_primitive;
 		const std::string type = resultless ? std::string{} : typeName(module, ins.type, error);
-		if (type.empty() && ins.opcode != rtsl::ir::Opcode::opcode_store && ins.opcode != rtsl::ir::Opcode::opcode_emit && ins.opcode != rtsl::ir::Opcode::opcode_end_primitive) return false;
+		if (type.empty() && !resultless) return false;
 		auto binary = [&](const char* op) { if (ins.operands.size() != 2) return fail("instruction", "binary instruction has invalid operand count"); out << pad << type << " " << valueName(ins.result) << " = " << valueName(ins.operands[0]) << " " << op << " " << valueName(ins.operands[1]) << ";\n"; return true; };
 		auto valueType = [&](rtsl::ir::ValueId value) {
 			auto found = value_types.find(value.value());
@@ -389,6 +520,16 @@ private:
 		case rtsl::ir::Opcode::opcode_construct: {
 			const rtsl::ir::Type* constructed = module.findType(ins.type);
 			if (!constructed) return fail("instruction", "construction references an unknown type");
+			// Geometry primitives are RTIR's transient emission accumulator.  They do
+			// not correspond to an HLSL value: constructing one emits its supplied
+			// vertices into the stage stream.
+			if (constructed->kind == rtsl::ir::TypeKind::type_primitive && !entry_geometry_stream.empty()) {
+				if (ins.operands.size() > constructed->element_count)
+					return fail("instruction", "geometry primitive construction exceeds its maximum vertex count");
+				for (const rtsl::ir::ValueId vertex : ins.operands)
+					out << pad << entry_geometry_stream << ".Append(" << valueName(vertex) << ");\n";
+				return true;
+			}
 			if (constructed->kind == rtsl::ir::TypeKind::type_structure) {
 				if (constructed->members.size() != ins.operands.size()) return fail("instruction", "structure construction has the wrong operand count");
 				out << pad << type << " " << valueName(ins.result) << ";\n";
@@ -399,6 +540,12 @@ private:
 			out << pad << type << " " << valueName(ins.result) << " = " << type << "(";
 			for (std::size_t i = 0; i < ins.operands.size(); ++i) { if (i) out << ", "; out << valueName(ins.operands[i]); }
 			out << ");\n";
+			return true;
+		}
+		case rtsl::ir::Opcode::opcode_insert: {
+			if (!geometry_primitive || ins.operands.size() != 2)
+				return fail("instruction", "insert is only supported for a geometry primitive accumulator");
+			out << pad << entry_geometry_stream << ".Append(" << valueName(ins.operands[1]) << ");\n";
 			return true;
 		}
 		case rtsl::ir::Opcode::opcode_load: {
@@ -474,14 +621,35 @@ private:
 			}
 			return fail("instruction", "D3D12 HLSL translator only supports stores to indexed patch outer levels");
 		}
-		case rtsl::ir::Opcode::opcode_emit:
-			if (ins.operands.size() != 1 || entry_geometry_stream.empty()) return fail("instruction", "emit is only supported by a geometry entry");
-			out << pad << entry_geometry_stream << ".Append(" << valueName(ins.operands[0]) << ");\n"; return true;
-		case rtsl::ir::Opcode::opcode_end_primitive:
-			if (!ins.operands.empty() || entry_geometry_stream.empty()) return fail("instruction", "end_primitive is only supported by a geometry entry");
-			out << pad << entry_geometry_stream << ".RestartStrip();\n"; return true;
-		case rtsl::ir::Opcode::opcode_resource_load: { if (ins.immediates.size() != 1) return fail("instruction", "resource load is malformed"); const std::string name = symbolName(module, rtsl::ir::SymbolId{ins.immediates[0]}); if (name.empty()) return fail("instruction", "resource load references an unknown symbol"); out << pad << type << " " << valueName(ins.result) << " = " << name << ";\n"; return true; }
-		case rtsl::ir::Opcode::opcode_call: { const auto* callee = module.findFunction(ins.callee); if (!callee) return fail("instruction", "call references unknown function"); out << pad << type << " " << valueName(ins.result) << " = " << symbolName(module, callee->symbol) << "("; for(std::size_t i=0;i<ins.operands.size();++i) { if(i) out << ", "; out << valueName(ins.operands[i]); } out << ");\n"; return true; }
+		case rtsl::ir::Opcode::opcode_resource_load: {
+			if (ins.immediates.size() != 1) return fail("instruction", "resource load is malformed");
+			const auto storage = storage_offsets.find(ins.immediates[0]);
+			if (storage != storage_offsets.end()) {
+				auto expression = storageLoad(ins.type, storage->second);
+				if (!expression) return fail("instruction", "storage load type is not supported by the D3D12 HLSL translator");
+				out << pad << type << " " << valueName(ins.result) << " = " << *expression << ";\n";
+				return true;
+			}
+			const std::string name = symbolName(module, rtsl::ir::SymbolId{ins.immediates[0]});
+			if (name.empty()) return fail("instruction", "resource load references an unknown symbol");
+			out << pad << type << " " << valueName(ins.result) << " = " << name << ";\n";
+			return true;
+		}
+		case rtsl::ir::Opcode::opcode_call: {
+			if (isEndPrimitiveCall(ins)) {
+				out << pad << entry_geometry_stream << ".RestartStrip();\n";
+				return true;
+			}
+			if (isGeometryEmitCall(ins)) {
+				out << pad << entry_geometry_stream << ".Append(" << valueName(ins.operands[1]) << ");\n";
+				return true;
+			}
+			if (isPositionXYCall(ins)) {
+				out << pad << type << " " << valueName(ins.result) << " = " << valueName(ins.operands[0]) << ".xy;\n";
+				return true;
+			}
+			const auto* callee = module.findFunction(ins.callee); if (!callee) return fail("instruction", "call references unknown function"); out << pad << type << " " << valueName(ins.result) << " = " << symbolName(module, callee->symbol) << "("; for(std::size_t i=0;i<ins.operands.size();++i) { if(i) out << ", "; out << valueName(ins.operands[i]); } out << ");\n"; return true;
+		}
 		default: return fail("instruction", "RTIR opcode is not supported by the D3D12 HLSL translator");
 		}
 	}
@@ -492,6 +660,8 @@ private:
 	std::string entry_coordinate_name;
 	std::string entry_factor_name;
 	std::string entry_geometry_stream;
+	std::unordered_map<std::uint32_t, std::uint32_t> storage_offsets;
+	std::uint32_t storage_block_size{};
 	std::unordered_map<std::uint32_t, std::string> outer_accesses;
 	bool suppress_outer_stores{};
 	bool suppress_returns{};

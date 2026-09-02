@@ -43,6 +43,7 @@ RTD3D12_API void rtCmdDraw(rt_command_buffer_t* command_buffer, usize vertex_cou
 RTD3D12_API void rtCmdDrawInstanced(rt_command_buffer_t* command_buffer, usize vertex_count, usize instance_count, usize first_vertex, usize first_instance);
 RTD3D12_API void rtCmdDrawIndexed(rt_command_buffer_t* command_buffer, usize index_count, usize first_index, usize vertex_offset);
 RTD3D12_API void rtCmdDrawIndexedInstanced(rt_command_buffer_t* command_buffer, usize index_count, usize instance_count, usize first_index, usize vertex_offset, usize first_instance);
+RTD3D12_API void rtCmdDispatch(rt_command_buffer_t* command_buffer, usize group_count_x, usize group_count_y, usize group_count_z);
 RTD3D12_API void rtCmdBufferData(rt_command_buffer_t* command_buffer, rt_buffer_t* buffer, rt::buffer_range range, const u08* data);
 RTD3D12_API void rtCmdBufferCopy(rt_command_buffer_t* command_buffer, rt_buffer_t* src, rt::buffer_range src_range, rt_buffer_t* dst, rt::buffer_range dst_range);
 RTD3D12_API void rtCmdBufferCopyToTexture(rt_command_buffer_t* command_buffer, rt_buffer_t* src, rt::buffer_range src_range, rt_texture_t* dst, rt::texture_range dst_range);
@@ -72,6 +73,7 @@ enum class rtd3d12_command_opcode : u08 {
 	draw_instanced,
 	draw_indexed,
 	draw_indexed_instanced,
+	dispatch,
 	buffer_data,
 	buffer_copy,
 	buffer_copy_to_texture,
@@ -271,6 +273,11 @@ struct rtd3d12_command_lower_state {
 	ID3D12Resource* uniform_resources[256];
 	ID3D12Resource* storage_resources[256];
 };
+struct rtd3d12_ir_dispatch {
+	usize group_count_x;
+	usize group_count_y;
+	usize group_count_z;
+};
 struct rtd3d12_ir_sampler {
 	u08 address;
 	rt_sampler_t* sampler;
@@ -301,6 +308,7 @@ void rtd3d12_command_buffer_draw(rt_command_buffer_t* command_buffer, usize coun
 void rtd3d12_command_buffer_draw_instanced(rt_command_buffer_t* command_buffer, usize count, usize instances, usize first, usize first_instance);
 void rtd3d12_command_buffer_draw_indexed(rt_command_buffer_t* command_buffer, usize count, usize first, usize vertex_offset);
 void rtd3d12_command_buffer_draw_indexed_instanced(rt_command_buffer_t* command_buffer, usize count, usize instances, usize first, usize vertex_offset, usize first_instance);
+void rtd3d12_command_buffer_dispatch(rt_command_buffer_t* command_buffer, usize group_count_x, usize group_count_y, usize group_count_z);
 void rtd3d12_command_buffer_end(rt_command_buffer_t* command_buffer);
 void rtd3d12_command_buffer_buffer_data(rt_command_buffer_t* command_buffer, rt_buffer_t* buffer, rt::buffer_range range, const u08* data);
 void rtd3d12_command_buffer_buffer_copy(rt_command_buffer_t* command_buffer, rt_buffer_t* src, rt::buffer_range src_range, rt_buffer_t* dst, rt::buffer_range dst_range);
@@ -326,6 +334,7 @@ void rtd3d12_lower_draw(ID3D12GraphicsCommandList* command_list, const rtd3d12_i
 void rtd3d12_lower_draw_instanced(ID3D12GraphicsCommandList* command_list, const rtd3d12_ir_draw_instanced* command);
 void rtd3d12_lower_draw_indexed(ID3D12GraphicsCommandList* command_list, const rtd3d12_ir_draw_indexed* command);
 void rtd3d12_lower_draw_indexed_instanced(ID3D12GraphicsCommandList* command_list, const rtd3d12_ir_draw_indexed_instanced* command);
+void rtd3d12_lower_dispatch(ID3D12GraphicsCommandList* command_list, const rtd3d12_ir_dispatch* command);
 void rtd3d12_lower_buffer_data(ID3D12GraphicsCommandList* command_list, const rtd3d12_ir_buffer_data* command);
 void rtd3d12_lower_buffer_copy(ID3D12GraphicsCommandList* command_list, const rtd3d12_ir_buffer_copy* command);
 void rtd3d12_lower_buffer_copy_to_texture(rtd3d12_context* ctx, ID3D12GraphicsCommandList* command_list, rtd3d12_ir_buffer_copy_to_texture* command);

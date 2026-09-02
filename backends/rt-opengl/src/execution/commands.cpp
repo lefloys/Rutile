@@ -273,14 +273,46 @@ static bool rtgl_execution_program_finalize_spirv(struct rtgl_context* exec_ctx,
 	size_t tessellation_control_word_count = 0;
 	size_t tessellation_evaluation_word_count = 0;
 	size_t fragment_word_count = 0;
+	size_t compute_word_count = 0;
 	const u32* vertex_words = rt_spirv_stage_words(translation, RT_SPIRV_VERTEX, &vertex_word_count);
 	const u32* tessellation_control_words = rt_spirv_stage_words(translation, RT_SPIRV_TESSELLATION_CONTROL, &tessellation_control_word_count);
 	const u32* tessellation_evaluation_words = rt_spirv_stage_words(translation, RT_SPIRV_TESSELLATION_EVALUATION, &tessellation_evaluation_word_count);
 	const u32* fragment_words = rt_spirv_stage_words(translation, RT_SPIRV_FRAGMENT, &fragment_word_count);
+	const u32* compute_words = rt_spirv_stage_words(translation, RT_SPIRV_COMPUTE, &compute_word_count);
 	const char* vertex_entry_point = rt_spirv_stage_entry_point(translation, RT_SPIRV_VERTEX);
 	const char* tessellation_control_entry_point = rt_spirv_stage_entry_point(translation, RT_SPIRV_TESSELLATION_CONTROL);
 	const char* tessellation_evaluation_entry_point = rt_spirv_stage_entry_point(translation, RT_SPIRV_TESSELLATION_EVALUATION);
 	const char* fragment_entry_point = rt_spirv_stage_entry_point(translation, RT_SPIRV_FRAGMENT);
+	const char* compute_entry_point = rt_spirv_stage_entry_point(translation, RT_SPIRV_COMPUTE);
+	if (compute_words && compute_word_count) {
+		GLuint compute = rtgl_execution_compile_spirv_shader(GL_COMPUTE_SHADER, compute_entry_point, compute_words, compute_word_count);
+		if (!compute) {
+			rt_spirv_program_destroy(translation);
+			return false;
+		}
+		GLuint gl_program = glCreateProgram();
+		glAttachShader(gl_program, compute);
+		glLinkProgram(gl_program);
+		glDeleteShader(compute);
+		GLint ok = GL_FALSE;
+		glGetProgramiv(gl_program, GL_LINK_STATUS, &ok);
+		if (!ok) {
+			char log[2048] = { 0 };
+			glGetProgramInfoLog(gl_program, sizeof(log), NULL, log);
+			rtgl_throwf(RT_SHADER_LINK_FAILED, "OpenGL SPIR-V compute shader link failed: %s", log);
+			glDeleteProgram(gl_program);
+			rt_spirv_program_destroy(translation);
+			return false;
+		}
+		if (program->gl_program) glDeleteProgram(program->gl_program);
+		program->gl_program = gl_program;
+		program->compute = true;
+		program->tessellated = false;
+		program->patch_vertices = 0;
+		rtgl_program_reflect_spirv(program, translation);
+		rt_spirv_program_destroy(translation);
+		return true;
+	}
 	const bool has_tessellation_control = tessellation_control_words && tessellation_control_word_count;
 	const bool has_tessellation_evaluation = tessellation_evaluation_words && tessellation_evaluation_word_count;
 	if (has_tessellation_control != has_tessellation_evaluation) {
@@ -292,7 +324,7 @@ static bool rtgl_execution_program_finalize_spirv(struct rtgl_context* exec_ctx,
 		? rtgl_spirv_tessellation_control_points(tessellation_control_words, tessellation_control_word_count)
 		: 0;
 	if (has_tessellation_control && !patch_vertices) {
-		rtgl_throwf(RT_SHADER_LINK_FAILED, "OpenGL tessellation control stage is missing @invocations output vertex count");
+		rtgl_throwf(RT_SHADER_LINK_FAILED, "OpenGL tessellation control stage is missing an RTIR output control-point count");
 		rt_spirv_program_destroy(translation);
 		return false;
 	}
@@ -344,6 +376,7 @@ static bool rtgl_execution_program_finalize_spirv(struct rtgl_context* exec_ctx,
 		glDeleteProgram(program->gl_program);
 	}
 	program->gl_program = gl_program;
+	program->compute = false;
 	program->tessellated = has_tessellation_control;
 	program->patch_vertices = patch_vertices;
 	rtgl_program_reflect_spirv(program, translation);

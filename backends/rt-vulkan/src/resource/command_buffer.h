@@ -51,6 +51,7 @@ RTVK_API void rtCmdDraw(rt_command_buffer command_buffer, usize vertex_count, us
 RTVK_API void rtCmdDrawInstanced(rt_command_buffer command_buffer, usize vertex_count, usize instance_count, usize first_vertex, usize first_instance);
 RTVK_API void rtCmdDrawIndexed(rt_command_buffer command_buffer, usize index_count, usize first_index, usize vertex_offset);
 RTVK_API void rtCmdDrawIndexedInstanced(rt_command_buffer command_buffer, usize index_count, usize instance_count, usize first_index, usize vertex_offset, usize first_instance);
+RTVK_API void rtCmdDispatch(rt_command_buffer command_buffer, usize group_count_x, usize group_count_y, usize group_count_z);
 
 /*===============================================================================================*/
 /*                                                                                                */
@@ -86,6 +87,7 @@ typedef enum rtvk_command_opcode {
 	RTVK_COMMAND_DRAW_INSTANCED,
 	RTVK_COMMAND_DRAW_INDEXED,
 	RTVK_COMMAND_DRAW_INDEXED_INSTANCED,
+	RTVK_COMMAND_DISPATCH,
 } rtvk_command_opcode;
 
 struct rtvk_command_header {
@@ -266,6 +268,12 @@ struct rtvk_ir_draw_indexed_instanced {
 	u32 first_instance;
 };
 
+struct rtvk_ir_dispatch {
+	u32 group_count_x;
+	u32 group_count_y;
+	u32 group_count_z;
+};
+
 struct rtvk_command_buffer {
 	struct rtvk_resource_base base;
 	u08* ir_data;
@@ -334,6 +342,7 @@ void rtvk_command_buffer_bind_texture(struct rtvk_command_buffer* command_buffer
 void rtvk_command_buffer_bind_sampler(struct rtvk_command_buffer* command_buffer, rt_location location, struct rtvk_sampler* sampler);
 void rtvk_command_buffer_vertex_buffer(struct rtvk_command_buffer* command_buffer, rt_location location, struct rtvk_buffer* buffer, rt_buffer_range range);
 void rtvk_command_buffer_index_buffer(struct rtvk_command_buffer* command_buffer, struct rtvk_buffer* buffer, rt_buffer_range range, enum rt_index_format format);
+void rtvk_command_buffer_dispatch(struct rtvk_command_buffer* command_buffer, usize group_count_x, usize group_count_y, usize group_count_z);
 void rtvk_command_buffer_draw(struct rtvk_command_buffer* command_buffer, u32 count, u32 first);
 void rtvk_command_buffer_draw_instanced(struct rtvk_command_buffer* command_buffer, u32 count, u32 instances, u32 first, u32 first_instance);
 void rtvk_command_buffer_draw_indexed(struct rtvk_command_buffer* command_buffer, u32 count, u32 first, i32 vertex_offset);

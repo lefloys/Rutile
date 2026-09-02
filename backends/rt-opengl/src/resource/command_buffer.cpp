@@ -760,6 +760,13 @@ void rtCmdUseProgram(rt_command_buffer command_buffer, rt_program program) {
 	rtgl_command_buffer_use_program(rtgl_command_buffer_from_handle(command_buffer), rtgl_program_from_handle(program));
 }
 
+void rtgl_command_buffer_dispatch(struct rtgl_command_buffer* command_buffer, usize group_count_x, usize group_count_y, usize group_count_z) {
+	rtgl_recorded_command* command = rtgl_command_buffer_append(command_buffer);
+	if (!command) return;
+	command->kind = RTGL_RECORDED_COMMAND_DISPATCH;
+	command->data.dispatch = { group_count_x, group_count_y, group_count_z };
+}
+
 static void rtgl_command_buffer_bind_sampler(struct rtgl_command_buffer* command_buffer, struct rt_location_t* location, const struct rtgl_sampler* sampler) {
 	if (!command_buffer || !command_buffer->recording || !sampler) return;
 	rtgl_recorded_command* command = rtgl_command_buffer_append(command_buffer);
@@ -1127,6 +1134,11 @@ void rtgl_bind_uniform_block(struct rtgl_program* program, const struct rtgl_pro
 	if (block != GL_INVALID_INDEX) {
 		glUniformBlockBinding(program->gl_program, block, mapping->binding);
 	}
+}
+
+void rtCmdDispatch(rt_command_buffer command_buffer, usize group_count_x, usize group_count_y, usize group_count_z) {
+	rtgl_begin_errorable_operation();
+	rtgl_command_buffer_dispatch(rtgl_command_buffer_from_handle(command_buffer), group_count_x, group_count_y, group_count_z);
 }
 
 void rtgl_bind_uniform_texture(struct rtgl_context* ctx, struct rtgl_program* program, struct rtgl_program_mapping* mapping) {
@@ -1527,6 +1539,9 @@ void rtgl_command_buffer_execute(struct rtgl_context* ctx, struct rtgl_command_b
 				glBindVertexArray(0);
 				glDeleteVertexArrays(1, &vao);
 			}
+			break;
+		case RTGL_RECORDED_COMMAND_DISPATCH:
+			if (program) glDispatchCompute((GLuint)command->data.dispatch.group_count_x, (GLuint)command->data.dispatch.group_count_y, (GLuint)command->data.dispatch.group_count_z);
 			break;
 		case RTGL_RECORDED_COMMAND_END_RENDERING:
 			framebuffer = NULL;

@@ -13,6 +13,18 @@
 static void rtd3d12_lower_texture_revision_copy(ID3D12GraphicsCommandList* command_list, rtd3d12_image_base* source, rtd3d12_image_base* target);
 void rtd3d12_lower_bind_program_data(rtd3d12_context* ctx, rtd3d12_command_lower_state* state, ID3D12GraphicsCommandList* command_list, const rtd3d12_program_data_mapping& mapping, ID3D12Resource* resource, bool storage);
 
+static void rtd3d12_set_root_descriptor_table(
+	rtd3d12_command_lower_state* state,
+	ID3D12GraphicsCommandList* command_list,
+	u32 parameter,
+	D3D12_GPU_DESCRIPTOR_HANDLE handle
+) {
+	if (state && state->program && state->program->d3d_compute_pipeline)
+		command_list->SetComputeRootDescriptorTable(parameter, handle);
+	else
+		command_list->SetGraphicsRootDescriptorTable(parameter, handle);
+}
+
 static void rtd3d12_buffer_node_retain(rt_buffer_t* buffer) {
 	if (buffer) {
 		(buffer)->retain();
@@ -156,6 +168,11 @@ void rtCmdDrawIndexed(rt_command_buffer_t* command_buffer, usize index_count, us
 void rtCmdDrawIndexedInstanced(rt_command_buffer_t* command_buffer, usize index_count, usize instance_count, usize first_index, usize vertex_offset, usize first_instance) {
 	rtd3d12_begin_errorable_operation();
 	rtd3d12_command_buffer_draw_indexed_instanced(command_buffer, index_count, instance_count, first_index, vertex_offset, first_instance);
+}
+
+void rtCmdDispatch(rt_command_buffer_t* command_buffer, usize group_count_x, usize group_count_y, usize group_count_z) {
+	rtd3d12_begin_errorable_operation();
+	rtd3d12_command_buffer_dispatch(command_buffer, group_count_x, group_count_y, group_count_z);
 }
 
 void rtCmdBufferData(rt_command_buffer_t* command_buffer, rt_buffer_t* buffer, rt::buffer_range range, const u08* data) {
@@ -311,6 +328,9 @@ usize rtd3d12_command_record_size(rtd3d12_command_opcode opcode) {
 		break;
 	case rtd3d12_command_opcode::draw_indexed_instanced:
 		size += sizeof(rtd3d12_ir_draw_indexed_instanced);
+		break;
+	case rtd3d12_command_opcode::dispatch:
+		size += sizeof(rtd3d12_ir_dispatch);
 		break;
 	case rtd3d12_command_opcode::buffer_data:
 		size += sizeof(rtd3d12_ir_buffer_data);
@@ -1349,14 +1369,22 @@ static void rtd3d12_lower_remember_texture_binding(rtd3d12_command_lower_state* 
 
 void rtd3d12_lower_use_program(rtd3d12_context* ctx, rtd3d12_command_lower_state* state, ID3D12GraphicsCommandList* command_list, const rtd3d12_ir_program* command) {
 	state->program = command->program;
-	if (!state->program || !state->framebuffer || !state->color_count || !state->program->prepare(state->color_images[0]->dxgi_format, state->depth_image ? state->depth_image->dxgi_format : DXGI_FORMAT_UNKNOWN)) {
+	if (!state->program || !state->program->d3d_root_signature || !state->program->d3d_pipeline) {
 		state->program = nullptr;
 		return;
 	}
-
-	command_list->SetGraphicsRootSignature(state->program->d3d_root_signature);
-	command_list->SetPipelineState(state->program->d3d_pipeline);
-	command_list->IASetPrimitiveTopology(state->program->d3d_primitive_topology);
+	if (state->program->d3d_compute_pipeline) {
+		command_list->SetComputeRootSignature(state->program->d3d_root_signature);
+		command_list->SetPipelineState(state->program->d3d_pipeline);
+	} else {
+		if (!state->framebuffer || !state->color_count || !state->program->prepare(state->color_images[0]->dxgi_format, state->depth_image ? state->depth_image->dxgi_format : DXGI_FORMAT_UNKNOWN)) {
+			state->program = nullptr;
+			return;
+		}
+		command_list->SetGraphicsRootSignature(state->program->d3d_root_signature);
+		command_list->SetPipelineState(state->program->d3d_pipeline);
+		command_list->IASetPrimitiveTopology(state->program->d3d_primitive_topology);
+	}
 	for (usize index = 0; index < state->pending_buffer_count; ++index) {
 		rtd3d12_lower_bind_buffer(ctx, state, command_list, &state->pending_buffers[index]);
 	}
@@ -1369,6 +1397,12 @@ void rtd3d12_lower_use_program(rtd3d12_context* ctx, rtd3d12_command_lower_state
 		if (state->program->storage_data_mappings[address] && state->storage_resources[address])
 			rtd3d12_lower_bind_program_data(ctx, state, command_list, *state->program->storage_data_mappings[address], state->storage_resources[address], true);
 	}
+}
+
+void rtd3d12_command_buffer_dispatch(rt_command_buffer_t* command_buffer, usize group_count_x, usize group_count_y, usize group_count_z) {
+	rtd3d12_ir_dispatch* command = static_cast<rtd3d12_ir_dispatch*>(rtd3d12_command_append(command_buffer, rtd3d12_command_opcode::dispatch));
+	if (!command) return;
+	*command = { group_count_x, group_count_y, group_count_z };
 }
 
 void rtd3d12_lower_bind_buffer(rtd3d12_context* ctx, rtd3d12_command_lower_state* state, ID3D12GraphicsCommandList* command_list, const rtd3d12_ir_buffer* command) {
@@ -1407,7 +1441,7 @@ void rtd3d12_lower_bind_buffer(rtd3d12_context* ctx, rtd3d12_command_lower_state
 			static_cast<UINT>(cbv_size),
 		};
 		ctx->d3d_device->CreateConstantBufferView(&desc, cpu);
-		command_list->SetGraphicsRootDescriptorTable(mapping.root_parameter, gpu);
+		rtd3d12_set_root_descriptor_table(state, command_list, mapping.root_parameter, gpu);
 	} else if (mapping.storage_stride && command->offset % mapping.storage_stride == 0 && command->size % mapping.storage_stride == 0) {
 		rtd3d12_command_transition_buffer(command_list, command->buffer, D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
 		D3D12_SHADER_RESOURCE_VIEW_DESC desc = {};
@@ -1418,7 +1452,7 @@ void rtd3d12_lower_bind_buffer(rtd3d12_context* ctx, rtd3d12_command_lower_state
 		desc.Buffer.NumElements = command->size / mapping.storage_stride;
 		desc.Buffer.StructureByteStride = mapping.storage_stride;
 		ctx->d3d_device->CreateShaderResourceView(command->buffer->d3d_resource, &desc, cpu);
-		command_list->SetGraphicsRootDescriptorTable(mapping.root_parameter, gpu);
+		rtd3d12_set_root_descriptor_table(state, command_list, mapping.root_parameter, gpu);
 	}
 }
 
@@ -1445,7 +1479,7 @@ void rtd3d12_lower_bind_texture(rtd3d12_context* ctx, rtd3d12_command_lower_stat
 	resource_gpu.ptr += state->resource_index++ * state->resource_step;
 	sampler_cpu.ptr += state->sampler_index * state->sampler_step;
 	sampler_gpu.ptr += state->sampler_index++ * state->sampler_step;
-	rtd3d12_command_transition_image(command_list, image, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+	rtd3d12_command_transition_image(command_list, image, D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
 	D3D12_SHADER_RESOURCE_VIEW_DESC srv = {};
 	srv.Format = image->dxgi_format;
 	if (rtd3d12_texture_format_is_depth(image->dxgi_format)) {
@@ -1495,8 +1529,8 @@ void rtd3d12_lower_bind_texture(rtd3d12_context* ctx, rtd3d12_command_lower_stat
 	}
 	ctx->d3d_device->CreateShaderResourceView(image->d3d_resource, &srv, resource_cpu);
 	ctx->d3d_device->CopyDescriptorsSimple(1, sampler_cpu, command->sampler_cpu, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
-	command_list->SetGraphicsRootDescriptorTable(mapping.root_parameter, resource_gpu);
-	command_list->SetGraphicsRootDescriptorTable(mapping.sampler_root_parameter, sampler_gpu);
+	rtd3d12_set_root_descriptor_table(state, command_list, mapping.root_parameter, resource_gpu);
+	rtd3d12_set_root_descriptor_table(state, command_list, mapping.sampler_root_parameter, sampler_gpu);
 }
 
 void rtd3d12_lower_vertex_buffer(rtd3d12_command_lower_state* state, ID3D12GraphicsCommandList* command_list, const rtd3d12_ir_vertex_buffer* command) {
@@ -1545,6 +1579,10 @@ void rtd3d12_lower_draw_indexed(ID3D12GraphicsCommandList* command_list, const r
 
 void rtd3d12_lower_draw_indexed_instanced(ID3D12GraphicsCommandList* command_list, const rtd3d12_ir_draw_indexed_instanced* command) {
 	command_list->DrawIndexedInstanced(command->count, command->instances, command->first, command->vertex_offset, command->first_instance);
+}
+
+void rtd3d12_lower_dispatch(ID3D12GraphicsCommandList* command_list, const rtd3d12_ir_dispatch* command) {
+	command_list->Dispatch(static_cast<UINT>(command->group_count_x), static_cast<UINT>(command->group_count_y), static_cast<UINT>(command->group_count_z));
 }
 
 void rtd3d12_lower_buffer_data(ID3D12GraphicsCommandList* command_list, const rtd3d12_ir_buffer_data* command) {
@@ -1934,7 +1972,7 @@ static void rtd3d12_lower_bind_sampler(rtd3d12_context* ctx, rtd3d12_command_low
 	cpu.ptr += state->sampler_index * state->sampler_step;
 	gpu.ptr += state->sampler_index++ * state->sampler_step;
 	ctx->d3d_device->CopyDescriptorsSimple(1, cpu, command->cpu, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
-	command_list->SetGraphicsRootDescriptorTable(mapping.sampler_root_parameter, gpu);
+	rtd3d12_set_root_descriptor_table(state, command_list, mapping.sampler_root_parameter, gpu);
 }
 
 void rtd3d12_lower_bind_program_data(rtd3d12_context* ctx, rtd3d12_command_lower_state* state, ID3D12GraphicsCommandList* command_list, const rtd3d12_program_data_mapping& mapping, ID3D12Resource* resource, bool storage) {
@@ -1958,7 +1996,7 @@ void rtd3d12_lower_bind_program_data(rtd3d12_context* ctx, rtd3d12_command_lower
 		desc.SizeInBytes = static_cast<UINT>((mapping.block_size + 255u) & ~usize(255u));
 		ctx->d3d_device->CreateConstantBufferView(&desc, cpu);
 	}
-	command_list->SetGraphicsRootDescriptorTable(mapping.root_parameter, gpu);
+	rtd3d12_set_root_descriptor_table(state, command_list, mapping.root_parameter, gpu);
 }
 
 void rtd3d12_command_buffer_lower(rtd3d12_context* ctx, rt_command_buffer_t* command_buffer, ID3D12GraphicsCommandList* command_list, ID3D12DescriptorHeap** resource_heap, ID3D12DescriptorHeap** sampler_heap) {
@@ -2144,8 +2182,11 @@ void rtd3d12_command_buffer_lower(rtd3d12_context* ctx, rt_command_buffer_t* com
 		case rtd3d12_command_opcode::draw_indexed:
 			if (state.program && state.program->d3d_pipeline) rtd3d12_lower_draw_indexed(command_list, static_cast<rtd3d12_ir_draw_indexed*>(payload));
 			break;
-		case rtd3d12_command_opcode::draw_indexed_instanced:
+	case rtd3d12_command_opcode::draw_indexed_instanced:
 			if (state.program && state.program->d3d_pipeline) rtd3d12_lower_draw_indexed_instanced(command_list, static_cast<rtd3d12_ir_draw_indexed_instanced*>(payload));
+			break;
+		case rtd3d12_command_opcode::dispatch:
+			rtd3d12_lower_dispatch(command_list, static_cast<rtd3d12_ir_dispatch*>(payload));
 			break;
 		case rtd3d12_command_opcode::buffer_data:
 			rtd3d12_lower_buffer_data(command_list, static_cast<rtd3d12_ir_buffer_data*>(payload));

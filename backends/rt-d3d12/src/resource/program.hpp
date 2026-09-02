@@ -117,6 +117,7 @@ struct rt_program_t : rtd3d12_resource<rt_program_t> {
 	DXGI_FORMAT d3d_pipeline_format;
 	DXGI_FORMAT d3d_pipeline_depth_format;
 	D3D_PRIMITIVE_TOPOLOGY d3d_primitive_topology;
+	bool d3d_compute_pipeline;
 
 	rt::location locations[256];
 	std::array<std::optional<rtd3d12_program_input_mapping>, 256> input_mappings;

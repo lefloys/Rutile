@@ -87,6 +87,7 @@ struct rtvk_program {
 	struct rtvk_program_shader* shaders;
 	VkDescriptorSetLayout vk_descriptor_set_layout;
 	VkPipelineLayout vk_pipeline_layout;
+	VkPipeline vk_compute_pipeline;
 	struct rtvk_graphics_pipeline_variant* pipeline_variants;
 
 	char* entry_point;
@@ -124,6 +125,7 @@ struct rtvk_program {
 	u32 shader_capacity;
 	u32 location_count;
 	u32 tessellation_control_points;
+	bool compute_program;
 };
 RTVK_DECLARE_NEW_RESOURCE(program)
 

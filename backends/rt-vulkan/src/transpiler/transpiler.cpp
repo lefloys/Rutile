@@ -6,7 +6,6 @@
 
 #include <algorithm>
 #include <bit>
-#include <charconv>
 #include <cstring>
 #include <new>
 #include <span>
@@ -68,8 +67,6 @@ std::string_view opcodeName(rtsl::ir::Opcode opcode) {
 	case rtsl::ir::Opcode::opcode_extract: return "extract";
 	case rtsl::ir::Opcode::opcode_insert: return "insert";
 	case rtsl::ir::Opcode::opcode_call: return "call";
-	case rtsl::ir::Opcode::opcode_emit: return "emit";
-	case rtsl::ir::Opcode::opcode_end_primitive: return "end_primitive";
 	case rtsl::ir::Opcode::opcode_barrier: return "barrier";
 	case rtsl::ir::Opcode::opcode_memory_barrier: return "memory_barrier";
 	case rtsl::ir::Opcode::opcode_resource_load: return "resource_load";
@@ -185,7 +182,7 @@ private:
 		if (opcode == 5) return debug;
 		if (opcode == 71 || opcode == 72) return annotations;
 		if ((opcode >= 54 && opcode <= 87) ||
-			(opcode >= 126 && opcode <= 190) || opcode == 224 || (opcode >= 245 && opcode <= 254))
+			(opcode >= 126 && opcode <= 190) || opcode == 218 || opcode == 219 || opcode == 224 || (opcode >= 245 && opcode <= 254))
 			return functions;
 		return types_constants;
 	}
@@ -261,9 +258,11 @@ private:
 			break;
 		}
 		case rtsl::ir::TypeKind::type_patch:
-		case rtsl::ir::TypeKind::type_primitive:
 			if (!type->element_type) throw std::runtime_error("RTIR patch or primitive type has no element type");
 			result = typeFor(type->element_type); break;
+		case rtsl::ir::TypeKind::type_primitive:
+			if (!type->element_type || !type->element_count) throw std::runtime_error("RTIR primitive type has no element type or maximum vertex count");
+			result = typeArray(typeFor(type->element_type), type->element_count); break;
 		case rtsl::ir::TypeKind::type_pointer:
 			if (!type->element_type) throw std::runtime_error("RTIR pointer type has no pointee type");
 			result = typeFor(type->element_type); break;
@@ -357,6 +356,7 @@ private:
 		std::uint32_t variable{};
 		bool builtin_position{};
 		bool omitted{};
+		std::uint32_t input_array_count{};
 	};
 
 	std::string parameterContract(std::uint32_t parameter_index, std::span<const std::uint32_t> path) const {
@@ -409,17 +409,19 @@ private:
 	void createInterfaceVariables(std::vector<InterfaceLeaf>& leaves, bool output) {
 		std::uint32_t location{};
 		for (InterfaceLeaf& leaf : leaves) {
-			const bool raster_position = output && leaf.builtin_position &&
-				(entry.stage == rtsl::ir::Stage::stage_vertex ||
+			const bool raster_position = leaf.builtin_position &&
+				((output && (entry.stage == rtsl::ir::Stage::stage_vertex ||
 					entry.stage == rtsl::ir::Stage::stage_tessellation_evaluation ||
-					entry.stage == rtsl::ir::Stage::stage_geometry);
+					entry.stage == rtsl::ir::Stage::stage_geometry)) ||
+				 (!output && entry.stage == rtsl::ir::Stage::stage_geometry));
 			if (!output && entry.stage == rtsl::ir::Stage::stage_fragment && leaf.builtin_position) {
 				leaf.omitted = true;
 				continue;
 			}
 			leaf.variable = id();
 			const std::uint32_t storage_class = output ? 3u : 1u;
-			instruction(59, {pointerType(storage_class, typeFor(leaf.type)), leaf.variable, storage_class});
+			const std::uint32_t interface_type = !output && leaf.input_array_count ? typeArray(typeFor(leaf.type), leaf.input_array_count) : typeFor(leaf.type);
+			instruction(59, {pointerType(storage_class, interface_type), leaf.variable, storage_class});
 			name(leaf.variable, std::string(output ? "out_" : "in_") + leaf.name);
 			if (raster_position)
 				instruction(71, {leaf.variable, 11, 0});
@@ -432,14 +434,24 @@ private:
 	void buildInterfaces(const rtsl::ir::Function& function) {
 		if (entry.stage == rtsl::ir::Stage::stage_compute) return;
 		std::vector<std::uint32_t> path;
-		for (std::uint32_t index = 0; index < function.parameters.size(); ++index)
-			if (!patchType(function.parameters[index].type))
-				collectLeaves(index, function.parameters[index].type, function.parameters[index].type, "value", path, input_leaves);
+		for (std::uint32_t index = 0; index < function.parameters.size(); ++index) {
+			if (patchType(function.parameters[index].type)) continue;
+			const rtsl::ir::Type* type = module.findType(function.parameters[index].type);
+			if (entry.stage == rtsl::ir::Stage::stage_geometry && type && type->kind == rtsl::ir::TypeKind::type_primitive) {
+				const std::size_t first = input_leaves.size();
+				collectLeaves(index, type->element_type, type->element_type, "value", path, input_leaves);
+				for (std::size_t leaf = first; leaf < input_leaves.size(); ++leaf) input_leaves[leaf].input_array_count = type->element_count;
+			} else collectLeaves(index, function.parameters[index].type, function.parameters[index].type, "value", path, input_leaves);
+		}
 		// A scalar or vector fragment return is the unnamed color output.  It has
 		// a physical SPIR-V location but deliberately no public Rutile location.
 		// Structure members keep their member names as public output names.
-		if (entry.stage != rtsl::ir::Stage::stage_tessellation_control)
-			collectLeaves(0, function.return_type, function.return_type, "", path, output_leaves);
+		if (entry.stage != rtsl::ir::Stage::stage_tessellation_control) {
+			const rtsl::ir::Type* result = module.findType(function.return_type);
+			if (entry.stage == rtsl::ir::Stage::stage_geometry && result && result->kind == rtsl::ir::TypeKind::type_primitive)
+				collectLeaves(0, result->element_type, result->element_type, "", path, output_leaves);
+			else collectLeaves(0, function.return_type, function.return_type, "", path, output_leaves);
+		}
 		createInterfaceVariables(input_leaves, false);
 		createInterfaceVariables(output_leaves, true);
 	}
@@ -458,20 +470,10 @@ private:
 			}
 		}
 		if (!control) throw std::runtime_error("tessellation stage has no tessellation-control entry point");
-		const rtsl::ir::EntryAttribute* invocations = nullptr;
-		for (const rtsl::ir::EntryAttribute& attribute : control->attributes) {
-			if (module.strings.get(attribute.name) != "invocations") continue;
-			if (invocations) throw std::runtime_error("tessellation-control entry has multiple invocations attributes");
-			invocations = &attribute;
-		}
-		if (!invocations || invocations->tokens.size() != 1)
-			throw std::runtime_error("tessellation-control entry requires @invocations : N");
-		const std::string_view spelling = module.strings.get(invocations->tokens.front());
-		std::uint32_t count{};
-		const auto [end, error] = std::from_chars(spelling.data(), spelling.data() + spelling.size(), count);
-		if (error != std::errc{} || end != spelling.data() + spelling.size() || count == 0)
-			throw std::runtime_error("tessellation-control @invocations must contain one non-zero unsigned integer");
-		return count;
+		const auto* configuration = std::get_if<rtsl::ir::TessellationControlConfiguration>(&control->configuration);
+		if (!configuration || configuration->output_control_points == 0)
+			throw std::runtime_error("tessellation-control entry requires a non-zero RTIR output_control_points configuration");
+		return configuration->output_control_points;
 	}
 
 	void declarePatchInterfaces(const rtsl::ir::Function& function) {
@@ -651,6 +653,8 @@ private:
 
 	std::uint32_t loadInterfaceValue(rtsl::ir::TypeId type_id, std::vector<std::uint32_t>& path) {
 		const rtsl::ir::Type* type = module.findType(type_id);
+		if (entry.stage == rtsl::ir::Stage::stage_geometry && type && type->kind == rtsl::ir::TypeKind::type_primitive)
+			return loadGeometryPrimitive(*type, path);
 		if (type && type->kind == rtsl::ir::TypeKind::type_structure) {
 			std::vector<std::uint32_t> operands{typeFor(type_id), id()};
 			for (std::uint32_t index = 0; index < type->members.size(); ++index) {
@@ -666,6 +670,41 @@ private:
 		const std::uint32_t result = id();
 		instruction(61, {typeFor(type_id), result, leaf->variable});
 		return result;
+	}
+
+	std::uint32_t loadGeometryPrimitive(const rtsl::ir::Type& primitive, std::vector<std::uint32_t>& path) {
+		std::vector<std::uint32_t> elements{typeFor(rtsl::ir::TypeId{primitive.id}), id()};
+		for (std::uint32_t index = 0; index < primitive.element_count; ++index)
+			elements.push_back(loadGeometryInterfaceValue(primitive.element_type, index, path));
+		instruction(80, elements);
+		return elements[1];
+	}
+
+	std::uint32_t loadGeometryInterfaceValue(rtsl::ir::TypeId type_id, std::uint32_t index, std::vector<std::uint32_t>& path) {
+		const rtsl::ir::Type* type = module.findType(type_id);
+		if (type && type->kind == rtsl::ir::TypeKind::type_structure) {
+			std::vector<std::uint32_t> operands{typeFor(type_id), id()};
+			for (std::uint32_t member = 0; member < type->members.size(); ++member) {
+				path.push_back(member);
+				operands.push_back(loadGeometryInterfaceValue(type->members[member].type, index, path));
+				path.pop_back();
+			}
+			instruction(80, operands);
+			return operands[1];
+		}
+		InterfaceLeaf* leaf = leafAt(input_leaves, path);
+		if (!leaf || leaf->omitted || !leaf->input_array_count) return undef(type_id);
+		const std::uint32_t pointer = id();
+		instruction(65, {pointerType(1, typeFor(type_id)), pointer, leaf->variable, constantUnsignedInteger(index)});
+		const std::uint32_t result = id();
+		instruction(61, {typeFor(type_id), result, pointer});
+		return result;
+	}
+
+	void emitGeometryVertex(rtsl::ir::TypeId type_id, std::uint32_t value) {
+		std::vector<std::uint32_t> path;
+		storeInterfaceValue(type_id, value, path);
+		instruction(218, {}); // OpEmitVertex
 	}
 
 	void storeInterfaceValue(rtsl::ir::TypeId type_id, std::uint32_t value, std::vector<std::uint32_t>& path) {
@@ -797,10 +836,43 @@ private:
 		throw std::runtime_error("RTIR comparison instruction has unsupported operand types");
 	}
 
+	bool isEndPrimitiveCall(const rtsl::ir::Instruction& instruction) const {
+		if (entry.stage != rtsl::ir::Stage::stage_geometry || instruction.opcode != rtsl::ir::Opcode::opcode_call || instruction.operands.size() != 2) return false;
+		const rtsl::ir::Function* function = module.findFunction(instruction.callee);
+		if (!function || !function->declaration || !function->implicit || function->parameters.size() != 2 || function->return_type != function->parameters[0].type) return false;
+		const rtsl::ir::Type* primitive = module.findType(function->parameters[0].type);
+		const rtsl::ir::Type* marker = module.findType(function->parameters[1].type);
+		return primitive && primitive->kind == rtsl::ir::TypeKind::type_primitive && marker &&
+			marker->kind == rtsl::ir::TypeKind::type_structure && marker->members.empty();
+	}
+
+	bool isGeometryEmitCall(const rtsl::ir::Instruction& instruction) const {
+		if (entry.stage != rtsl::ir::Stage::stage_geometry || instruction.opcode != rtsl::ir::Opcode::opcode_call || instruction.operands.size() != 2) return false;
+		const rtsl::ir::Function* function = module.findFunction(instruction.callee);
+		if (!function || !function->declaration || !function->implicit || function->parameters.size() != 2 || function->return_type != function->parameters[0].type) return false;
+		const rtsl::ir::Type* primitive = module.findType(function->parameters[0].type);
+		return primitive && primitive->kind == rtsl::ir::TypeKind::type_primitive &&
+			function->parameters[1].type == primitive->element_type;
+	}
+
+	bool isPositionXYCall(const rtsl::ir::Instruction& instruction) const {
+		if (instruction.opcode != rtsl::ir::Opcode::opcode_call || instruction.operands.size() != 1) return false;
+		const rtsl::ir::Function* function = module.findFunction(instruction.callee);
+		if (!function || !function->declaration || !function->implicit || function->parameters.size() != 1) return false;
+		const rtsl::ir::Type* result = module.findType(function->return_type);
+		const rtsl::ir::Type* argument = module.findType(function->parameters[0].type);
+		const rtsl::ir::Type* scalar = result ? module.findType(result->element_type) : nullptr;
+		return result && argument && scalar && result->kind == rtsl::ir::TypeKind::type_vector &&
+			argument->kind == rtsl::ir::TypeKind::type_vector && result->element_count == 2 &&
+			argument->element_count == 4 && result->element_type == argument->element_type &&
+			scalar->kind == rtsl::ir::TypeKind::type_floating;
+	}
+
 	void emitIRInstruction(const rtsl::ir::Instruction& source,
 		std::unordered_map<std::uint32_t, std::uint32_t>& values,
 		std::unordered_map<std::uint32_t, rtsl::ir::TypeId>& value_types,
-		std::unordered_map<std::uint32_t, std::uint32_t>& writable_pointers) {
+		std::unordered_map<std::uint32_t, std::uint32_t>& writable_pointers,
+		std::unordered_map<std::uint32_t, std::uint32_t>& constant_indices) {
 		std::vector<std::uint32_t> operands;
 		for (rtsl::ir::ValueId operand : source.operands) operands.push_back(valueFor(values, operand));
 		std::uint32_t result{};
@@ -818,12 +890,20 @@ private:
 			std::vector<std::uint32_t> encoded{typeFor(source.type), result};
 			encoded.insert(encoded.end(), source.immediates.begin(), source.immediates.begin() + word_count);
 			instruction(43, encoded);
+			if (source.result && word_count == 1) constant_indices.emplace(source.result.value(), source.immediates[0]);
 			break;
 		}
 		case rtsl::ir::Opcode::opcode_constant_boolean:
 			if (source.immediates.size() != 1) throw std::runtime_error("RTIR boolean constant is malformed");
 			result = id(); instruction(source.immediates[0] ? 41 : 42, {typeFor(source.type), result}); break;
 		case rtsl::ir::Opcode::opcode_construct: {
+			const rtsl::ir::Type& constructed = requireType(source.type);
+			if (entry.stage == rtsl::ir::Stage::stage_geometry && constructed.kind == rtsl::ir::TypeKind::type_primitive) {
+				if (operands.size() > constructed.element_count) throw std::runtime_error("RTIR geometry primitive construction exceeds its maximum vertex count");
+				for (const std::uint32_t vertex : operands) emitGeometryVertex(constructed.element_type, vertex);
+				result = undef(source.type);
+				break;
+			}
 			result = id();
 			std::vector<std::uint32_t> encoded{typeFor(source.type), result};
 			encoded.insert(encoded.end(), operands.begin(), operands.end());
@@ -873,6 +953,14 @@ private:
 				instruction(61, {typeFor(source.type), result, pointer});
 				break;
 			}
+			if (base->kind == rtsl::ir::TypeKind::type_primitive) {
+				if (!source.immediates.empty() || operands.size() != 2) throw std::runtime_error("RTIR primitive access is malformed");
+				const auto index = constant_indices.find(source.operands[1].value());
+				if (index == constant_indices.end() || index->second >= base->element_count)
+					throw std::runtime_error("RTIR geometry primitive access requires an in-range constant index");
+				instruction(81, {typeFor(source.type), result, operands[0], index->second});
+				break;
+			}
 			if (base->kind == rtsl::ir::TypeKind::type_vector) {
 				if (source.immediates.empty()) {
 					if (operands.size() != 2) throw std::runtime_error("RTIR vector subscript is malformed");
@@ -892,6 +980,14 @@ private:
 			if (source.immediates.empty()) throw std::runtime_error("RTIR aggregate subscript lowering is not implemented");
 			const std::uint32_t index = memberIndex(base_type, rtsl::ir::StringId{source.immediates[0]});
 			instruction(81, {typeFor(source.type), result, operands.at(0), index});
+			break;
+		}
+		case rtsl::ir::Opcode::opcode_insert: {
+			const rtsl::ir::Type& primitive = requireType(source.type);
+			if (entry.stage != rtsl::ir::Stage::stage_geometry || primitive.kind != rtsl::ir::TypeKind::type_primitive || operands.size() != 2)
+				throw std::runtime_error("RTIR insert is only supported for a geometry primitive accumulator");
+			emitGeometryVertex(primitive.element_type, operands[1]);
+			result = undef(source.type);
 			break;
 		}
 		case rtsl::ir::Opcode::opcode_store: {
@@ -957,6 +1053,22 @@ private:
 			if (operands.size() != 1) throw std::runtime_error("RTIR logical not instruction is malformed");
 			result = id(); instruction(168, {typeFor(source.type), result, operands[0]}); break;
 		case rtsl::ir::Opcode::opcode_call: {
+			if (isEndPrimitiveCall(source)) {
+				instruction(219, {}); // OpEndPrimitive
+				result = undef(source.type);
+				break;
+			}
+			if (isGeometryEmitCall(source)) {
+				const rtsl::ir::Type& primitive = requireType(source.type);
+				emitGeometryVertex(primitive.element_type, operands[1]);
+				result = undef(source.type);
+				break;
+			}
+			if (isPositionXYCall(source)) {
+				result = id();
+				instruction(79, {typeFor(source.type), result, operands[0], operands[0], 0, 1}); // OpVectorShuffle
+				break;
+			}
 			result = id();
 			std::vector<std::uint32_t> encoded{typeFor(source.type), result, function_ids.at(source.callee.value())};
 			encoded.insert(encoded.end(), operands.begin(), operands.end());
@@ -1013,6 +1125,7 @@ private:
 		std::unordered_map<std::uint32_t, std::uint32_t> values;
 		std::unordered_map<std::uint32_t, rtsl::ir::TypeId> value_types;
 		std::unordered_map<std::uint32_t, std::uint32_t> writable_pointers;
+		std::unordered_map<std::uint32_t, std::uint32_t> constant_indices;
 		std::unordered_map<std::uint32_t, std::uint32_t> block_labels;
 		for (const rtsl::ir::Block& block : source.blocks) block_labels.emplace(block.id.value(), id());
 		for (const rtsl::ir::Parameter& parameter : source.parameters) {
@@ -1045,7 +1158,7 @@ private:
 			}
 			for (const rtsl::ir::Instruction& source_instruction : block.instructions) {
 				try {
-				emitIRInstruction(source_instruction, values, value_types, writable_pointers);
+				emitIRInstruction(source_instruction, values, value_types, writable_pointers, constant_indices);
 				} catch (const std::exception& error) {
 					throw std::runtime_error("RTIR function " + std::string(function_name) +
 						" instruction " + std::string(opcodeName(source_instruction.opcode)) + ": " + error.what());
@@ -1074,6 +1187,7 @@ private:
 				break;
 			case rtsl::ir::TerminatorKind::terminator_return_value:
 				if (terminator.operands.size() != 1) throw std::runtime_error("RTIR value return terminator is malformed");
+				if (entry.stage == rtsl::ir::Stage::stage_geometry && source.id == entry.function) instruction(219, {}); // OpEndPrimitive
 				instruction(254, {valueFor(values, terminator.operands[0])});
 				break;
 			case rtsl::ir::TerminatorKind::terminator_kill:
@@ -1105,7 +1219,7 @@ private:
 			const std::uint32_t pointer = id();
 			instruction(65, {pointerType(3, typeFor(stage_function.return_type)), pointer, patch_output_variable, index});
 			instruction(62, {pointer, result});
-		} else storeInterfaceValue(stage_function.return_type, result, path);
+		} else if (entry.stage != rtsl::ir::Stage::stage_geometry) storeInterfaceValue(stage_function.return_type, result, path);
 		instruction(253, {});
 		instruction(56, {});
 	}
@@ -1501,20 +1615,10 @@ rt_spirv_status rt_spirv_transpile(const uint8_t* bytes, size_t byte_size, const
 		for (const rtsl::ir::EntryPoint* entry : selected_entries) {
 			const rt_spirv_stage output_stage = rutile::spirv::stage(entry->stage);
 			if (entry->stage == rtsl::ir::Stage::stage_tessellation_control) {
-				const rtsl::ir::EntryAttribute* invocations = nullptr;
-				for (const rtsl::ir::EntryAttribute& attribute : entry->attributes) {
-					if (module.strings.get(attribute.name) != "invocations") continue;
-					if (invocations) throw std::runtime_error("tessellation-control entry has multiple invocations attributes");
-					invocations = &attribute;
-				}
-				if (!invocations || invocations->tokens.size() != 1)
-					throw std::runtime_error("tessellation-control entry requires @invocations : N");
-				const std::string_view spelling = module.strings.get(invocations->tokens.front());
-				std::uint32_t count{};
-				const auto [end, error] = std::from_chars(spelling.data(), spelling.data() + spelling.size(), count);
-				if (error != std::errc{} || end != spelling.data() + spelling.size() || count == 0)
-					throw std::runtime_error("tessellation-control @invocations must contain one non-zero unsigned integer");
-				result->tessellation_control_points = count;
+				const auto* configuration = std::get_if<rtsl::ir::TessellationControlConfiguration>(&entry->configuration);
+				if (!configuration || configuration->output_control_points == 0)
+					throw std::runtime_error("tessellation-control entry requires a non-zero RTIR output_control_points configuration");
+				result->tessellation_control_points = configuration->output_control_points;
 			}
 			result->stages[output_stage].words = rutile::spirv::ModuleBuilder(module, *entry).build();
 			if (!rt_spirv_validate(

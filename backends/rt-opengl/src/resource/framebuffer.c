@@ -29,6 +29,7 @@ rt_texture_view rtFramebufferColorView(rt_framebuffer framebuffer, rt_location l
 }
 
 void rtFramebufferSetColorView(rt_framebuffer framebuffer, rt_texture_view view, rt_location location) {
+	rtgl_begin_errorable_operation();
 	struct rtgl_program* program = rtgl_location_program(location);
 	struct rtgl_program_mapping* mapping = rtgl_program_mapping(program, location);
 	if (!mapping || mapping->kind != RTGL_LOCATION_MAPPING_OUTPUT) {
@@ -39,10 +40,12 @@ void rtFramebufferSetColorView(rt_framebuffer framebuffer, rt_texture_view view,
 }
 
 void rtFramebufferSetDepthView(rt_framebuffer framebuffer, rt_texture_view view) {
+	rtgl_begin_errorable_operation();
 	rtgl_framebuffer_set_depth_view(rtgl_get_current_context(), rtgl_framebuffer_from_handle(framebuffer), rtgl_texture_view_from_handle(view));
 }
 
 void rtFramebufferSetStencilView(rt_framebuffer framebuffer, rt_texture_view view) {
+	rtgl_begin_errorable_operation();
 	rtgl_framebuffer_set_stencil_view(rtgl_get_current_context(), rtgl_framebuffer_from_handle(framebuffer), rtgl_texture_view_from_handle(view));
 }
 

@@ -883,6 +883,15 @@ RT_API void rtCmdDrawIndexed(rt_command_buffer command_buffer, usize index_count
 */
 RT_API void rtCmdDrawIndexedInstanced(rt_command_buffer command_buffer, usize index_count, usize instance_count, usize first_index, usize vertex_offset, usize first_instance);
 
+/*!
+** @brief Append a compute dispatch.
+**
+** A dispatch uses the current compute program and its currently bound
+** resources. It is only valid outside a rendering scope; validation layers
+** diagnose violations of that rule.
+*/
+RT_API void rtCmdDispatch(rt_command_buffer command_buffer, usize group_count_x, usize group_count_y, usize group_count_z);
+
 /*===============================================================================================*/
 /* Queue                                                                                         */
 /*===============================================================================================*/
@@ -1524,6 +1533,7 @@ RT_API void rtSamplerSetLod(rt_sampler sampler, f32 min_lod, f32 max_lod, f32 lo
 	X( void              , rtCmdDrawInstanced               , (rt_command_buffer command_buffer, usize vertex_count, usize instance_count, usize first_vertex, usize first_instance)                                                                                                   , (command_buffer, vertex_count, instance_count, first_vertex, first_instance)              ) \
 	X( void              , rtCmdDrawIndexed                 , (rt_command_buffer command_buffer, usize index_count, usize first_index, usize vertex_offset)                                                                                                                            , (command_buffer, index_count, first_index, vertex_offset)                                 ) \
 	X( void              , rtCmdDrawIndexedInstanced        , (rt_command_buffer command_buffer, usize index_count, usize instance_count, usize first_index, usize vertex_offset, usize first_instance)                                                                                , (command_buffer, index_count, instance_count, first_index, vertex_offset, first_instance) ) \
+	X( void              , rtCmdDispatch                    , (rt_command_buffer command_buffer, usize group_count_x, usize group_count_y, usize group_count_z)                                                                                                                            , (command_buffer, group_count_x, group_count_y, group_count_z)                            ) \
 	X( rt_queue          , rtQueueCreate                    , (enum rt_queue_capability capability)                                                                                                                                                                                    , (capability)                                                                              ) \
 	X( void              , rtQueueDestroy                   , (rt_queue queue)                                                                                                                                                                                                         , (queue)                                                                                   ) \
 	X( void              , rtQueueWait                      , (rt_queue queue, rt_timepoint timepoint)                                                                                                                                                                                 , (queue, timepoint)                                                                        ) \

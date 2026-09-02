@@ -185,6 +185,11 @@ static void rtvk_program_clear_shaders(struct rtvk_context* ctx, struct rtvk_pro
 }
 
 void rtvk_program_destroy_pipeline(struct rtvk_context* ctx, struct rtvk_program* program) {
+	if (program->vk_compute_pipeline) {
+		vkDestroyPipeline(ctx->vk_device, program->vk_compute_pipeline, VK_ALLOCATOR);
+		program->vk_compute_pipeline = VK_NULL_HANDLE;
+	}
+	program->compute_program = false;
 	struct rtvk_graphics_pipeline_variant* variant = program->pipeline_variants;
 	while (variant) {
 		struct rtvk_graphics_pipeline_variant* next = variant->next;
@@ -1166,6 +1171,7 @@ void rtvk_program_finalize(struct rtvk_context* ctx, struct rtvk_program* progra
 		goto cleanup;
 	}
 	program->tessellation_control_points = rt_spirv_program_tessellation_control_points(translation);
+	program->compute_program = program->shader_count == 1 && program->shaders[0].stage == VK_SHADER_STAGE_COMPUTE_BIT;
 
 	if (!rtvk_program_build_locations(program, translation)) {
 		goto cleanup;
@@ -1173,6 +1179,19 @@ void rtvk_program_finalize(struct rtvk_context* ctx, struct rtvk_program* progra
 	rtvk_program_create_pipeline_layout(ctx, program);
 	if (!program->vk_pipeline_layout) {
 		goto cleanup;
+	}
+	if (program->compute_program) {
+		VkComputePipelineCreateInfo compute_info = { VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO };
+		compute_info.stage = (VkPipelineShaderStageCreateInfo){ VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO };
+		compute_info.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+		compute_info.stage.module = program->shaders[0].vk_shader;
+		compute_info.stage.pName = program->shaders[0].entry_point;
+		compute_info.layout = program->vk_pipeline_layout;
+		const VkResult result = vkCreateComputePipelines(ctx->vk_device, VK_NULL_HANDLE, 1, &compute_info, VK_ALLOCATOR, &program->vk_compute_pipeline);
+		if (result != VK_SUCCESS) {
+			rtvk_throwf(rtvk_error_from_vk(result), "Vulkan call returned %s", rtvk_vk_result_name(result));
+			goto cleanup;
+		}
 	}
 	complete = true;
 

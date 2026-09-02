@@ -486,8 +486,8 @@ void rtgl_texture_view_finish(struct rtgl_texture_view* view) {
 		if (*current) {
 			*current = view->texture_next;
 		}
+		rtgl_release_resource(view->texture);
 	}
-	view->texture = NULL;
 	view->texture_next = NULL;
 	view->image = NULL;
 	rtgl_finish_resource_base(RTGL_RESOURCE_BASE(view));
@@ -661,10 +661,11 @@ void rtgl_texture_view_bind(struct rtgl_context* ctx, struct rtgl_texture_view* 
 		if (*current) {
 			*current = view->texture_next;
 		}
-		view->texture = NULL;
+		rtgl_release_resource(view->texture);
 		view->texture_next = NULL;
 	}
 	if (!view->texture) {
+		rtgl_retain_resource(texture);
 		view->texture = texture;
 		view->texture_next = texture->views;
 		texture->views = view;

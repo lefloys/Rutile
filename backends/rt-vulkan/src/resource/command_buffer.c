@@ -269,6 +269,11 @@ void rtCmdDrawIndexedInstanced(rt_command_buffer command_buffer, usize index_cou
 	);
 }
 
+void rtCmdDispatch(rt_command_buffer command_buffer, usize group_count_x, usize group_count_y, usize group_count_z) {
+	rtvk_begin_errorable_operation();
+	rtvk_command_buffer_dispatch(rtvk_command_buffer_from_handle(command_buffer), group_count_x, group_count_y, group_count_z);
+}
+
 /*===============================================================================================*/
 /*                                                                                                */
 /*===============================================================================================*/
@@ -332,6 +337,8 @@ usize rtvk_command_payload_size(rtvk_command_opcode opcode) {
 		return sizeof(struct rtvk_ir_draw_indexed);
 	case RTVK_COMMAND_DRAW_INDEXED_INSTANCED:
 		return sizeof(struct rtvk_ir_draw_indexed_instanced);
+	case RTVK_COMMAND_DISPATCH:
+		return sizeof(struct rtvk_ir_dispatch);
 	default:
 		return 0;
 	}
@@ -975,6 +982,12 @@ void rtvk_command_buffer_draw_indexed_instanced(struct rtvk_command_buffer* comm
 	*command = (struct rtvk_ir_draw_indexed_instanced){ count, instances, first, vertex_offset, first_instance };
 }
 
+void rtvk_command_buffer_dispatch(struct rtvk_command_buffer* command_buffer, usize group_count_x, usize group_count_y, usize group_count_z) {
+	struct rtvk_ir_dispatch* command = rtvk_command_append(command_buffer, RTVK_COMMAND_DISPATCH);
+	if (!command) return;
+	*command = (struct rtvk_ir_dispatch){ (u32)group_count_x, (u32)group_count_y, (u32)group_count_z };
+}
+
 void rtvk_command_buffer_end(struct rtvk_command_buffer* command_buffer) {
 	if (!command_buffer || !command_buffer->recording || command_buffer->rendering) {
 		rtvk_throwf(RT_IMPROPER_USAGE, "rtCommandBufferEnd requires a recording command buffer outside a rendering scope");
@@ -1484,7 +1497,7 @@ void rtvk_lower_bind_descriptors(struct rtvk_context* ctx, struct rtvk_lowered_c
 	}
 
 	vkUpdateDescriptorSets(ctx->vk_device, descriptor_count, writes, 0, NULL);
-	vkCmdBindDescriptorSets(lowered->vk_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, state->program->vk_pipeline_layout, 0, 1, &descriptor_set, 0, NULL);
+	vkCmdBindDescriptorSets(lowered->vk_command_buffer, state->program->compute_program ? VK_PIPELINE_BIND_POINT_COMPUTE : VK_PIPELINE_BIND_POINT_GRAPHICS, state->program->vk_pipeline_layout, 0, 1, &descriptor_set, 0, NULL);
 	free(buffer_infos);
 	free(image_infos);
 	free(writes);
@@ -1492,6 +1505,10 @@ void rtvk_lower_bind_descriptors(struct rtvk_context* ctx, struct rtvk_lowered_c
 }
 
 void rtvk_lower_bind_program(struct rtvk_context* ctx, struct rtvk_lowered_command_buffer* lowered, struct rtvk_lower_state* state) {
+	if (state->program->compute_program) {
+		vkCmdBindPipeline(lowered->vk_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, state->program->vk_compute_pipeline);
+		return;
+	}
 	if (!state->framebuffer) {
 		rtvk_throwf(RT_IMPROPER_USAGE, "a program may only be used inside a rendering scope");
 		return;
@@ -2063,6 +2080,12 @@ void rtvk_lower_draw_indexed_instanced(struct rtvk_context* ctx, struct rtvk_low
 	vkCmdDrawIndexed(lowered->vk_command_buffer, command->count, command->instances, command->first, command->vertex_offset, command->first_instance);
 }
 
+void rtvk_lower_dispatch(struct rtvk_context* ctx, struct rtvk_lowered_command_buffer* lowered, struct rtvk_lower_state* state, const struct rtvk_ir_dispatch* command) {
+	rtvk_lower_bind_descriptors(ctx, lowered, state);
+	if (rtvk_error() != RT_SUCCESS) return;
+	vkCmdDispatch(lowered->vk_command_buffer, command->group_count_x, command->group_count_y, command->group_count_z);
+}
+
 void rtvk_command_buffer_lower_commands(struct rtvk_context* ctx, struct rtvk_command_buffer* command_buffer, struct rtvk_lowered_command_buffer* lowered, struct rtvk_lower_state* state);
 
 void rtvk_lower_execute(struct rtvk_context* ctx, struct rtvk_lowered_command_buffer* lowered, struct rtvk_lower_state* state, const struct rtvk_ir_execute* command) {
@@ -2172,6 +2195,9 @@ void rtvk_command_buffer_lower_commands(struct rtvk_context* ctx, struct rtvk_co
 			break;
 		case RTVK_COMMAND_DRAW_INDEXED_INSTANCED:
 			rtvk_lower_draw_indexed_instanced(ctx, lowered, state, payload);
+			break;
+		case RTVK_COMMAND_DISPATCH:
+			rtvk_lower_dispatch(ctx, lowered, state, payload);
 			break;
 		}
 		if (rtvk_error() != RT_SUCCESS) {
