@@ -1370,7 +1370,6 @@ void rtgl_command_buffer_execute(struct rtgl_context* ctx, struct rtgl_command_b
 			break;
 		case RTGL_RECORDED_COMMAND_USE_PROGRAM:
 			program = command->data.use_program.program;
-			rtgl_printf("rt-opengl: use program=%p gl=%u compute=%u\n", (void*)program, program ? program->gl_program : 0, program && program->compute ? 1u : 0u);
 			rtgl_program_prepare(ctx, program);
 			if (!program || !program->gl_program)
 				break;
@@ -1547,9 +1546,6 @@ void rtgl_command_buffer_execute(struct rtgl_context* ctx, struct rtgl_command_b
 		case RTGL_RECORDED_COMMAND_DISPATCH:
 			if (program) {
 				glUseProgram(program->gl_program);
-				GLint active_program = 0;
-				glGetIntegerv(GL_CURRENT_PROGRAM, &active_program);
-				rtgl_printf("rt-opengl: dispatch program=%u active=%d compute=%u\n", program->gl_program, active_program, program->compute ? 1u : 0u);
 				glDispatchCompute((GLuint)command->data.dispatch.group_count_x, (GLuint)command->data.dispatch.group_count_y, (GLuint)command->data.dispatch.group_count_z);
 			}
 			break;
