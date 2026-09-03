@@ -30,6 +30,7 @@ struct rt_spirv_owned_location {
 struct rt_spirv_program {
 	rt_spirv_stage_binary stages[RT_SPIRV_STAGE_COUNT];
 	std::vector<rt_spirv_owned_location> locations;
+	std::unordered_map<std::uint32_t, std::uint32_t> storage_sample_bindings;
 	std::uint32_t tessellation_control_points{};
 };
 
@@ -129,9 +130,23 @@ UniformLayout uniformLayout(const rtsl::ir::Module& module, rtsl::ir::TypeId typ
 class ModuleBuilder {
 public:
 	ModuleBuilder(const rtsl::ir::Module& module, const rtsl::ir::EntryPoint& entry) : module(module), entry(entry) {}
+	const std::unordered_map<std::uint32_t, std::uint32_t>& storageSampleBindings() const { return storage_sample_bindings; }
 
 	std::vector<std::uint32_t> build() {
+		storage_sample_binding_base = static_cast<std::uint32_t>(module.resources.size() + module.uniforms.size());
+		for (const rtsl::ir::Resource& resource : module.resources)
+			if (resource.binding) storage_sample_binding_base = std::max(storage_sample_binding_base, resource.binding->binding + 1);
+		for (const rtsl::ir::Resource& resource : module.resources) {
+			const rtsl::ir::Type* image = module.findType(resource.type);
+			if (resource.kind == rtsl::ir::ResourceKind::resource_storage_texture && image && resourceTypeName(resource) == "image_2d" && image->parameter_types.size() == 1) {
+				const rtsl::ir::Type* texel = module.findType(image->parameter_types[0]);
+				if (texel && texel->kind == rtsl::ir::TypeKind::type_floating && texel->bit_width == 32) ++storage_sample_binding_count;
+			}
+		}
 		instruction(17, {1});
+		if (std::ranges::any_of(module.resources, [](const rtsl::ir::Resource& resource) { return resource.kind == rtsl::ir::ResourceKind::resource_storage_texture; })) instruction(17, {50});
+		if (std::ranges::any_of(module.resources, [](const rtsl::ir::Resource& resource) { return resource.kind == rtsl::ir::ResourceKind::resource_storage_texture; })) instruction(17, {55});
+		if (std::ranges::any_of(module.resources, [](const rtsl::ir::Resource& resource) { return resource.kind == rtsl::ir::ResourceKind::resource_storage_texture; })) instruction(17, {56});
 		if (entry.stage == rtsl::ir::Stage::stage_tessellation_control ||
 			entry.stage == rtsl::ir::Stage::stage_tessellation_evaluation)
 			instruction(17, {3});
@@ -139,9 +154,22 @@ public:
 		instruction(14, {0, 1});
 		const rtsl::ir::Function* stage_function = module.findFunction(entry.function);
 		if (!stage_function) throw std::runtime_error("entry point references an unknown RTIR function");
+		if (entry.stage == rtsl::ir::Stage::stage_compute) {
+			if (stage_function->parameters.size() != 3) throw std::runtime_error("compute entry requires exactly three global-invocation parameters");
+			std::uint32_t components{};
+			for (const auto& parameter : stage_function->parameters) {
+				const rtsl::ir::Type* type = module.findType(parameter.type);
+				if (!parameter.builtin || !type || type->kind != rtsl::ir::TypeKind::type_unsigned_integer || type->bit_width != 32) throw std::runtime_error("compute entry parameter must be a usize global-invocation builtin");
+				const std::uint32_t component = *parameter.builtin == rtsl::ir::Builtin::builtin_global_invocation_x ? 0 : *parameter.builtin == rtsl::ir::Builtin::builtin_global_invocation_y ? 1 : *parameter.builtin == rtsl::ir::Builtin::builtin_global_invocation_z ? 2 : 3;
+				if (component == 3 || components & (1u << component)) throw std::runtime_error("compute entry global-invocation builtins must be x, y, and z exactly once");
+				components |= 1u << component;
+			}
+			if (components != 7) throw std::runtime_error("compute entry global-invocation builtins must be x, y, and z exactly once");
+		}
 		declareFunctions();
 		buildInterfaces(*stage_function);
 		declarePatchInterfaces(*stage_function);
+		if (entry.stage == rtsl::ir::Stage::stage_compute) declareComputeInvocationId();
 		if (entry.stage == rtsl::ir::Stage::stage_tessellation_control) declareTessellationOuterLevels();
 		if (entry.stage == rtsl::ir::Stage::stage_tessellation_control) declareInvocationId();
 		if (entry.stage == rtsl::ir::Stage::stage_tessellation_evaluation) declareTessellationCoordinates();
@@ -181,7 +209,7 @@ private:
 		if (opcode == 16) return execution_modes;
 		if (opcode == 5) return debug;
 		if (opcode == 71 || opcode == 72) return annotations;
-		if ((opcode >= 54 && opcode <= 87) ||
+		if ((opcode >= 54 && opcode <= 125) ||
 			(opcode >= 126 && opcode <= 190) || opcode == 218 || opcode == 219 || opcode == 224 || (opcode >= 245 && opcode <= 254))
 			return functions;
 		return types_constants;
@@ -406,6 +434,54 @@ private:
 		leaves.push_back(leaf);
 	}
 
+	std::uint32_t typeRuntimeArray(std::uint32_t element, std::uint32_t stride) {
+		const std::uint64_t key = static_cast<std::uint64_t>(element) << 32 | stride;
+		if (const auto found = runtime_arrays.find(key); found != runtime_arrays.end()) return found->second;
+		const std::uint32_t result = id();
+		instruction(29, {result, element});
+		instruction(71, {result, 6, stride}); // ArrayStride
+		runtime_arrays.emplace(key, result);
+		return result;
+	}
+
+	std::uint32_t typeStorageImage(rtsl::ir::TypeId texel, std::uint32_t dimensions) {
+		const std::uint64_t key = static_cast<std::uint64_t>(texel.value()) << 32 | dimensions;
+		if (const auto found = storage_images.find(key); found != storage_images.end()) return found->second;
+		const std::uint32_t result = id();
+		// Dim is 0/1/2 for 1D/2D/3D; sampled=2 denotes a read-write storage image.
+		instruction(25, {result, typeFor(texel), dimensions - 1, 0, 0, 0, 2, 0});
+		storage_images.emplace(key, result);
+		return result;
+	}
+
+	const rtsl::ir::Resource& requireResource(std::uint32_t symbol) const {
+		const auto found = resources.find(symbol);
+		if (found == resources.end()) throw std::runtime_error("RTIR resource operation references an unknown resource");
+		return *found->second;
+	}
+
+	std::string_view resourceTypeName(const rtsl::ir::Resource& resource) const {
+		const rtsl::ir::Type* type = module.findType(resource.type);
+		return type ? module.strings.get(type->name) : std::string_view{};
+	}
+
+	std::uint32_t resourceStride(rtsl::ir::TypeId type) const {
+		const rtsl::ir::Type* value = module.findType(type);
+		if (!value) throw std::runtime_error("RTIR resource element type is unknown");
+		if (value->kind == rtsl::ir::TypeKind::type_vector && value->element_count == 3) return 16;
+		if (value->kind == rtsl::ir::TypeKind::type_vector) return resourceStride(value->element_type) * value->element_count;
+		if (value->kind == rtsl::ir::TypeKind::type_structure) {
+			std::uint32_t offset{};
+			for (const auto& member : value->members) {
+				const std::uint32_t size = resourceStride(member.type);
+				offset = roundUp(offset, size > 8 ? 16 : size);
+				offset += size;
+			}
+			return roundUp(offset, 16);
+		}
+		return value->bit_width ? value->bit_width / 8 : 4;
+	}
+
 	void createInterfaceVariables(std::vector<InterfaceLeaf>& leaves, bool output) {
 		std::uint32_t location{};
 		for (InterfaceLeaf& leaf : leaves) {
@@ -526,15 +602,74 @@ private:
 		interface_ids.push_back(tessellation_coordinates);
 	}
 
+	void declareComputeInvocationId() {
+		compute_invocation_id = id();
+		instruction(59, {pointerType(1, typeVector(typeUnsignedInteger(), 3)), compute_invocation_id, 1});
+		name(compute_invocation_id, "gl_GlobalInvocationID");
+		instruction(71, {compute_invocation_id, 11, 28}); // GlobalInvocationId
+		interface_ids.push_back(compute_invocation_id);
+	}
+
 	void declareResources() {
 		for (const rtsl::ir::Resource& resource : module.resources) {
-			if (resource.kind != rtsl::ir::ResourceKind::resource_sampled_texture) continue;
+			resources.emplace(resource.symbol.value(), &resource);
 			const std::uint32_t variable = id();
-			instruction(59, {pointerType(0, typeSampledImage2D()), variable, 0});
+			if (resource.kind == rtsl::ir::ResourceKind::resource_sampled_texture) {
+				instruction(59, {pointerType(0, typeSampledImage2D()), variable, 0});
+			} else if (resource.kind == rtsl::ir::ResourceKind::resource_storage_buffer) {
+				const rtsl::ir::Type* type = module.findType(resource.type);
+				if (!type || type->parameter_types.size() != 2 || resourceTypeName(resource) != "buffer")
+					throw std::runtime_error("RTIR storage buffer must preserve buffer<header, element> type parameters");
+				const std::uint32_t block = id();
+				const std::uint32_t header = typeFor(type->parameter_types[0]);
+				const std::uint32_t elements = typeRuntimeArray(typeFor(type->parameter_types[1]), resourceStride(type->parameter_types[1]));
+				instruction(30, {block, header, elements});
+				instruction(71, {block, 2}); // Block
+				instruction(72, {block, 0, 35, 0});
+				instruction(72, {block, 1, 35, resourceStride(type->parameter_types[0])});
+				instruction(59, {pointerType(12, block), variable, 12});
+			} else if (resource.kind == rtsl::ir::ResourceKind::resource_storage_texture) {
+				const rtsl::ir::Type* type = module.findType(resource.type);
+				const std::string_view name = resourceTypeName(resource);
+				const std::uint32_t dimensions = name == "image_1d" ? 1 : name == "image_2d" ? 2 : name == "image_3d" ? 3 : 0;
+				if (!type || type->parameter_types.size() != 1 || !dimensions)
+					throw std::runtime_error("RTIR storage image must preserve image dimension and texel type");
+				instruction(59, {pointerType(0, typeStorageImage(type->parameter_types[0], dimensions)), variable, 0});
+			} else {
+				continue;
+			}
 			instruction(71, {variable, 34, resource.binding ? resource.binding->set : 0});
 			instruction(71, {variable, 33, resource.binding ? resource.binding->binding : next_resource_binding++});
 			resource_variables.emplace(resource.symbol.value(), variable);
 		}
+		for (const rtsl::ir::Resource& resource : module.resources) {
+			const rtsl::ir::Type* image = module.findType(resource.type);
+			const bool sampled_alias = resource.kind == rtsl::ir::ResourceKind::resource_storage_texture && image &&
+				resourceTypeName(resource) == "image_2d" && image->parameter_types.size() == 1 &&
+				module.findType(image->parameter_types[0]) && module.findType(image->parameter_types[0])->kind == rtsl::ir::TypeKind::type_floating &&
+				module.findType(image->parameter_types[0])->bit_width == 32;
+			if (!sampled_alias) continue;
+			const std::uint32_t variable = id();
+			instruction(59, {pointerType(0, typeSampledImage2D()), variable, 0});
+			instruction(71, {variable, 34, resource.binding ? resource.binding->set : 0});
+			const std::uint32_t binding = storageSampleBinding(resource);
+			instruction(71, {variable, 33, binding});
+			storage_sample_bindings.emplace(resource.symbol.value(), binding);
+			storage_sample_variables.emplace(resource.symbol.value(), variable);
+		}
+		next_resource_binding = std::max(next_resource_binding, storage_sample_binding_base + storage_sample_binding_count);
+	}
+
+	std::uint32_t storageSampleBinding(const rtsl::ir::Resource& target) {
+		std::uint32_t index{};
+		for (const rtsl::ir::Resource& resource : module.resources) {
+			const rtsl::ir::Type* image = module.findType(resource.type);
+			const bool sampled_alias = resource.kind == rtsl::ir::ResourceKind::resource_storage_texture && image && resourceTypeName(resource) == "image_2d" && image->parameter_types.size() == 1 && module.findType(image->parameter_types[0]) && module.findType(image->parameter_types[0])->kind == rtsl::ir::TypeKind::type_floating && module.findType(image->parameter_types[0])->bit_width == 32;
+			if (!sampled_alias) continue;
+			if (&resource == &target) return storage_sample_binding_base + index;
+			++index;
+		}
+		throw std::runtime_error("RTIR storage texture has no sampled alias binding");
 	}
 
 	void declareUniforms() {
@@ -1079,6 +1214,14 @@ private:
 			if (source.immediates.empty() || operands.size() != 1) throw std::runtime_error("RTIR texture sample is malformed");
 			auto resource = resource_variables.find(source.immediates[0]);
 			if (resource == resource_variables.end()) throw std::runtime_error("RTIR texture sample references an unknown resource");
+			if (requireResource(source.immediates[0]).kind == rtsl::ir::ResourceKind::resource_storage_texture) {
+				const auto sampled = storage_sample_variables.find(source.immediates[0]);
+				if (sampled == storage_sample_variables.end()) throw std::runtime_error("RTIR storage texture sample requires image_2d<f32>");
+				const std::uint32_t image = id();
+				instruction(61, {typeSampledImage2D(), image, sampled->second});
+				const std::uint32_t physical = id(); instruction(87, {typeVector(typeFloat(), 4), physical, image, operands[0]});
+				result = id(); instruction(81, {typeFor(source.type), result, physical, 0}); break;
+			}
 			const std::uint32_t image = id();
 			instruction(61, {typeSampledImage2D(), image, resource->second});
 			result = id();
@@ -1095,6 +1238,39 @@ private:
 		case rtsl::ir::Opcode::opcode_resource_load: {
 			if (source.immediates.size() != 1 || !source.type)
 				throw std::runtime_error("RTIR resource load is malformed");
+			const auto resource_variable = resource_variables.find(source.immediates[0]);
+			if (resource_variable != resource_variables.end()) {
+				const rtsl::ir::Resource& resource = requireResource(source.immediates[0]);
+				const rtsl::ir::Type* resource_type = module.findType(resource.type);
+				if (!resource_type) throw std::runtime_error("RTIR resource load has an unknown resource type");
+				if (resource.kind == rtsl::ir::ResourceKind::resource_storage_buffer) {
+					if (source.operands.size() > 1) throw std::runtime_error("RTIR buffer resource load has too many coordinates");
+					const std::uint32_t member = source.operands.empty() ? 0 : 1;
+					std::vector<std::uint32_t> chain{pointerType(12, typeFor(source.type)), id(), resource_variable->second, constantUnsignedInteger(member)};
+					if (!source.operands.empty()) chain.push_back(valueFor(values, source.operands[0]));
+					instruction(65, chain);
+					result = id(); instruction(61, {typeFor(source.type), result, chain[1]});
+					break;
+				}
+				if (resource.kind == rtsl::ir::ResourceKind::resource_storage_texture) {
+					const std::string_view name = resourceTypeName(resource);
+					const std::size_t dimensions = name == "image_1d" ? 1 : name == "image_2d" ? 2 : name == "image_3d" ? 3 : 0;
+					if (!dimensions || source.operands.size() != dimensions) throw std::runtime_error("RTIR image resource load has the wrong coordinate count");
+					std::vector<std::uint32_t> coordinates;
+					for (const auto operand : source.operands) {
+						const std::uint32_t component = id(); instruction(124, {typeInteger(32, true), component, valueFor(values, operand)}); coordinates.push_back(component);
+					}
+					const std::uint32_t coordinate = dimensions == 1 ? coordinates[0] : [&] { const std::uint32_t value = id(); std::vector<std::uint32_t> construct{typeVector(typeInteger(32, true), (std::uint32_t)dimensions), value}; construct.insert(construct.end(), coordinates.begin(), coordinates.end()); instruction(80, construct); return value; }();
+					const std::uint32_t image = id(); instruction(61, {typeStorageImage(resource_type->parameter_types[0], (std::uint32_t)dimensions), image, resource_variable->second});
+					const rtsl::ir::Type* texel = module.findType(resource_type->parameter_types[0]);
+					if (texel && texel->kind == rtsl::ir::TypeKind::type_floating && texel->bit_width == 32) {
+						const std::uint32_t physical = id(); instruction(98, {typeVector(typeFloat(), 4), physical, image, coordinate});
+						result = id(); instruction(81, {typeFor(source.type), result, physical, 0});
+					} else { result = id(); instruction(98, {typeFor(source.type), result, image, coordinate}); }
+					break;
+				}
+				throw std::runtime_error("RTIR resource load uses an unsupported resource kind");
+			}
 			const auto uniform = uniform_members.find(source.immediates[0]);
 			const auto storage = storage_members.find(source.immediates[0]);
 			if (uniform == uniform_members.end() && storage == storage_members.end())
@@ -1109,6 +1285,47 @@ private:
 			result = id();
 			instruction(61, {typeFor(source.type), result, pointer});
 			break;
+		}
+		case rtsl::ir::Opcode::opcode_resource_store: {
+			if (source.immediates.size() != 1) throw std::runtime_error("RTIR resource store is malformed");
+			const auto resource_variable = resource_variables.find(source.immediates[0]);
+			if (resource_variable == resource_variables.end()) throw std::runtime_error("RTIR resource store references an unknown resource");
+			const rtsl::ir::Resource& resource = requireResource(source.immediates[0]);
+			if (resource.kind == rtsl::ir::ResourceKind::resource_storage_buffer) {
+				if (source.operands.size() != 2) throw std::runtime_error("RTIR buffer resource store requires coordinate and value");
+				const std::uint32_t pointer = id();
+				const auto type = value_types.at(source.operands[1].value());
+				instruction(65, {pointerType(12, typeFor(type)), pointer, resource_variable->second, constantUnsignedInteger(1), valueFor(values, source.operands[0])});
+				instruction(62, {pointer, valueFor(values, source.operands[1])}); break;
+			}
+			if (resource.kind == rtsl::ir::ResourceKind::resource_storage_texture) {
+				const std::string_view name = resourceTypeName(resource);
+				const std::size_t dimensions = name == "image_1d" ? 1 : name == "image_2d" ? 2 : name == "image_3d" ? 3 : 0;
+				if (!dimensions || source.operands.size() != dimensions + 1) throw std::runtime_error("RTIR image resource store has the wrong coordinate count");
+				std::vector<std::uint32_t> coordinates;
+				for (std::size_t index = 0; index < dimensions; ++index) { const std::uint32_t component = id(); instruction(124, {typeInteger(32, true), component, valueFor(values, source.operands[index])}); coordinates.push_back(component); }
+				const std::uint32_t coordinate = dimensions == 1 ? coordinates[0] : [&] { const std::uint32_t value = id(); std::vector<std::uint32_t> construct{typeVector(typeInteger(32, true), (std::uint32_t)dimensions), value}; construct.insert(construct.end(), coordinates.begin(), coordinates.end()); instruction(80, construct); return value; }();
+				const rtsl::ir::Type* resource_type = module.findType(resource.type);
+				const std::uint32_t image = id(); instruction(61, {typeStorageImage(resource_type->parameter_types[0], (std::uint32_t)dimensions), image, resource_variable->second});
+				const rtsl::ir::Type* texel = module.findType(resource_type->parameter_types[0]);
+				std::uint32_t value = valueFor(values, source.operands.back());
+				if (texel && texel->kind == rtsl::ir::TypeKind::type_floating && texel->bit_width == 32) { const std::uint32_t physical = id(); instruction(80, {typeVector(typeFloat(), 4), physical, value, constantFloat(0.0f), constantFloat(0.0f), constantFloat(1.0f)}); value = physical; }
+				instruction(99, {image, coordinate, value}); break;
+			}
+			throw std::runtime_error("RTIR resource store uses an unsupported resource kind");
+		}
+		case rtsl::ir::Opcode::opcode_resource_query: {
+			if (source.immediates.size() != 1 || !source.type || !source.operands.empty()) throw std::runtime_error("RTIR resource query is malformed");
+			const auto resource_variable = resource_variables.find(source.immediates[0]);
+			if (resource_variable == resource_variables.end() || requireResource(source.immediates[0]).kind != rtsl::ir::ResourceKind::resource_storage_texture) throw std::runtime_error("RTIR resource query requires a storage image");
+			const rtsl::ir::Type* resource_type = module.findType(requireResource(source.immediates[0]).type);
+			const rtsl::ir::Type* result_type = module.findType(source.type);
+			const std::uint32_t dimension = result_type && result_type->kind == rtsl::ir::TypeKind::type_vector ? result_type->element_count : 1;
+			const std::uint32_t signed_type = dimension == 1 ? typeInteger(32, true) : typeVector(typeInteger(32, true), dimension);
+			const std::string_view name = resourceTypeName(requireResource(source.immediates[0]));
+			const std::uint32_t image = id(); instruction(61, {typeStorageImage(resource_type->parameter_types[0], name == "image_1d" ? 1 : name == "image_2d" ? 2 : 3), image, resource_variable->second});
+			const std::uint32_t queried = id(); instruction(104, {signed_type, queried, image});
+			result = id(); instruction(124, {typeFor(source.type), result, queried}); break;
 		}
 		default:
 			throw std::runtime_error("RTIR instruction is not supported by the SPIR-V translator");
@@ -1205,8 +1422,29 @@ private:
 		instruction(248, {id()});
 		std::vector<std::uint32_t> arguments;
 		std::vector<std::uint32_t> path;
-		for (const rtsl::ir::Parameter& parameter : stage_function.parameters)
-			arguments.push_back(loadInterfaceValue(parameter.type, path));
+		for (const rtsl::ir::Parameter& parameter : stage_function.parameters) {
+			if (!parameter.builtin) {
+				arguments.push_back(loadInterfaceValue(parameter.type, path));
+				continue;
+			}
+			if (entry.stage != rtsl::ir::Stage::stage_compute || !compute_invocation_id)
+				throw std::runtime_error("RTIR parameter builtin is not valid for this entry stage");
+			const rtsl::ir::Type* type = module.findType(parameter.type);
+			if (!type || type->kind != rtsl::ir::TypeKind::type_unsigned_integer || type->bit_width != 32)
+				throw std::runtime_error("RTIR global invocation builtin parameter must be usize");
+			std::uint32_t component{};
+			switch (*parameter.builtin) {
+			case rtsl::ir::Builtin::builtin_global_invocation_x: component = 0; break;
+			case rtsl::ir::Builtin::builtin_global_invocation_y: component = 1; break;
+			case rtsl::ir::Builtin::builtin_global_invocation_z: component = 2; break;
+			default: throw std::runtime_error("RTIR parameter has an unsupported builtin");
+			}
+			const std::uint32_t invocation = id();
+			instruction(61, {typeVector(typeUnsignedInteger(), 3), invocation, compute_invocation_id});
+			const std::uint32_t value = id();
+			instruction(81, {typeFor(parameter.type), value, invocation, component});
+			arguments.push_back(value);
+		}
 		const std::uint32_t result = id();
 		std::vector<std::uint32_t> call{typeFor(stage_function.return_type), result,
 			function_ids.at(stage_function.id.value())};
@@ -1299,6 +1537,12 @@ private:
 	std::unordered_map<std::uint32_t, std::uint32_t> function_ids;
 	std::unordered_map<std::uint32_t, std::uint32_t> function_types;
 	std::unordered_map<std::uint32_t, std::uint32_t> resource_variables;
+	std::unordered_map<std::uint32_t, std::uint32_t> storage_sample_variables;
+	std::unordered_map<std::uint32_t, std::uint32_t> storage_sample_bindings;
+	std::unordered_map<std::uint32_t, const rtsl::ir::Resource*> resources;
+	std::unordered_map<std::uint64_t, std::uint32_t> runtime_arrays;
+	std::unordered_map<std::uint64_t, std::uint32_t> storage_images;
+	std::uint32_t compute_invocation_id{};
 	std::unordered_map<std::uint32_t, std::uint32_t> uniform_members;
 	std::unordered_map<std::uint32_t, std::uint32_t> storage_members;
 	std::unordered_set<std::uint32_t> uniform_arrays;
@@ -1318,6 +1562,8 @@ private:
 	std::uint32_t float_type{};
 	std::uint32_t sampled_image_type{};
 	std::uint32_t next_resource_binding{};
+	std::uint32_t storage_sample_binding_base{};
+	std::uint32_t storage_sample_binding_count{};
 	std::uint32_t uniform_block_variable{};
 	std::uint32_t storage_block_variable{};
 	std::uint32_t wrapper_function{};
@@ -1356,22 +1602,45 @@ std::size_t typeSize(const rtsl::ir::Module& module, rtsl::ir::TypeId id) {
 	}
 }
 
-void reflect(const rtsl::ir::Module& module, std::uint32_t selected_stages, rt_spirv_program& program) {
+void reflect(const rtsl::ir::Module& module, std::uint32_t selected_stages, const std::vector<const rtsl::ir::EntryPoint*>& entries, rt_spirv_program& program) {
+	std::unordered_set<std::uint32_t> live_functions;
+	std::unordered_set<std::uint32_t> live_symbols;
+	auto visit_function = [&](auto&& self, rtsl::ir::FunctionId id) -> void {
+		if (!id || !live_functions.insert(id.value()).second) return;
+		const rtsl::ir::Function* function = module.findFunction(id);
+		if (!function) return;
+		for (const rtsl::ir::Block& block : function->blocks) for (const rtsl::ir::Instruction& instruction : block.instructions) {
+			if (instruction.opcode == rtsl::ir::Opcode::opcode_call) self(self, instruction.callee);
+			else if ((instruction.opcode == rtsl::ir::Opcode::opcode_resource_load || instruction.opcode == rtsl::ir::Opcode::opcode_resource_store || instruction.opcode == rtsl::ir::Opcode::opcode_resource_sample || instruction.opcode == rtsl::ir::Opcode::opcode_resource_query) && instruction.immediates.size() == 1) live_symbols.insert(instruction.immediates[0]);
+		}
+	};
+	for (const rtsl::ir::EntryPoint* entry : entries) visit_function(visit_function, entry->function);
+	const bool compute_program = std::ranges::any_of(entries, [](const rtsl::ir::EntryPoint* entry) { return entry->stage == rtsl::ir::Stage::stage_compute; });
 	std::uint32_t next_binding{};
 	for (const rtsl::ir::Resource& resource : module.resources) {
+		const std::uint32_t binding = resource.binding ? resource.binding->binding : next_binding++;
+		if (!live_symbols.contains(resource.symbol.value())) continue;
 		rt_spirv_owned_location location;
 		location.name = symbolName(module, resource.symbol);
 		location.info.kind = static_cast<rt_spirv_location_kind>(static_cast<std::uint32_t>(resource.kind) + 2u);
 		location.info.stages = selected_stages;
 		location.info.descriptor_set = resource.binding ? resource.binding->set : 0;
-		location.info.binding = resource.binding ? resource.binding->binding : next_binding++;
+		location.info.binding = binding;
+		if (const auto sampled = program.storage_sample_bindings.find(resource.symbol.value()); sampled != program.storage_sample_bindings.end())
+			location.info.sampled_binding = sampled->second;
 		program.locations.push_back(std::move(location));
 	}
+	for (const auto& [_, binding] : program.storage_sample_bindings) next_binding = std::max(next_binding, binding + 1);
 	const std::uint32_t uniform_binding = next_binding++;
 	std::size_t uniform_offset{};
 	for (const rtsl::ir::Uniform& uniform : module.uniforms) {
 		const UniformLayout layout = uniformLayout(module, uniform.type);
 		uniform_offset = uniform.offset ? *uniform.offset : roundUp(static_cast<std::uint32_t>(uniform_offset), layout.alignment);
+		const std::size_t uniform_size = uniform.size ? *uniform.size : layout.size;
+		if (!compute_program && !live_symbols.contains(uniform.symbol.value())) {
+			uniform_offset += uniform_size;
+			continue;
+		}
 		rt_spirv_owned_location location;
 		location.name = symbolName(module, uniform.symbol);
 		location.info.kind = RT_SPIRV_UNIFORM_DATA;
@@ -1379,7 +1648,7 @@ void reflect(const rtsl::ir::Module& module, std::uint32_t selected_stages, rt_s
 		location.info.descriptor_set = 0;
 		location.info.binding = uniform_binding;
 		location.info.offset = uniform_offset;
-		location.info.size = uniform.size ? *uniform.size : layout.size;
+		location.info.size = uniform_size;
 		uniform_offset = location.info.offset + location.info.size;
 		program.locations.push_back(std::move(location));
 	}
@@ -1620,7 +1889,9 @@ rt_spirv_status rt_spirv_transpile(const uint8_t* bytes, size_t byte_size, const
 					throw std::runtime_error("tessellation-control entry requires a non-zero RTIR output_control_points configuration");
 				result->tessellation_control_points = configuration->output_control_points;
 			}
-			result->stages[output_stage].words = rutile::spirv::ModuleBuilder(module, *entry).build();
+			rutile::spirv::ModuleBuilder builder(module, *entry);
+			result->stages[output_stage].words = builder.build();
+			result->storage_sample_bindings = builder.storageSampleBindings();
 			if (!rt_spirv_validate(
 					result->stages[output_stage].words.data(),
 					result->stages[output_stage].words.size(),
@@ -1632,7 +1903,7 @@ rt_spirv_status rt_spirv_transpile(const uint8_t* bytes, size_t byte_size, const
 			}
 			result->stages[output_stage].entry_point = "main";
 		}
-		rutile::spirv::reflect(module, selected_stages, *result);
+		rutile::spirv::reflect(module, selected_stages, selected_entries, *result);
 		*program = result;
 		return RT_SPIRV_SUCCESS;
 	} catch (const std::bad_alloc&) {

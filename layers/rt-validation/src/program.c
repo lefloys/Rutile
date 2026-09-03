@@ -3,6 +3,39 @@
 
 #define RTVAL_DROP(message) rtval_fail(message)
 
+static rt_location rtval_location_wrap(rt_program program, enum rtval_location_kind kind, rt_location backend) {
+	if (!backend) {
+		return RT_NULL_HANDLE;
+	}
+	struct rtval_location* location = rtval_handle_create(RTVAL_HANDLE_TYPE_LOCATION);
+	if (!location) {
+		return RT_NULL_HANDLE;
+	}
+	struct rtval_location* state = RTVAL_PAYLOAD(location, struct rtval_location);
+	state->backend = backend;
+	state->program = program;
+	state->kind = kind;
+	return rtval_location_to_handle(location);
+}
+
+bool rtval_location_unwrap(rt_location location, enum rtval_location_kind kind, bool allow_null, rt_location* backend, const char* call_name) {
+	if (!location) {
+		if (allow_null) {
+			*backend = RT_NULL_HANDLE;
+			return true;
+		}
+		RTVAL_DROP(call_name);
+		return false;
+	}
+	struct rtval_location* state = RTVAL_PAYLOAD(rtval_location_from_handle(location), struct rtval_location);
+	if (!state || state->kind != kind || !rtval_handle_is_live(state->program)) {
+		RTVAL_DROP(call_name);
+		return false;
+	}
+	*backend = state->backend;
+	return true;
+}
+
 /*===============================================================================================*/
 /*                                                                                               */
 /*===============================================================================================*/
@@ -89,6 +122,10 @@ void rtval_program_layout(struct rtval_program* program, const rt_vertex_layout*
 		RTVAL_DROP("rtProgramSetLayout: null handle");
 		return;
 	}
+	if (state->finalized) {
+		RTVAL_DROP("rtProgramSetLayout: finalized program cannot be configured");
+		return;
+	}
 	if (layout && layout->input_count && !layout->inputs) {
 		RTVAL_DROP("rtProgramSetLayout: missing inputs");
 		return;
@@ -102,6 +139,10 @@ void rtval_program_source(struct rtval_program* program, const char* entry_point
 	struct rtval_program* state = RTVAL_PAYLOAD(program, struct rtval_program);
 	if (!state) {
 		RTVAL_DROP("rtProgramSource: null handle");
+		return;
+	}
+	if (state->finalized) {
+		RTVAL_DROP("rtProgramSource: finalized program cannot be configured");
 		return;
 	}
 	if (!program_bytes || program_byte_size == 0) {
@@ -120,6 +161,10 @@ void rtval_program_raster_state(struct rtval_program* program, enum rt_cull_mode
 	struct rtval_program* state = RTVAL_PAYLOAD(program, struct rtval_program);
 	if (!state) {
 		RTVAL_DROP("rtProgramRasterState: null handle");
+		return;
+	}
+	if (state->finalized) {
+		RTVAL_DROP("rtProgramSetRasterState: finalized program cannot be configured");
 		return;
 	}
 	if (cull_mode < RT_CULL_NONE || cull_mode > RT_CULL_BACK || front_face < RT_FRONT_FACE_CCW || front_face > RT_FRONT_FACE_CW || fill_mode < RT_FILL_SOLID || fill_mode > RT_FILL_WIREFRAME) {
@@ -146,6 +191,10 @@ void rtval_program_blend_state(
 		RTVAL_DROP("rtProgramBlendState: null handle");
 		return;
 	}
+	if (state->finalized) {
+		RTVAL_DROP("rtProgramSetBlendState: finalized program cannot be configured");
+		return;
+	}
 	if (src_color < RT_BLEND_ZERO || src_color > RT_BLEND_ONE_MINUS_DST_ALPHA || dst_color < RT_BLEND_ZERO || dst_color > RT_BLEND_ONE_MINUS_DST_ALPHA || src_alpha < RT_BLEND_ZERO || src_alpha > RT_BLEND_ONE_MINUS_DST_ALPHA || dst_alpha < RT_BLEND_ZERO || dst_alpha > RT_BLEND_ONE_MINUS_DST_ALPHA || color_op < RT_BLEND_OP_ADD || color_op > RT_BLEND_OP_MAX || alpha_op < RT_BLEND_OP_ADD || alpha_op > RT_BLEND_OP_MAX) {
 		RTVAL_DROP("rtProgramSetBlendState: valid blend-state enums required");
 		return;
@@ -161,9 +210,15 @@ void rtval_program_finalize(struct rtval_program* program) {
 		RTVAL_DROP("rtProgramFinalize: null handle");
 		return;
 	}
+	if (state->finalized) {
+		RTVAL_DROP("rtProgramFinalize: program is already finalized");
+		return;
+	}
 
 	rtval_next_rtProgramFinalize(state->backend);
-	rtval_report_error("rtProgramFinalize");
+	if (rtval_report_error("rtProgramFinalize")) {
+		state->finalized = true;
+	}
 }
 
 rt_location rtval_program_uniform_location(struct rtval_program* program, const char* name) {
@@ -172,14 +227,20 @@ rt_location rtval_program_uniform_location(struct rtval_program* program, const 
 		RTVAL_DROP("rtProgramUniformLocation: null handle");
 		return RT_NULL_HANDLE;
 	}
+	if (!state->finalized) {
+		RTVAL_DROP("rtProgramUniformLocation: finalized program required");
+		return RT_NULL_HANDLE;
+	}
 	if (!name) {
 		RTVAL_DROP("rtProgramUniformLocation: NULL name");
 		return RT_NULL_HANDLE;
 	}
 
 	rt_location location = rtval_next_rtProgramUniformLocation(state->backend, name);
-	rtval_report_error("rtProgramUniformLocation");
-	return location;
+	if (!rtval_report_error("rtProgramUniformLocation")) {
+		return RT_NULL_HANDLE;
+	}
+	return rtval_location_wrap(rtval_program_to_handle(program), RTVAL_LOCATION_UNIFORM, location);
 }
 
 rt_location rtval_program_input_location(struct rtval_program* program, const rt_vertex_attribute* attributes, usize attribute_count) {
@@ -188,9 +249,15 @@ rt_location rtval_program_input_location(struct rtval_program* program, const rt
 		RTVAL_DROP("rtProgramInputLocation: program and attributes required");
 		return RT_NULL_HANDLE;
 	}
+	if (!state->finalized) {
+		RTVAL_DROP("rtProgramInputLocation: finalized program required");
+		return RT_NULL_HANDLE;
+	}
 	rt_location location = rtval_next_rtProgramInputLocation(state->backend, attributes, attribute_count);
-	rtval_report_error("rtProgramInputLocation");
-	return location;
+	if (!rtval_report_error("rtProgramInputLocation")) {
+		return RT_NULL_HANDLE;
+	}
+	return rtval_location_wrap(rtval_program_to_handle(program), RTVAL_LOCATION_INPUT, location);
 }
 
 rt_location rtval_program_output_location(struct rtval_program* program, const char* name) {
@@ -199,9 +266,15 @@ rt_location rtval_program_output_location(struct rtval_program* program, const c
 		RTVAL_DROP("rtProgramOutputLocation: valid program required");
 		return RT_NULL_HANDLE;
 	}
+	if (!state->finalized) {
+		RTVAL_DROP("rtProgramOutputLocation: finalized program required");
+		return RT_NULL_HANDLE;
+	}
 	rt_location location = rtval_next_rtProgramOutputLocation(state->backend, name);
-	rtval_report_error("rtProgramOutputLocation");
-	return location;
+	if (!rtval_report_error("rtProgramOutputLocation")) {
+		return RT_NULL_HANDLE;
+	}
+	return rtval_location_wrap(rtval_program_to_handle(program), RTVAL_LOCATION_OUTPUT, location);
 }
 
 #undef RTVAL_DROP

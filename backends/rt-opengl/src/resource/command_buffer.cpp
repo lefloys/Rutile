@@ -1370,6 +1370,7 @@ void rtgl_command_buffer_execute(struct rtgl_context* ctx, struct rtgl_command_b
 			break;
 		case RTGL_RECORDED_COMMAND_USE_PROGRAM:
 			program = command->data.use_program.program;
+			rtgl_printf("rt-opengl: use program=%p gl=%u compute=%u\n", (void*)program, program ? program->gl_program : 0, program && program->compute ? 1u : 0u);
 			rtgl_program_prepare(ctx, program);
 			if (!program || !program->gl_program)
 				break;
@@ -1443,7 +1444,10 @@ void rtgl_command_buffer_execute(struct rtgl_context* ctx, struct rtgl_command_b
 		case RTGL_RECORDED_COMMAND_BIND_TEXTURE:
 			if (program && program->location_occupied[command->data.bind_texture.address] && command->data.bind_texture.image && command->data.bind_texture.image->gl_texture) {
 				struct rtgl_program_mapping* mapping = &program->mappings[command->data.bind_texture.address];
-				rtgl_bind_uniform_texture(ctx, program, mapping);
+				if (mapping->kind == RTGL_LOCATION_MAPPING_STORAGE_TEXTURE_BUFFER) {
+					glBindImageTexture(mapping->binding, command->data.bind_texture.image->gl_texture, 0, GL_FALSE, 0, GL_READ_WRITE, command->data.bind_texture.image->gl_internal_format);
+				}
+				if (mapping->kind == RTGL_LOCATION_MAPPING_TEXTURE) rtgl_bind_uniform_texture(ctx, program, mapping);
 				GLuint sampler = 0;
 				glCreateSamplers(1, &sampler);
 				glSamplerParameteri(sampler, GL_TEXTURE_MAG_FILTER, command->data.bind_texture.mag_filter == RT_FILTER_NEAREST ? GL_NEAREST : GL_LINEAR);
@@ -1541,7 +1545,13 @@ void rtgl_command_buffer_execute(struct rtgl_context* ctx, struct rtgl_command_b
 			}
 			break;
 		case RTGL_RECORDED_COMMAND_DISPATCH:
-			if (program) glDispatchCompute((GLuint)command->data.dispatch.group_count_x, (GLuint)command->data.dispatch.group_count_y, (GLuint)command->data.dispatch.group_count_z);
+			if (program) {
+				glUseProgram(program->gl_program);
+				GLint active_program = 0;
+				glGetIntegerv(GL_CURRENT_PROGRAM, &active_program);
+				rtgl_printf("rt-opengl: dispatch program=%u active=%d compute=%u\n", program->gl_program, active_program, program->compute ? 1u : 0u);
+				glDispatchCompute((GLuint)command->data.dispatch.group_count_x, (GLuint)command->data.dispatch.group_count_y, (GLuint)command->data.dispatch.group_count_z);
+			}
 			break;
 		case RTGL_RECORDED_COMMAND_END_RENDERING:
 			framebuffer = NULL;

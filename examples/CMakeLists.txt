@@ -73,6 +73,7 @@ endfunction()
 add_subdirectory("01-triangle")
 add_subdirectory("02-spinning-cube")
 add_subdirectory("03-plasma-lab")
+add_subdirectory("05-temperature-simulation")
 add_subdirectory("06-tessellation")
 add_subdirectory("07-geometry")
 add_subdirectory("08-voxel-renderer")
@@ -81,6 +82,7 @@ set_property(GLOBAL APPEND PROPERTY RUTILE_EXAMPLE_TARGETS
     "rutile-01-triangle"
     "rutile-02-spinning-cube"
     "rutile-03-plasma-lab"
+    "rutile-05-temperature-simulation"
     "rutile-06-tessellation"
     "rutile-07-geometry"
     "rutile-08-voxel-renderer"

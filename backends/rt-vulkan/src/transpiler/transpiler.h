@@ -45,6 +45,7 @@ typedef struct rt_spirv_location_info {
 	uint32_t stages;
 	uint32_t descriptor_set;
 	uint32_t binding;
+	uint32_t sampled_binding;
 	size_t offset;
 	size_t size;
 	size_t block_size;

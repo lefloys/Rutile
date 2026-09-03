@@ -137,6 +137,7 @@ static rtgl_location_kind rtgl_location_mapping_kind_from_spirv(rt_spirv_locatio
 	case RT_SPIRV_SAMPLER:
 		return RTGL_LOCATION_MAPPING_TEXTURE;
 	case RT_SPIRV_STORAGE_TEXTURE:
+		return RTGL_LOCATION_MAPPING_STORAGE_TEXTURE_BUFFER;
 	case RT_SPIRV_INPUT_ATTACHMENT:
 		break;
 	}
@@ -386,17 +387,19 @@ static bool rtgl_execution_program_finalize_spirv(struct rtgl_context* exec_ctx,
 
 void rtgl_execution_program_finalize(struct rtgl_context* ctx, struct rtgl_program* program) {
 	rtgl_retain_resource(program);
-	rtgl_execution_submit_sync(ctx, [program](struct rtgl_context* exec_ctx) {
-		const bool finalized = rtgl_execution_program_finalize_spirv(exec_ctx, program);
+	bool finalized = false;
+	char message[1024] = { 0 };
+	rtgl_execution_submit_sync(ctx, [program, &finalized, &message](struct rtgl_context* exec_ctx) {
+		finalized = rtgl_execution_program_finalize_spirv(exec_ctx, program);
 		if (finalized && program->gl_program) {
 			for (u32 address = 0; address < RTGL_LOCATION_ADDRESS_COUNT; address++) {
 				if (!program->location_occupied[address]) {
 					continue;
 				}
 				struct rtgl_program_mapping* mapping = &program->mappings[address];
-				if (mapping->kind == RTGL_LOCATION_MAPPING_TEXTURE) {
+				if (mapping->kind == RTGL_LOCATION_MAPPING_TEXTURE || mapping->kind == RTGL_LOCATION_MAPPING_STORAGE_TEXTURE_BUFFER) {
 					mapping->gl_location = glGetUniformLocation(program->gl_program, mapping->name);
-					if (mapping->gl_location >= 0) {
+					if (mapping->kind == RTGL_LOCATION_MAPPING_TEXTURE && mapping->gl_location >= 0) {
 						glProgramUniform1i(program->gl_program, mapping->gl_location, (GLint)mapping->binding);
 					}
 				} else if (mapping->kind == RTGL_LOCATION_MAPPING_STORAGE_BUFFER || mapping->kind == RTGL_LOCATION_MAPPING_STORAGE_DATA) {
@@ -412,8 +415,12 @@ void rtgl_execution_program_finalize(struct rtgl_context* ctx, struct rtgl_progr
 				}
 			}
 		}
+		if (!finalized) {
+			strncpy(message, rtgl_error_message(), sizeof(message) - 1);
+		}
 		rtgl_resource_release(RTGL_RESOURCE_BASE(program));
 	});
+	if (!finalized) rtgl_throwf(RT_SHADER_LINK_FAILED, "%s", message[0] ? message : "OpenGL program finalization failed");
 }
 void rtgl_execution_program_destroy(struct rtgl_context* ctx, struct rtgl_program* program) {
 	rtgl_execution_submit_sync(ctx, [program](struct rtgl_context*) {

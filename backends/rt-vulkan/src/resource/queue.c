@@ -318,6 +318,7 @@ struct rtvk_lowered_command_buffer* rtvk_queue_create_lowered_command_buffer(str
 	VkDescriptorPoolSize descriptor_sizes[] = {
 		{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 128 },
 		{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 128 },
+		{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 128 },
 		{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 128 },
 		{ VK_DESCRIPTOR_TYPE_SAMPLER, 128 },
 	};

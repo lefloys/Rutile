@@ -52,6 +52,8 @@ static const char* rtval_handle_type_name(rtval_handle_type t) {
 		return "swapchain";
 	case RTVAL_HANDLE_TYPE_SAMPLER:
 		return "sampler";
+	case RTVAL_HANDLE_TYPE_LOCATION:
+		return "location";
 	default:
 		return "unknown";
 	}
@@ -174,6 +176,9 @@ bool rtval_handle_report_leaks(void) {
 			continue;
 		}
 		rtval_handle_type t = rtval_handle_slots[i].type;
+		if (t == RTVAL_HANDLE_TYPE_LOCATION) {
+			continue;
+		}
 		if ((u32)t < RTVAL_HANDLE_TYPE_COUNT) {
 			counts[t]++;
 		}
@@ -195,6 +200,9 @@ bool rtval_handle_report_leaks(void) {
 	for (usize i = 0; i < rtval_handle_capacity; i++) {
 		void* k = rtval_handle_slots[i].key;
 		if (k == RTVAL_HANDLE_EMPTY || k == RTVAL_HANDLE_TOMBSTONE) {
+			continue;
+		}
+		if (rtval_handle_slots[i].type == RTVAL_HANDLE_TYPE_LOCATION) {
 			continue;
 		}
 		rtval_printf("[validation]     live %s handle=%p\n", rtval_handle_type_name(rtval_handle_slots[i].type), k);

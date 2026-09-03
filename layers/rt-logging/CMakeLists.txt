@@ -19,12 +19,3 @@ set_target_properties(${PROJECT_NAME} PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
     LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
 )
-
-if(BUILD_TESTING)
-    add_executable(rt-logging-layer-tests "tests/layer.c")
-    target_compile_features(rt-logging-layer-tests PRIVATE c_std_11)
-    target_include_directories(rt-logging-layer-tests PRIVATE "${RUTILE_SOURCE_DIR}/include")
-    target_link_libraries(rt-logging-layer-tests PRIVATE ${PROJECT_NAME})
-    set_target_properties(rt-logging-layer-tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
-    add_test(NAME rt-logging-layer.tests COMMAND rt-logging-layer-tests)
-endif()

@@ -19,8 +19,7 @@
 constexpr const char* Layers[] = { "rt-validation-layer" };
 constexpr const char* Features[] = { RT_FEATURE_PRESENTATION };
 
-extern "C" const rt_example_program terrain_rtslp;
-extern "C" const rt_example_program water_rtslp;
+extern "C" const rt_example_program voxel_rtslp;
 
 constexpr rt_vertex_attribute VertexAttributes[] = {
 	{ "position", offsetof(Vertex, position), RT_RGB32_SFLOAT },
@@ -192,21 +191,21 @@ int main(int argc, char** argv) {
 
 	rt_program program = rtProgramCreate();
 	rtProgramSetLayout(program, &VertexLayout);
-	rtProgramSource(program, "main", terrain_rtslp.data, terrain_rtslp.size);
+	rtProgramSource(program, "terrain", voxel_rtslp.data, voxel_rtslp.size);
 	rtProgramSetRasterState(program, RT_CULL_BACK, RT_FRONT_FACE_CCW, RT_FILL_SOLID);
 	rtProgramFinalize(program);
 	if (!report_error("terrain rtProgramFinalize")) return 1;
-	rt_location transform_location = rtProgramUniformLocation(program, "scene");
+	rt_location transform_location = rtProgramUniformLocation(program, "mvp");
 	rt_location vertex_location = rtProgramInputLocation(program, VertexAttributes, 7);
 
 	rt_program water_program = rtProgramCreate();
 	rtProgramSetLayout(water_program, &VertexLayout);
-	rtProgramSource(water_program, "main", water_rtslp.data, water_rtslp.size);
+	rtProgramSource(water_program, "water", voxel_rtslp.data, voxel_rtslp.size);
 	rtProgramSetRasterState(water_program, RT_CULL_BACK, RT_FRONT_FACE_CCW, RT_FILL_SOLID);
 	rtProgramSetBlendState(water_program, true, RT_BLEND_SRC_ALPHA, RT_BLEND_ONE_MINUS_SRC_ALPHA, RT_BLEND_OP_ADD, RT_BLEND_ONE, RT_BLEND_ONE_MINUS_SRC_ALPHA, RT_BLEND_OP_ADD);
 	rtProgramFinalize(water_program);
 	if (!report_error("water rtProgramFinalize")) return 1;
-	rt_location water_transform_location = rtProgramUniformLocation(water_program, "scene");
+	rt_location water_transform_location = rtProgramUniformLocation(water_program, "mvp");
 	rt_location water_vertex_location = rtProgramInputLocation(water_program, VertexAttributes, 7);
 
 	rt_command_buffer cmd = rtCommandBufferCreate();

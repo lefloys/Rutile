@@ -5,6 +5,19 @@
 
 struct rtval_program {
 	rt_program backend;
+	bool finalized;
+};
+
+enum rtval_location_kind {
+	RTVAL_LOCATION_UNIFORM,
+	RTVAL_LOCATION_INPUT,
+	RTVAL_LOCATION_OUTPUT,
+};
+
+struct rtval_location {
+	rt_location backend;
+	rt_program program;
+	enum rtval_location_kind kind;
 };
 
 struct rtval_program* rtval_program_create(void);
@@ -17,5 +30,6 @@ void rtval_program_finalize(struct rtval_program* program);
 rt_location rtval_program_uniform_location(struct rtval_program* program, const char* name);
 rt_location rtval_program_input_location(struct rtval_program* program, const rt_vertex_attribute* attributes, usize attribute_count);
 rt_location rtval_program_output_location(struct rtval_program* program, const char* name);
+bool rtval_location_unwrap(rt_location location, enum rtval_location_kind kind, bool allow_null, rt_location* backend, const char* call_name);
 
 #endif

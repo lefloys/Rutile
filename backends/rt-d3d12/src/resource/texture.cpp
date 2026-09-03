@@ -770,7 +770,7 @@ static bool rtd3d12_texture_desc(rt::texture_type type, DXGI_FORMAT format, rt::
 	default:
 		return false;
 	}
-	desc.Flags = rtd3d12_texture_format_is_depth(format) ? D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL : D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+	desc.Flags = rtd3d12_texture_format_is_depth(format) ? D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL : D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
 	*out_desc = desc;
 	*out_layers = layers;
 	return true;

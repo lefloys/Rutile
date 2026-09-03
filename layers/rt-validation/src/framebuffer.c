@@ -1,5 +1,6 @@
 #include "framebuffer.h"
 #include "logger.h"
+#include "program.h"
 #include "texture_view.h"
 
 #define RTVAL_DROP(message) rtval_fail(message)
@@ -108,7 +109,11 @@ rt_texture_view rtval_framebuffer_color_view(struct rtval_framebuffer* framebuff
 		RTVAL_DROP("rtFramebufferColorView: invalid handle");
 		return RT_NULL_HANDLE;
 	}
-	rt_texture_view result = rtval_next_rtFramebufferColorView(framebuffer_state->backend, location);
+	rt_location backend_location = RT_NULL_HANDLE;
+	if (!rtval_location_unwrap(location, RTVAL_LOCATION_OUTPUT, true, &backend_location, "rtFramebufferColorView: live output location required")) {
+		return RT_NULL_HANDLE;
+	}
+	rt_texture_view result = rtval_next_rtFramebufferColorView(framebuffer_state->backend, backend_location);
 	rtval_report_error("rtFramebufferColorView");
 	if (!result) {
 		return RT_NULL_HANDLE;
@@ -139,7 +144,11 @@ void rtval_framebuffer_set_color_view(struct rtval_framebuffer* framebuffer, str
 		}
 		view_backend = view_state->backend;
 	}
-	rtval_next_rtFramebufferSetColorView(framebuffer_state->backend, view_backend, location);
+	rt_location backend_location = RT_NULL_HANDLE;
+	if (!rtval_location_unwrap(location, RTVAL_LOCATION_OUTPUT, true, &backend_location, "rtFramebufferSetColorView: live output location required")) {
+		return;
+	}
+	rtval_next_rtFramebufferSetColorView(framebuffer_state->backend, view_backend, backend_location);
 	rtval_report_error("rtFramebufferSetColorView");
 }
 

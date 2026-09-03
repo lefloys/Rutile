@@ -44,6 +44,7 @@ typedef enum rtvk_program_descriptor_kind {
 	RTVK_DESCRIPTOR_BUFFER,
 	RTVK_DESCRIPTOR_STORAGE_BUFFER,
 	RTVK_DESCRIPTOR_TEXTURE,
+	RTVK_DESCRIPTOR_STORAGE_TEXTURE,
 	RTVK_DESCRIPTOR_SAMPLER,
 } rtvk_program_descriptor_kind;
 
@@ -51,6 +52,8 @@ struct rtvk_program_descriptor_mapping {
 	VkShaderStageFlags stages;
 	rtvk_program_descriptor_kind kind;
 	u32 binding;
+	bool sampled_alias;
+	u32 sampled_binding;
 };
 
 typedef enum rtvk_program_data_kind {

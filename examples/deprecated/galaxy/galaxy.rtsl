@@ -20,7 +20,8 @@ struct Vertex : Position {
 	f32 kind;
 	f32 seed;
 
-	fn Vertex(Point point) : Position(scene.view_projection * vec4(point.position, 1.0)) {
+	fn Vertex(Point point) {
+		position = scene.view_projection * vec4(point.position, 1.0);
 		color = point.color;
 		normal = point.normal;
 		kind = point.kind;

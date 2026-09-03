@@ -1442,16 +1442,19 @@ void rtd3d12_lower_bind_buffer(rtd3d12_context* ctx, rtd3d12_command_lower_state
 		};
 		ctx->d3d_device->CreateConstantBufferView(&desc, cpu);
 		rtd3d12_set_root_descriptor_table(state, command_list, mapping.root_parameter, gpu);
-	} else if (mapping.storage_stride && command->offset % mapping.storage_stride == 0 && command->size % mapping.storage_stride == 0) {
-		rtd3d12_command_transition_buffer(command_list, command->buffer, D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
-		D3D12_SHADER_RESOURCE_VIEW_DESC desc = {};
-		desc.Format = DXGI_FORMAT_UNKNOWN;
-		desc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
-		desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-		desc.Buffer.FirstElement = command->offset / mapping.storage_stride;
-		desc.Buffer.NumElements = command->size / mapping.storage_stride;
-		desc.Buffer.StructureByteStride = mapping.storage_stride;
-		ctx->d3d_device->CreateShaderResourceView(command->buffer->d3d_resource, &desc, cpu);
+	} else {
+		if (command->offset % 4u || command->size % 4u) {
+			rtd3d12_fail(rt::error::improper_usage, "storage buffer range is not representable as a D3D12 raw UAV");
+			return;
+		}
+		rtd3d12_command_transition_buffer(command_list, command->buffer, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		D3D12_UNORDERED_ACCESS_VIEW_DESC desc = {};
+		desc.Format = DXGI_FORMAT_R32_TYPELESS;
+		desc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+		desc.Buffer.FirstElement = command->offset / 4u;
+		desc.Buffer.NumElements = command->size / 4u;
+		desc.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_RAW;
+		ctx->d3d_device->CreateUnorderedAccessView(command->buffer->d3d_resource, nullptr, &desc, cpu);
 		rtd3d12_set_root_descriptor_table(state, command_list, mapping.root_parameter, gpu);
 	}
 }
@@ -1459,18 +1462,37 @@ void rtd3d12_lower_bind_buffer(rtd3d12_context* ctx, rtd3d12_command_lower_state
 void rtd3d12_lower_bind_texture(rtd3d12_context* ctx, rtd3d12_command_lower_state* state, ID3D12GraphicsCommandList* command_list, const rtd3d12_ir_texture* command) {
 	rt_texture_view_t* texture_view = command->texture_view;
 	rtd3d12_image_base* image = command->image;
-	if (!texture_view || !image || !image->d3d_resource || !command->sampler_heap) {
+	if (!texture_view || !image || !image->d3d_resource) {
 		return;
 	}
 	rtd3d12_lower_remember_texture_binding(state, command);
-	if (!state->program || !state->resource_heap || !state->sampler_heap) {
+	if (!state->program || !state->resource_heap) {
 		return;
 	}
 	if (!state->program->descriptor_mappings[command->address]) {
 		return;
 	}
 	const rtd3d12_program_descriptor_mapping& mapping = *state->program->descriptor_mappings[command->address];
-	if (mapping.type != rtd3d12_descriptor_type::texture) return;
+	if (mapping.type != rtd3d12_descriptor_type::texture && mapping.type != rtd3d12_descriptor_type::storage_texture) return;
+	if (mapping.type == rtd3d12_descriptor_type::storage_texture) {
+		D3D12_CPU_DESCRIPTOR_HANDLE cpu = state->resource_heap->GetCPUDescriptorHandleForHeapStart();
+		D3D12_GPU_DESCRIPTOR_HANDLE gpu = state->resource_heap->GetGPUDescriptorHandleForHeapStart();
+		cpu.ptr += state->resource_index * state->resource_step;
+		gpu.ptr += state->resource_index++ * state->resource_step;
+		rtd3d12_command_transition_image(command_list, image, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		D3D12_UNORDERED_ACCESS_VIEW_DESC uav = {};
+		uav.Format = image->dxgi_format;
+		switch (image->type) {
+		case rt::texture_type::texture_1d: uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE1D; break;
+		case rt::texture_type::texture_2d: uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D; break;
+		case rt::texture_type::texture_3d: uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE3D; uav.Texture3D.WSize = static_cast<UINT>(image->depth); break;
+		default: return;
+		}
+		ctx->d3d_device->CreateUnorderedAccessView(image->d3d_resource, nullptr, &uav, cpu);
+		rtd3d12_set_root_descriptor_table(state, command_list, mapping.root_parameter, gpu);
+		if (state->program->d3d_compute_pipeline) return;
+	}
+	if (!state->sampler_heap) return;
 	D3D12_CPU_DESCRIPTOR_HANDLE resource_cpu = state->resource_heap->GetCPUDescriptorHandleForHeapStart();
 	D3D12_GPU_DESCRIPTOR_HANDLE resource_gpu = state->resource_heap->GetGPUDescriptorHandleForHeapStart();
 	D3D12_CPU_DESCRIPTOR_HANDLE sampler_cpu = state->sampler_heap->GetCPUDescriptorHandleForHeapStart();
@@ -1529,7 +1551,7 @@ void rtd3d12_lower_bind_texture(rtd3d12_context* ctx, rtd3d12_command_lower_stat
 	}
 	ctx->d3d_device->CreateShaderResourceView(image->d3d_resource, &srv, resource_cpu);
 	ctx->d3d_device->CopyDescriptorsSimple(1, sampler_cpu, command->sampler_cpu, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
-	rtd3d12_set_root_descriptor_table(state, command_list, mapping.root_parameter, resource_gpu);
+	rtd3d12_set_root_descriptor_table(state, command_list, mapping.type == rtd3d12_descriptor_type::storage_texture ? mapping.sampled_root_parameter : mapping.root_parameter, resource_gpu);
 	rtd3d12_set_root_descriptor_table(state, command_list, mapping.sampler_root_parameter, sampler_gpu);
 }
 

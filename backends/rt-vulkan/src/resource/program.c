@@ -272,6 +272,8 @@ VkDescriptorType rtvk_program_descriptor_type(rtvk_program_descriptor_kind kind)
 		return VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 	case RTVK_DESCRIPTOR_TEXTURE:
 		return VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	case RTVK_DESCRIPTOR_STORAGE_TEXTURE:
+		return VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
 	case RTVK_DESCRIPTOR_SAMPLER:
 		return VK_DESCRIPTOR_TYPE_SAMPLER;
 	}
@@ -300,6 +302,7 @@ static void rtvk_program_create_descriptor_set_layout(struct rtvk_context* ctx, 
 	for (u32 index = 0; index < 256; index++) {
 		if (rtvk_program_descriptor_is_first(program, index)) {
 			descriptor_count++;
+			if (program->descriptor_mappings[index].sampled_alias) descriptor_count++;
 		}
 	}
 	if (descriptor_count == 0) {
@@ -327,6 +330,12 @@ static void rtvk_program_create_descriptor_set_layout(struct rtvk_context* ctx, 
 		bindings[binding_index].stageFlags = mapping->stages;
 		bindings[binding_index].pImmutableSamplers = NULL;
 		binding_index++;
+		if (mapping->sampled_alias) {
+			bindings[binding_index] = bindings[binding_index - 1];
+			bindings[binding_index].binding = mapping->sampled_binding;
+			bindings[binding_index].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+			binding_index++;
+		}
 	}
 
 	VkDescriptorSetLayoutCreateInfo layout_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
@@ -989,10 +998,12 @@ static bool rtvk_program_build_locations(
 		case RT_SPIRV_SAMPLED_TEXTURE:
 			descriptor_kind = RTVK_DESCRIPTOR_TEXTURE;
 			break;
+		case RT_SPIRV_STORAGE_TEXTURE:
+			descriptor_kind = RTVK_DESCRIPTOR_STORAGE_TEXTURE;
+			break;
 		case RT_SPIRV_SAMPLER:
 			descriptor_kind = RTVK_DESCRIPTOR_SAMPLER;
 			break;
-		case RT_SPIRV_STORAGE_TEXTURE:
 		case RT_SPIRV_INPUT_ATTACHMENT:
 		default:
 			rtvk_throwf(RT_UNSUPPORTED_FEATURE, "RTSL resource %s has an unsupported graphics resource kind", resource.name);
@@ -1033,6 +1044,10 @@ static bool rtvk_program_build_locations(
 		descriptor->stages |= stages;
 		descriptor->kind = descriptor_kind;
 		descriptor->binding = resource.binding;
+		if (descriptor_kind == RTVK_DESCRIPTOR_STORAGE_TEXTURE) {
+			descriptor->sampled_alias = true;
+			descriptor->sampled_binding = resource.sampled_binding;
+		}
 		program->descriptor_mapping_occupied[location->address] = true;
 		if (data_location) {
 			program->data_mappings[location->address] = (struct rtvk_program_data_mapping){

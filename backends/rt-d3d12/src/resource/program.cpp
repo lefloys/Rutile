@@ -255,11 +255,12 @@ static bool rtd3d12_program_create_root_signature(rtd3d12_context* ctx, rt_progr
 	parameters.reserve(module.resources.size() * 2 + module.uniforms.size() + 1);
 	program->clear_mappings();
 
+	u32 next_resource_binding = 0;
 	for (const rtsl::ir::Resource& resource : module.resources) {
 		rtd3d12_program_descriptor_mapping mapping = {};
 		const rtsl::ir::Symbol* symbol = module.findSymbol(resource.symbol);
 		mapping.name = symbol ? std::string(module.strings.get(symbol->fully_qualified_name)) : std::string{};
-		mapping.binding = resource.binding ? resource.binding->binding : 0;
+		mapping.binding = resource.binding ? resource.binding->binding : next_resource_binding++;
 		const u32 space = resource.binding ? resource.binding->set : 0;
 		const D3D12_SHADER_VISIBILITY visibility = D3D12_SHADER_VISIBILITY_ALL;
 
@@ -301,10 +302,10 @@ static bool rtd3d12_program_create_root_signature(rtd3d12_context* ctx, rt_progr
 			mapping.sampler_root_parameter = mapping.root_parameter + 1;
 		} else if (resource.kind == rtsl::ir::ResourceKind::resource_storage_buffer) {
 			mapping.type = rtd3d12_descriptor_type::storage_buffer;
-			mapping.storage_stride = 16;
+			mapping.storage_stride = 0;
 			mapping.root_parameter = static_cast<u32>(parameters.size());
 			D3D12_DESCRIPTOR_RANGE range = {};
-			range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+			range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
 			range.NumDescriptors = 1;
 			range.BaseShaderRegister = mapping.binding;
 			range.RegisterSpace = space;
@@ -317,6 +318,26 @@ static bool rtd3d12_program_create_root_signature(rtd3d12_context* ctx, rt_progr
 			parameter.DescriptorTable.pDescriptorRanges = &ranges.back();
 			parameter.ShaderVisibility = visibility;
 			parameters.push_back(parameter);
+		} else if (resource.kind == rtsl::ir::ResourceKind::resource_storage_texture) {
+			mapping.type = rtd3d12_descriptor_type::storage_texture;
+			mapping.root_parameter = static_cast<u32>(parameters.size());
+			for (const D3D12_DESCRIPTOR_RANGE_TYPE range_type : { D3D12_DESCRIPTOR_RANGE_TYPE_UAV, D3D12_DESCRIPTOR_RANGE_TYPE_SRV, D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER }) {
+				D3D12_DESCRIPTOR_RANGE range = {};
+				range.RangeType = range_type;
+				range.NumDescriptors = 1;
+				range.BaseShaderRegister = mapping.binding;
+				range.RegisterSpace = space;
+				range.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+				ranges.push_back(range);
+				D3D12_ROOT_PARAMETER parameter = {};
+				parameter.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+				parameter.DescriptorTable.NumDescriptorRanges = 1;
+				parameter.DescriptorTable.pDescriptorRanges = &ranges.back();
+				parameter.ShaderVisibility = visibility;
+				parameters.push_back(parameter);
+			}
+			mapping.sampled_root_parameter = mapping.root_parameter + 1;
+			mapping.sampler_root_parameter = mapping.root_parameter + 2;
 		} else {
 			rtd3d12_fail(rt::error::unsupported_feature, "DirectX 12 does not support RTIR resource '{}' yet", mapping.name.c_str());
 			return false;

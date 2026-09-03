@@ -6,14 +6,39 @@
 /*                                                                                               */
 /*===============================================================================================*/
 
-RT_API_PUBLIC void rtInit(const char* const* features, usize feature_count) { rtval_rtInit(features, feature_count); }
-RT_API_PUBLIC void rtExit(void) { rtval_rtExit(); }
-RT_API_PUBLIC u64 rtVersion(void) { return rtval_next_rtVersion(); }
-RT_API_PUBLIC enum rt_error rtError(void) { return rtval_rtError(); }
-RT_API_PUBLIC const char* rtErrorMessage(void) { return rtval_rtErrorMessage(); }
-RT_API_PUBLIC void rtClearError(void) { rtval_rtClearError(); }
-RT_API_PUBLIC const char* rtGetName(void) { return rtval_rtGetName(); }
-RT_API_PUBLIC void rtSetOutput(rt_output output, void* user_data) { rtval_rtSetOutput(output, user_data); }
+RT_API_PUBLIC void rtInit(const char* const* features, usize feature_count) {
+	rtval_rtInit(features, feature_count);
+}
+
+RT_API_PUBLIC void rtExit(void) {
+	rtval_rtExit();
+}
+
+RT_API_PUBLIC u64 rtVersion(void) {
+	rtval_clear_local_error();
+	return rtval_next_rtVersion();
+}
+
+RT_API_PUBLIC enum rt_error rtError(void) {
+	return rtval_rtError();
+}
+
+RT_API_PUBLIC const char* rtErrorMessage(void) {
+	return rtval_rtErrorMessage();
+}
+
+RT_API_PUBLIC void rtClearError(void) {
+	rtval_rtClearError();
+}
+
+RT_API_PUBLIC const char* rtGetName(void) {
+	rtval_clear_local_error();
+	return rtval_rtGetName();
+}
+
+RT_API_PUBLIC void rtSetOutput(rt_output output, void* user_data) {
+	rtval_rtSetOutput(output, user_data);
+}
 
 /*===============================================================================================*/
 /*                                                                                               */
@@ -36,9 +61,11 @@ void rtval_rtInit(const char* const* features, usize feature_count) {
 
 void rtval_rtExit(void) {
 	bool leaked_handles = rtval_handle_report_leaks();
-	rtval_handle_reset_registry();
 	rtval_next_rtExit();
-	rtval_report_error("rtExit");
+	if (!rtval_report_error("rtExit")) {
+		return;
+	}
+	rtval_handle_reset_registry();
 	if (leaked_handles) {
 		rtval_fail("rtExit: application-created resources must be destroyed before exit");
 	}
@@ -68,6 +95,7 @@ const char* rtval_rtGetName(void) {
 }
 
 void rtval_rtSetOutput(rt_output output, void* user_data) {
+	rtval_clear_local_error();
 	rtvalSetOutput(output, user_data);
 	rtval_next_rtSetOutput(output, user_data);
 }

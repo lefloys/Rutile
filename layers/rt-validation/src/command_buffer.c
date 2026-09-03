@@ -460,7 +460,11 @@ void rtval_command_buffer_clear_color(struct rtval_command_buffer* command_buffe
 	if (!rtval_command_buffer_rendering(command_buffer, "rtCmdClearColor")) {
 		return;
 	}
-	rtval_next_rtCmdClearColor(state->backend, location, r, g, b, a);
+	rt_location backend_location = RT_NULL_HANDLE;
+	if (!rtval_location_unwrap(location, RTVAL_LOCATION_OUTPUT, true, &backend_location, "rtCmdClearColor: output location required")) {
+		return;
+	}
+	rtval_next_rtCmdClearColor(state->backend, backend_location, r, g, b, a);
 	rtval_report_error("rtCmdClearColor");
 }
 
@@ -538,6 +542,10 @@ void rtval_command_buffer_use_program(struct rtval_command_buffer* command_buffe
 		RTVAL_DROP("rtCmdUseProgram: invalid program");
 		return;
 	}
+	if (!program_state->finalized) {
+		RTVAL_DROP("rtCmdUseProgram: finalized program required");
+		return;
+	}
 	rtval_next_rtCmdUseProgram(state->backend, program_state->backend);
 	rtval_report_error("rtCmdUseProgram");
 }
@@ -551,11 +559,15 @@ void rtval_command_buffer_uniform_data(struct rtval_command_buffer* command_buff
 	if (!rtval_command_buffer_recording(command_buffer, "rtCmdUniformData")) {
 		return;
 	}
-	if (!location || !data || !size) {
+	if (!data || !size) {
 		RTVAL_DROP("rtCmdUniformData: location and non-empty data required");
 		return;
 	}
-	rtval_next_rtCmdUniformData(state->backend, location, data, size);
+	rt_location backend_location = RT_NULL_HANDLE;
+	if (!rtval_location_unwrap(location, RTVAL_LOCATION_UNIFORM, false, &backend_location, "rtCmdUniformData: live uniform location required")) {
+		return;
+	}
+	rtval_next_rtCmdUniformData(state->backend, backend_location, data, size);
 	rtval_report_error("rtCmdUniformData");
 }
 
@@ -564,11 +576,15 @@ void rtval_command_buffer_storage_data(struct rtval_command_buffer* command_buff
 	if (!rtval_command_buffer_recording(command_buffer, "rtCmdStorageData")) {
 		return;
 	}
-	if (!location || !data || !size) {
+	if (!data || !size) {
 		RTVAL_DROP("rtCmdStorageData: location and non-empty data required");
 		return;
 	}
-	rtval_next_rtCmdStorageData(state->backend, location, data, size);
+	rt_location backend_location = RT_NULL_HANDLE;
+	if (!rtval_location_unwrap(location, RTVAL_LOCATION_UNIFORM, false, &backend_location, "rtCmdStorageData: live uniform location required")) {
+		return;
+	}
+	rtval_next_rtCmdStorageData(state->backend, backend_location, data, size);
 	rtval_report_error("rtCmdStorageData");
 }
 
@@ -578,11 +594,15 @@ void rtval_command_buffer_bind_buffer(struct rtval_command_buffer* command_buffe
 	if (!rtval_command_buffer_recording(command_buffer, "rtCmdBindBuffer")) {
 		return;
 	}
-	if (!location || !buffer_state || !range.size) {
+	if (!buffer_state || !range.size) {
 		RTVAL_DROP("rtCmdBindBuffer: location, buffer, and non-zero range required");
 		return;
 	}
-	rtval_next_rtCmdBindBuffer(state->backend, location, buffer_state->backend, range);
+	rt_location backend_location = RT_NULL_HANDLE;
+	if (!rtval_location_unwrap(location, RTVAL_LOCATION_UNIFORM, false, &backend_location, "rtCmdBindBuffer: live uniform location required")) {
+		return;
+	}
+	rtval_next_rtCmdBindBuffer(state->backend, backend_location, buffer_state->backend, range);
 	rtval_report_error("rtCmdBindBuffer");
 }
 
@@ -592,11 +612,15 @@ void rtval_command_buffer_bind_texture(struct rtval_command_buffer* command_buff
 	if (!rtval_command_buffer_recording(command_buffer, "rtCmdBindTexture")) {
 		return;
 	}
-	if (!location || !texture_view_state) {
+	if (!texture_view_state) {
 		RTVAL_DROP("rtCmdBindTexture: location and texture view required");
 		return;
 	}
-	rtval_next_rtCmdBindTexture(state->backend, location, texture_view_state->backend);
+	rt_location backend_location = RT_NULL_HANDLE;
+	if (!rtval_location_unwrap(location, RTVAL_LOCATION_UNIFORM, false, &backend_location, "rtCmdBindTexture: live uniform location required")) {
+		return;
+	}
+	rtval_next_rtCmdBindTexture(state->backend, backend_location, texture_view_state->backend);
 	rtval_report_error("rtCmdBindTexture");
 }
 
@@ -606,11 +630,15 @@ void rtval_command_buffer_bind_sampler(struct rtval_command_buffer* command_buff
 	if (!rtval_command_buffer_recording(command_buffer, "rtCmdBindSampler")) {
 		return;
 	}
-	if (!location || !sampler_state) {
+	if (!sampler_state) {
 		RTVAL_DROP("rtCmdBindSampler: location and sampler required");
 		return;
 	}
-	rtval_next_rtCmdBindSampler(state->backend, location, sampler_state->backend);
+	rt_location backend_location = RT_NULL_HANDLE;
+	if (!rtval_location_unwrap(location, RTVAL_LOCATION_UNIFORM, false, &backend_location, "rtCmdBindSampler: live uniform location required")) {
+		return;
+	}
+	rtval_next_rtCmdBindSampler(state->backend, backend_location, sampler_state->backend);
 	rtval_report_error("rtCmdBindSampler");
 }
 
@@ -620,7 +648,7 @@ void rtval_command_buffer_vertex_buffer(struct rtval_command_buffer* command_buf
 	if (!rtval_command_buffer_recording(command_buffer, "rtCmdVertexBuffer")) {
 		return;
 	}
-	if (!location || !buffer_state) {
+	if (!buffer_state) {
 		RTVAL_DROP("rtCmdVertexBuffer: location and buffer required");
 		return;
 	}
@@ -628,7 +656,11 @@ void rtval_command_buffer_vertex_buffer(struct rtval_command_buffer* command_buf
 		RTVAL_DROP("rtCmdVertexBuffer: non-zero range required");
 		return;
 	}
-	rtval_next_rtCmdVertexBuffer(state->backend, location, buffer_state->backend, range);
+	rt_location backend_location = RT_NULL_HANDLE;
+	if (!rtval_location_unwrap(location, RTVAL_LOCATION_INPUT, false, &backend_location, "rtCmdVertexBuffer: live input location required")) {
+		return;
+	}
+	rtval_next_rtCmdVertexBuffer(state->backend, backend_location, buffer_state->backend, range);
 	rtval_report_error("rtCmdVertexBuffer");
 }
 

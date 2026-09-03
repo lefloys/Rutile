@@ -68,6 +68,7 @@ void rtval_clear_local_error(void) {
 }
 
 bool rtval_report_error(const char* call_name) {
+	rtval_clear_local_error();
 	enum rt_error error = rtval_next_rtError();
 	if (error == RT_SUCCESS) {
 		return true;

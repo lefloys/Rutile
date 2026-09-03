@@ -46,6 +46,7 @@ namespace rt {
 enum class rtd3d12_descriptor_type {
 	constant_buffer,
 	storage_buffer,
+	storage_texture,
 	texture,
 };
 
@@ -64,6 +65,7 @@ struct rtd3d12_program_descriptor_mapping {
 	u32 binding;
 	u32 storage_stride;
 	u32 root_parameter;
+	u32 sampled_root_parameter;
 	u32 sampler_root_parameter;
 };
 
